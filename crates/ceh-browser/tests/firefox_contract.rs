@@ -216,7 +216,7 @@ fn real_firefox_reports_when_the_person_closes_the_page() {
     assert!(browser.page_open());
     // Opening a second tab keeps ours listed; closing ours is noticed.
     let context = browser.context().to_owned();
-    browser.connection().call("browsingContext.create", serde_json::json!({"type":"tab"})).unwrap();
+    open_second_tab(&mut browser);
     assert!(browser.page_open());
     browser.connection().call("browsingContext.close", serde_json::json!({"context":context})).unwrap();
     assert!(!browser.page_open());
@@ -258,7 +258,7 @@ fn a_page_that_is_gone_lets_the_app_quit_the_browser_even_after_a_handoff() {
     browser.handoff();
     assert!(!browser.quit_if_page_gone(), "an open page keeps the browser");
     let context = browser.context().to_owned();
-    browser.connection().call("browsingContext.create", serde_json::json!({"type":"tab"})).unwrap();
+    open_second_tab(&mut browser);
     browser.connection().call("browsingContext.close", serde_json::json!({"context":context})).unwrap();
     assert!(browser.quit_if_page_gone(), "the person's page is gone: nothing to preserve");
     // The profile lease is released, so the next search can start.
@@ -287,23 +287,55 @@ fn a_reset_never_leaves_an_unmarked_half_deleted_profile_behind() {
     assert!(ProfileLease::persistent(root.path(), "one").unwrap().path().join("ceh-owned-profile").is_file());
 }
 
+/// `browsingContext.create` hangs in Firefox's remote control mode, so a second tab is opened by the page itself.
+fn open_second_tab(browser: &mut ceh_browser::firefox::OwnedFirefox) {
+    let context = browser.context().to_owned();
+    browser.connection().call("script.evaluate", serde_json::json!({"expression":"window.open('about:blank','_blank') !== null","target":{"context":context},"awaitPromise":false,"userActivation":true})).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+}
+const MANUAL_GETTER: &str = "function webdriver() {\n    [native code]\n}";
+fn webdriver_facts(browser: &mut ceh_browser::firefox::OwnedFirefox) -> serde_json::Value {
+    let context = browser.context().to_owned();
+    let connection = browser.connection();
+    connection.call("browsingContext.navigate", serde_json::json!({"context":context,"url":"data:text/html,<title>t</title>","wait":"complete"})).unwrap();
+    let expression = "JSON.stringify({webdriver: navigator.webdriver, getter: Object.getOwnPropertyDescriptor(Navigator.prototype,'webdriver').get.toString(), toString: Function.prototype.toString.call(Function.prototype.toString), plain: Function.prototype.toString.call(function f(){ return 1; })})";
+    let result = connection.call("script.evaluate", serde_json::json!({"expression":expression,"target":{"context":context},"awaitPromise":false})).unwrap();
+    serde_json::from_str(result["result"]["value"].as_str().unwrap()).unwrap()
+}
 /// Launches the installed Firefox on a local `data:` page: run with `-- --ignored`.
 #[test]
 #[ignore = "launches the installed Firefox"]
-fn a_started_firefox_reports_webdriver_false_with_a_native_looking_getter() {
+fn remote_control_mode_reports_webdriver_false() {
     use ceh_browser::firefox::OwnedFirefox;
+    use ceh_browser::firefox_control::WebdriverMode;
     use std::sync::atomic::AtomicBool;
     let Ok(installation) = FirefoxInstallation::discover() else { return };
     let runtime = tempfile::tempdir().unwrap();
     let lease = ProfileLease::temporary(runtime.path()).unwrap();
-    let mut browser = OwnedFirefox::start(&installation, lease, true, &AtomicBool::new(false)).unwrap();
-    let context = browser.context().to_owned();
-    let connection = browser.connection();
-    connection.call("browsingContext.navigate", serde_json::json!({"context":context,"url":"data:text/html,<title>t</title>","wait":"complete"})).unwrap();
-    let result = connection.call("script.evaluate", serde_json::json!({"expression":"[navigator.webdriver, Object.getOwnPropertyDescriptor(Navigator.prototype,'webdriver').get.toString().includes('[native code]')]","target":{"context":context},"awaitPromise":false})).unwrap();
-    let values = result["result"]["value"].as_array().unwrap();
-    assert_eq!(values[0]["value"], false);
-    assert_eq!(values[1]["value"], true);
+    let mut browser = OwnedFirefox::start(&installation, lease, std::env::var_os("CEH_TEST_HEADED").is_none(), &AtomicBool::new(false)).unwrap();
+    // A Firefox without the mode falls back to the mask by design; this one (160) is expected to have it.
+    assert_eq!(browser.webdriver_mode(), WebdriverMode::RemoteControl, "fallback: {:?}", browser.webdriver_fallback());
+    let facts = webdriver_facts(&mut browser);
+    assert_eq!(facts["webdriver"], false);
+    assert_eq!(facts["getter"], MANUAL_GETTER);
+    let _ = browser.stop();
+}
+#[test]
+#[ignore = "launches the installed Firefox"]
+fn the_mask_fallback_is_indistinguishable_by_to_string() {
+    use ceh_browser::firefox::OwnedFirefox;
+    use ceh_browser::firefox_control::WebdriverMode;
+    use std::sync::atomic::AtomicBool;
+    let Ok(installation) = FirefoxInstallation::discover() else { return };
+    let runtime = tempfile::tempdir().unwrap();
+    let lease = ProfileLease::temporary(runtime.path()).unwrap();
+    let mut browser = OwnedFirefox::start_masked(&installation, lease, true, &AtomicBool::new(false)).unwrap();
+    assert_eq!(browser.webdriver_mode(), WebdriverMode::Mask);
+    let facts = webdriver_facts(&mut browser);
+    assert_eq!(facts["webdriver"], false);
+    assert_eq!(facts["getter"], MANUAL_GETTER);
+    assert_eq!(facts["toString"], "function toString() {\n    [native code]\n}");
+    assert!(facts["plain"].as_str().unwrap().contains("return 1"), "page functions keep their own source");
     let _ = browser.stop();
 }
 

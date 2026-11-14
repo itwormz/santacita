@@ -30,7 +30,7 @@ pub mod selection;
 #[cfg(feature = "bidi")]
 mod trusted_input;
 #[cfg(feature = "bidi")]
-pub use trusted_input::take_stale_reason;
+pub use trusted_input::{take_scroll_fallback, take_stale_reason};
 #[cfg(feature = "bidi")]
 mod typed_field;
 #[cfg(feature = "bidi")]
@@ -194,6 +194,8 @@ pub mod launch;
 
 #[cfg(feature = "bidi")]
 pub mod firefox;
+#[cfg(feature = "bidi")]
+pub mod firefox_control;
 
 #[cfg(feature = "bidi")]
 pub mod chromium;

@@ -85,12 +85,16 @@ pub struct SessionHeader {
     pub first_bootstrap_ms: u64,
     pub typing_ms: u64,
     pub contact_typing_ms: u64,
+    /// `remote_control`, `mask` or `not_needed`, and why remote control was not used (no paths, no page data).
+    pub webdriver_mode: String,
+    pub webdriver_fallback: Option<String>,
 }
 pub fn header_row(header: &SessionHeader) -> Value {
     json!({
         "app": header.app_version, "firefox": header.firefox_version, "os": header.os,
         "profile": {"persistent": header.profile_persistent, "age_days": header.profile_age_days},
         "certificate_cache": header.certificate_cache,
+        "webdriver_mode": header.webdriver_mode, "webdriver_fallback": header.webdriver_fallback,
         "timings": {"action_delay_ms": header.action_delay_ms, "first_bootstrap_ms": header.first_bootstrap_ms,
                     "typing_ms": header.typing_ms, "contact_typing_ms": header.contact_typing_ms},
     })

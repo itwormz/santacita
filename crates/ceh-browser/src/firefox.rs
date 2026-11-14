@@ -24,7 +24,9 @@ pub fn startup_preferences(os: crate::launch::TargetOs) -> serde_json::Value {
      "intl.locale.requested":"es-ES","intl.accept_languages":"es-ES, es",
      "browser.shell.checkDefaultBrowser":false,"browser.startup.homepage":"about:blank",
      "browser.startup.homepage_override.mstone":"ignore","startup.homepage_welcome_url":"",
-     "datareporting.policy.dataSubmissionEnabled":false,"toolkit.telemetry.enabled":false
+     "datareporting.policy.dataSubmissionEnabled":false,"toolkit.telemetry.enabled":false,
+     "remote.experimental.dynamicstart.enabled":true,"remote.experimental.dynamicstart.prompt.enabled":false,
+     "remote.prefs.recommended":false
     });
     if os == crate::launch::TargetOs::Windows {
         prefs["widget.windows.window_occlusion_tracking.enabled"] = json!(false);
@@ -32,10 +34,6 @@ pub fn startup_preferences(os: crate::launch::TargetOs) -> serde_json::Value {
     }
     prefs
 }
-/// Preload script: a browser driven over WebDriver reports `navigator.webdriver === true`; an ordinary one
-/// reports `false` (Python's Camoufox does too). Only the value changes. The getter is a Proxy over the native
-/// one, so it still stringifies as native code and keeps its property descriptor.
-pub const WEBDRIVER_MASK: &str = "() => { const d = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver'); if (d && d.get) { Object.defineProperty(Navigator.prototype, 'webdriver', { ...d, get: new Proxy(d.get, { apply: () => false }) }); } }";
 /// Whether `context` (or any child frame of a listed context) is in a `browsingContext.getTree` result.
 pub fn context_is_listed(tree: &serde_json::Value, context: &str) -> bool {
     fn walk(contexts: &serde_json::Value, wanted: &str) -> bool {
@@ -413,21 +411,58 @@ pub struct OwnedFirefox {
     endpoint: SocketAddr,
     manual: bool,
     certificate_cache: CertificateCache,
+    webdriver_mode: crate::firefox_control::WebdriverMode,
+    fallback: Option<crate::firefox_control::Fallback>,
+    restart_ms: Option<u64>,
 }
 impl OwnedFirefox {
+    /// Starts Firefox in its remote control mode (`navigator.webdriver` natively `false`). When this Firefox
+    /// cannot switch, it runs with the preload mask instead; the mode and the reason are kept for diagnostics.
     pub fn start(
         installation: &FirefoxInstallation,
         profile: ProfileLease,
         headless: bool,
         cancelled: &AtomicBool,
     ) -> Result<Self, FirefoxError> {
+        match Self::start_with(installation, profile, headless, cancelled, None) {
+            Ok(browser) => Ok(browser),
+            Err(StartFailure::Fail(error)) => Err(error),
+            // The first agent is gone and the restart did not complete: start this Firefox again, masked.
+            Err(StartFailure::Retry(profile, reason)) => {
+                Self::start_with(installation, profile, headless, cancelled, Some(reason)).map_err(|failure| match failure {
+                    StartFailure::Fail(error) => error,
+                    StartFailure::Retry(..) => FirefoxError::Unavailable,
+                })
+            }
+        }
+    }
+    /// Skips the remote control switch and masks `navigator.webdriver` instead (tests, and an explicit fallback).
+    pub fn start_masked(
+        installation: &FirefoxInstallation,
+        profile: ProfileLease,
+        headless: bool,
+        cancelled: &AtomicBool,
+    ) -> Result<Self, FirefoxError> {
+        Self::start_with(installation, profile, headless, cancelled, Some(crate::firefox_control::Fallback::NoSystemAccess))
+            .map_err(|failure| match failure {
+                StartFailure::Fail(error) => error,
+                StartFailure::Retry(..) => FirefoxError::Unavailable,
+            })
+    }
+    fn start_with(
+        installation: &FirefoxInstallation,
+        profile: ProfileLease,
+        headless: bool,
+        cancelled: &AtomicBool,
+        forced_mask: Option<crate::firefox_control::Fallback>,
+    ) -> Result<Self, StartFailure> {
         if cancelled.load(Ordering::Acquire) {
-            return Err(FirefoxError::Cancelled);
+            return Err(StartFailure::Fail(FirefoxError::Cancelled));
         }
         let prefs = startup_preferences(crate::launch::TargetOs::current());
         let user_js = profile.path().join("user.js");
         if fs::symlink_metadata(&user_js).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err(FirefoxError::InvalidProfile);
+            return Err(StartFailure::Fail(FirefoxError::InvalidProfile));
         }
         let certificate_cache = CertificateCache::from_result(crate::firefox_certificates::prepare(&profile, installation));
         let mut file = File::create(user_js).map_err(|_| FirefoxError::InvalidProfile)?;
@@ -441,6 +476,10 @@ impl OwnedFirefox {
             .args(["--no-remote", "--new-instance", "--profile"])
             .arg(profile.path())
             .args(["--remote-debugging-port", "0"]);
+        if forced_mask.is_none() {
+            // Lets the BiDi client reach the browser's chrome context, to restart the agent in remote control mode.
+            command.env("MOZ_REMOTE_ALLOW_SYSTEM_ACCESS", "1");
+        }
         if headless {
             command.arg("--headless");
         } else {
@@ -496,11 +535,14 @@ impl OwnedFirefox {
             endpoint: SocketAddr::from(([127, 0, 0, 1], 0)),
             manual: false,
             certificate_cache,
+            webdriver_mode: crate::firefox_control::WebdriverMode::Mask,
+            fallback: forced_mask,
+            restart_ms: None,
         };
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
             if cancelled.load(Ordering::Acquire) {
-                return Err(FirefoxError::Cancelled);
+                return Err(StartFailure::Fail(FirefoxError::Cancelled));
             }
             if owned
                 .child
@@ -510,10 +552,10 @@ impl OwnedFirefox {
                 .map_err(|_| FirefoxError::Unavailable)?
                 .is_some()
             {
-                return Err(FirefoxError::Unavailable);
+                return Err(StartFailure::Fail(FirefoxError::Unavailable));
             }
             if Instant::now() >= deadline {
-                return Err(FirefoxError::StartupTimeout);
+                return Err(StartFailure::Fail(FirefoxError::StartupTimeout));
             }
             match receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(address) => {
@@ -521,12 +563,12 @@ impl OwnedFirefox {
                     break;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(_) => return Err(FirefoxError::Unavailable),
+                Err(_) => return Err(StartFailure::Fail(FirefoxError::Unavailable)),
             }
         }
-        let mut connection = BidiConnection::connect(owned.endpoint, Duration::from_secs(5))
-            .map_err(|_| FirefoxError::Unavailable)?;
-        let session = connection
+        let mut first = Some(BidiConnection::connect(owned.endpoint, Duration::from_secs(5))
+            .map_err(|_| FirefoxError::Unavailable)?);
+        let session = first.as_mut().ok_or(FirefoxError::Unavailable)?
             .call_before(
                 "session.new",
                 json!({"capabilities":{"alwaysMatch":{"acceptInsecureCerts":false}}}),
@@ -536,10 +578,46 @@ impl OwnedFirefox {
         if session["capabilities"]["browserName"] != "firefox"
             || session["capabilities"]["acceptInsecureCerts"] != false
         {
-            return Err(FirefoxError::InvalidInstallation);
+            return Err(StartFailure::Fail(FirefoxError::InvalidInstallation));
         }
+        if forced_mask.is_none() {
+            let started = Instant::now();
+            match switch_to_remote_control(&mut first, owned.profile.as_ref().ok_or(FirefoxError::Unavailable)?.path(), cancelled) {
+                Ok(Some(next)) => {
+                    first = Some(next.0);
+                    owned.endpoint = next.1;
+                    owned.webdriver_mode = crate::firefox_control::WebdriverMode::RemoteControl;
+                    owned.restart_ms = Some(started.elapsed().as_millis() as u64);
+                }
+                // The first agent still answers: continue on it, masked.
+                Ok(None) => {}
+                Err(reason @ (crate::firefox_control::Fallback::NoSystemAccess | crate::firefox_control::Fallback::Unsupported)) => {
+                    owned.fallback = Some(reason);
+                }
+                // The first agent is gone: no connection left. Quit this Firefox and start it again, masked.
+                Err(reason) => {
+                    owned.connection.take();
+                    if let Some(mut child) = owned.child.take() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                    let profile = owned.profile.take().ok_or(FirefoxError::Unavailable)?;
+                    return Err(StartFailure::Retry(profile, reason));
+                }
+            }
+            let connection = first.as_mut().ok_or(FirefoxError::Unavailable)?;
+            if owned.webdriver_mode == crate::firefox_control::WebdriverMode::RemoteControl {
+                // After the switch the agent is new: authenticate again before anything else.
+                connection
+                    .call_before("session.new", json!({"capabilities":{"alwaysMatch":{"acceptInsecureCerts":false}}}), deadline)
+                    .map_err(|_| FirefoxError::Unavailable)?;
+            }
+        }
+        let mut connection = first.take().ok_or(FirefoxError::Unavailable)?;
         connection.call_before("session.subscribe",json!({"events":["network.beforeRequestSent","network.responseCompleted","network.fetchError","browsingContext.load","browsingContext.navigationStarted"]}),deadline).map_err(|_|FirefoxError::Unavailable)?;
-        connection.call_before("script.addPreloadScript", json!({"functionDeclaration":WEBDRIVER_MASK}), deadline).map_err(|_| FirefoxError::Unavailable)?;
+        if owned.webdriver_mode == crate::firefox_control::WebdriverMode::Mask {
+            connection.call_before("script.addPreloadScript", json!({"functionDeclaration":crate::firefox_control::WEBDRIVER_MASK_V2}), deadline).map_err(|_| FirefoxError::Unavailable)?;
+        }
         let tree = connection
             .call_before("browsingContext.getTree", json!({}), deadline)
             .map_err(|_| FirefoxError::Unavailable)?;
@@ -551,7 +629,7 @@ impl OwnedFirefox {
             .ok_or(FirefoxError::Unavailable)?
             .into();
         if cancelled.load(Ordering::Acquire) {
-            return Err(FirefoxError::Cancelled);
+            return Err(StartFailure::Fail(FirefoxError::Cancelled));
         }
         // A window opened behind others reads as hidden to the page and cannot complete a click: bring it forward.
         let _ = connection.call_before("browsingContext.activate", json!({"context":owned.context}), deadline);
@@ -589,6 +667,9 @@ impl OwnedFirefox {
             endpoint: SocketAddr::from(([127, 0, 0, 1], 0)),
             manual: false,
             certificate_cache: CertificateCache::Ready(0),
+            webdriver_mode: crate::firefox_control::WebdriverMode::NotNeeded,
+            fallback: None,
+            restart_ms: None,
         };
         let deadline = Instant::now() + Duration::from_secs(20);
         let (port, path) = loop {
@@ -674,6 +755,16 @@ impl OwnedFirefox {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+    /// How `navigator.webdriver` is kept `false`, and why the preferred mode was not used (diagnostics only).
+    pub fn webdriver_mode(&self) -> crate::firefox_control::WebdriverMode {
+        self.webdriver_mode
+    }
+    pub fn webdriver_fallback(&self) -> Option<crate::firefox_control::Fallback> {
+        self.fallback
+    }
+    pub fn remote_control_restart_ms(&self) -> Option<u64> {
+        self.restart_ms
+    }
     pub fn process_id(&self) -> Option<u32> {
         self.child.as_ref().map(Child::id)
     }
@@ -732,6 +823,64 @@ impl Drop for OwnedFirefox {
             let _ = self.stop();
         }
     }
+}
+
+enum StartFailure {
+    Fail(FirefoxError),
+    Retry(ProfileLease, crate::firefox_control::Fallback),
+}
+impl From<FirefoxError> for StartFailure {
+    fn from(error: FirefoxError) -> Self {
+        Self::Fail(error)
+    }
+}
+/// Restarts the Remote Agent of the running Firefox in remote control mode and connects to the new one.
+/// `Ok(None)` is never returned today (kept so a caller can tell "unchanged" apart); `Err(NoSystemAccess |
+/// Unsupported)` leaves the first agent running; any other error means that agent is gone.
+fn switch_to_remote_control(
+    slot: &mut Option<BidiConnection>,
+    profile: &Path,
+    cancelled: &AtomicBool,
+) -> Result<Option<(BidiConnection, SocketAddr)>, crate::firefox_control::Fallback> {
+    use crate::firefox_control::{Fallback, parse_port_report, restart_script};
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let connection = slot.as_mut().ok_or(Fallback::NoSystemAccess)?;
+    let tree = connection
+        .call_before("browsingContext.getTree", json!({"moz:scope":"chrome"}), deadline)
+        .map_err(|_| Fallback::NoSystemAccess)?;
+    let chrome = tree["contexts"][0]["context"].as_str().filter(|c| !c.is_empty() && c.len() <= 512).ok_or(Fallback::NoSystemAccess)?.to_owned();
+    let report = profile.join("ceh-remote-port");
+    if fs::symlink_metadata(&report).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(Fallback::NoSystemAccess);
+    }
+    let _ = fs::remove_file(&report);
+    let answer = connection
+        .call_before(
+            "script.evaluate",
+            json!({"expression":restart_script(report.to_str().ok_or(Fallback::NoSystemAccess)?),"target":{"context":chrome},"awaitPromise":true}),
+            deadline,
+        )
+        .map_err(|_| Fallback::NoSystemAccess)?;
+    match answer["result"]["value"].as_str() {
+        // The agent waits for open connections before it stops: the old one must be closed now.
+        Some("scheduled") => drop(slot.take()),
+        Some("unsupported") => return Err(Fallback::Unsupported),
+        _ => return Err(Fallback::NoSystemAccess),
+    }
+    let text = loop {
+        if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline {
+            return Err(Fallback::Timeout);
+        }
+        if let Ok(text) = fs::read_to_string(&report) {
+            break text;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let _ = fs::remove_file(&report);
+    let port = parse_port_report(&text)?;
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let next = BidiConnection::connect(address, Duration::from_secs(5)).map_err(|_| Fallback::RestartFailed)?;
+    Ok(Some((next, address)))
 }
 
 fn parse_endpoint(line: &str) -> Option<SocketAddr> {
