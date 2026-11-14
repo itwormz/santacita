@@ -22,6 +22,9 @@ pub(crate) struct SearchDiagnostics {
     blocked_documents: HashSet<ceh_core::model::DocumentId>,
     blocks: u32,
     header: Option<SessionHeader>,
+    /// Page visibility and focus as last written, and when it was last read.
+    window_state: Option<(String, bool)>,
+    window_read: Option<std::time::Instant>,
 }
 
 impl SearchDiagnostics {
@@ -33,7 +36,7 @@ impl SearchDiagnostics {
         ]);
         Self { archive, session, directory: None, collector: None, enabled: false, documents: HashSet::new(), index: 0,
             timeline: SessionTimeline::new(None), last_page: None,
-            blocked_documents: HashSet::new(), blocks: 0, header: None }
+            blocked_documents: HashSet::new(), blocks: 0, header: None, window_state: None, window_read: None }
     }
 
     pub(crate) fn set_enabled(
@@ -129,6 +132,21 @@ impl SearchDiagnostics {
                 self.timeline.append_row(row);
             }
         }
+    }
+    /// Whether the page is visible and focused, read every 1.5 s while diagnostics are on and written when it
+    /// changes: a page left in the background is the first thing to look at after a block.
+    pub(crate) fn window_state(&mut self, connection: &mut BidiConnection, context: &str) {
+        if !self.timeline.is_enabled() || self.window_read.is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(1500)) {
+            return;
+        }
+        self.window_read = Some(std::time::Instant::now());
+        let Ok(result) = connection.call("script.evaluate", json!({"expression":"document.visibilityState+','+document.hasFocus()","target":{"context":context,"sandbox":"ceh"},"awaitPromise":false})) else { return };
+        let Some((visibility, focused)) = result["result"]["value"].as_str().and_then(|v| v.split_once(',')) else { return };
+        let now = (visibility.to_owned(), focused == "true");
+        if let Some(row) = session_timeline::visibility_change(self.window_state.as_ref().map(|(v, f)| (v.as_str(), *f)), (&now.0, now.1)) {
+            self.timeline.append("window", row);
+        }
+        self.window_state = Some(now);
     }
     /// A block or rate-limit page: marker name, screenshot, environment and cookie names at that moment.
     fn record_block(&mut self, step: &NativeStep, connection: &mut BidiConnection, context: &str) {

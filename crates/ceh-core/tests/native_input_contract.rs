@@ -221,3 +221,28 @@ fn the_wheel_scrolls_in_notches_of_about_a_hundred_pixels_with_pauses() {
     assert!(wheel_plan(2, 0).is_empty());
     assert_ne!(wheel_plan(1, 900), wheel_plan(2, 900));
 }
+
+use ceh_core::input::{idle_motion, idle_motion_allowed};
+use ceh_core::control::ControlMode;
+
+#[test]
+fn a_waiting_page_gets_a_few_small_cursor_movements_every_few_seconds() {
+    for seed in 0..200u64 {
+        let motion = idle_motion(seed);
+        assert!((2000..=8000).contains(&motion.next_in_ms), "{}", motion.next_in_ms);
+        assert!((1..=3).contains(&motion.moves.len()));
+        for step in &motion.moves {
+            assert!(step.x.abs() <= 14 && step.y.abs() <= 14 && (step.x, step.y) != (0, 0), "{step:?}");
+            assert!((80..=250).contains(&step.ms));
+        }
+    }
+    assert_ne!(idle_motion(1), idle_motion(2));
+}
+
+#[test]
+fn the_cursor_is_never_moved_while_a_person_has_the_page_or_the_search_is_paused() {
+    assert!(idle_motion_allowed(ControlMode::Automatic, true));
+    assert!(!idle_motion_allowed(ControlMode::Automatic, false), "nothing is known about the pointer yet");
+    assert!(!idle_motion_allowed(ControlMode::Manual, true));
+    assert!(!idle_motion_allowed(ControlMode::Paused, true));
+}

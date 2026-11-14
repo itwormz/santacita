@@ -298,6 +298,29 @@ impl SessionDriver {
     pub fn apply_recovery_carry(&mut self, carry: ceh_core::flow::RecoveryCarry) {
         self.flow.apply_carry(carry);
     }
+    /// A few small cursor movements while the page is only being waited on. Does nothing (and sends nothing)
+    /// unless the app drives the page and the pointer position is known. Returns the wait until the next ones.
+    pub fn idle_motion(&mut self, connection: &mut BidiConnection, context: &str, seed: u64) -> Option<u64> {
+        let position = connection.cursor();
+        if !ceh_core::input::idle_motion_allowed(self.flow.control().mode(), position.is_some()) {
+            return None;
+        }
+        let motion = ceh_core::input::idle_motion(seed);
+        let (mut x, mut y) = position?;
+        let actions: Vec<serde_json::Value> = motion
+            .moves
+            .iter()
+            .map(|step| {
+                (x, y) = ((x + f64::from(step.x)).max(2.0), (y + f64::from(step.y)).max(2.0));
+                serde_json::json!({"type":"pointerMove","duration":step.ms,"x":step.x,"y":step.y,"origin":"pointer"})
+            })
+            .collect();
+        let params = serde_json::json!({"context":context,"actions":[{"type":"pointer","id":"ceh-pointer","parameters":{"pointerType":"mouse"},"actions":actions}]});
+        if connection.call("input.performActions", params).is_ok() {
+            connection.set_cursor(Some((x, y)));
+        }
+        Some(motion.next_in_ms)
+    }
     pub fn request_fresh_pass(&mut self) {
         self.fresh_pass_requested = true;
     }

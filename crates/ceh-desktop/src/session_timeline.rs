@@ -149,3 +149,12 @@ impl SessionTimeline {
         }
     }
 }
+
+/// The window state of the page: whether the page is shown and has the keyboard focus.
+pub fn visibility_row(visibility: &str, focused: bool) -> Value {
+    json!({"visibility": visibility, "focused": focused})
+}
+/// A row for the timeline when `now` differs from what was last written (the first reading always counts).
+pub fn visibility_change(previous: Option<(&str, bool)>, now: (&str, bool)) -> Option<Value> {
+    (previous != Some(now)).then(|| visibility_row(now.0, now.1))
+}

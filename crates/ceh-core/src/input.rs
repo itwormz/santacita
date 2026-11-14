@@ -235,3 +235,29 @@ pub fn wheel_plan(seed: u64, distance: i32) -> Vec<WheelNotch> {
     }
     notches
 }
+
+/// A few small cursor movements for a page that is only being waited on: the next ones come in 2-8 s.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IdleMotion {
+    pub next_in_ms: u64,
+    /// Offsets from the current cursor position.
+    pub moves: Vec<PointerStep>,
+}
+pub fn idle_motion(seed: u64) -> IdleMotion {
+    let mut rng = Rng::new(seed ^ 0x6964_6C65);
+    let count = 1 + (rng.unit() * 3.0) as usize % 3;
+    let moves = (0..count)
+        .map(|_| loop {
+            let (x, y) = (rng.range(-14.0, 14.0).round() as i32, rng.range(-14.0, 14.0).round() as i32);
+            if (x, y) != (0, 0) {
+                break PointerStep { x, y, ms: rng.ms((80, 250)) };
+            }
+        })
+        .collect();
+    IdleMotion { next_in_ms: rng.ms((2000, 8000)), moves }
+}
+/// The cursor is only moved on its own while the app drives the page (not handed over, not paused) and when
+/// it is known where the pointer is.
+pub fn idle_motion_allowed(mode: crate::control::ControlMode, pointer_known: bool) -> bool {
+    mode == crate::control::ControlMode::Automatic && pointer_known
+}

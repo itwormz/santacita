@@ -103,3 +103,14 @@ fn a_failed_step_keeps_its_effects_and_delay_with_the_error_code() {
     assert_eq!(row["error"], "browser_action_failed");
     assert_eq!(row["receipts"], json!([]));
 }
+
+#[test]
+fn a_visibility_row_is_written_only_when_visibility_or_focus_changes() {
+    use ceh_desktop::session_timeline::{visibility_change, visibility_row};
+    assert_eq!(visibility_change(None, ("visible", true)), Some(visibility_row("visible", true)));
+    assert_eq!(visibility_change(Some(("visible", true)), ("visible", true)), None);
+    let hidden = visibility_change(Some(("visible", true)), ("hidden", false)).unwrap();
+    assert_eq!(hidden["visibility"], "hidden");
+    assert_eq!(hidden["focused"], false);
+    assert!(visibility_change(Some(("hidden", false)), ("visible", false)).is_some(), "focus is tracked separately");
+}
