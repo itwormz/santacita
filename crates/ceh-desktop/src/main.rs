@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use ceh_core::profiles::{ProfileDraft, ValidationReport, validate_desktop_profile};
 use ceh_desktop::{Bootstrap, bootstrap, trusted_origin};
 use std::path::PathBuf;
