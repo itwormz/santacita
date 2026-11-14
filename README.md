@@ -1,21 +1,23 @@
-# SantaCita · beta
+# SantaCita
 
 🇬🇧 **English** · 🇷🇺 [Русский](README.ru.md) · 🇪🇸 [Español](README.es.md)
 
-[![Latest published release](https://img.shields.io/github/v/release/itwormz/extranjeria-cita-helper?include_prereleases&sort=semver&label=release&color=626bdf&logo=github)](https://github.com/itwormz/extranjeria-cita-helper/releases)
+[![Latest published release](https://img.shields.io/github/v/release/itwormz/extranjeria-cita-helper?sort=semver&label=release&color=626bdf&logo=github)](https://github.com/itwormz/extranjeria-cita-helper/releases)
 
 An assistant for **Toma de huellas / TIE** and **Autorización de regreso** appointments on ICP Plus. A new application built with Rust, Tauri and Svelte.
 
-SantaCita is released as a beta. The stable 0.3.x line is the previous Python application. The repository is still named `extranjeria-cita-helper`.
+SantaCita 0.4.0 is the first stable release of the new application. The 0.3.x line is the previous Python application. The repository is still named `extranjeria-cita-helper`.
 
 ## 🚀 Quick start
 
-1. Open [Releases](https://github.com/itwormz/extranjeria-cita-helper/releases) and choose a published SantaCita **Pre-release**.
-2. Install the app and select an installed browser: Chrome, Chromium, Brave, Edge or Firefox. A browser is not bundled.
+1. Open [Releases](https://github.com/itwormz/extranjeria-cita-helper/releases) and download the latest SantaCita release for your system.
+2. Install the app and select an installed browser: Chrome, Brave, Edge, Chromium or Firefox. A browser is not bundled; new profiles start with the first Chromium-based browser found (Chrome first), and Firefox when there is none.
 3. Create a profile with the province, service, authentication and applicant details. Start the search and sign in through the browser.
 4. When notified, choose an office or complete the booking. **Date, time, CAPTCHA and final confirmation remain manual.**
 
 SantaCita opens a separate profile in the selected browser; your everyday tabs and profile are not used. Edge is supported only on Windows. On Linux, snap versions of Firefox and Chromium are not supported; use a non-snap installation.
+
+SantaCita supports macOS (Apple Silicon and Intel), Windows 10 and 11 (x64) and Linux (x64).
 
 | System | File |
 | --- | --- |
@@ -24,7 +26,7 @@ SantaCita opens a separate profile in the selected browser; your everyday tabs a
 | Windows x64 | `SantaCita-<version>-windows-x64.msi` or `-portable.zip` |
 | Linux x64 | `SantaCita-<version>-x86_64.AppImage` |
 
-macOS: drag SantaCita into Applications. The app is not notarized; if blocked, use System Settings → Privacy & Security → Open Anyway. Windows: packages have no publisher signature; SmartScreen may require More info → Run anyway. Linux: make the AppImage executable (`chmod +x file.AppImage`).
+macOS: drag SantaCita into Applications. The app is not notarized; if blocked, use System Settings → Privacy & Security → Open Anyway. The packages are not signed with a paid developer certificate; check them against `SHA256SUMS` and the Sigstore bundle published with each release. Windows: packages have no publisher signature; SmartScreen may require More info → Run anyway. Linux: make the AppImage executable (`chmod +x file.AppImage`). Ubuntu 24.04 also needs `sudo apt install libfuse2t64` to start an AppImage (Ubuntu 22.04: `libfuse2`). Ubuntu's own Firefox is a snap and is not supported: install Chrome from its `.deb` package or Firefox from Mozilla's APT repository.
 
 ## 🔄 Search and controls
 
@@ -50,14 +52,14 @@ Close the Python app before importing. Browser authentication must be completed 
 
 ## ⬆️ Updates
 
-Check in About, or automatically at startup and once a day. **Offer beta versions** includes stable versions and betas; it is off by default and imported from Python 0.3.8.
+Check in About, or automatically at startup and once a day. **Offer beta versions** includes stable versions and the beta releases of later versions (0.5.0 and above); it is off by default and imported from Python 0.3.8.
 
 Download and installation require your action. SHA256 and Sigstore build provenance are verified, and checked again before installation. Failed verification blocks installation. Windows portable replaces the program and restarts while preserving `data`.
 
-## ⚠️ Beta limitations
+## ⚠️ Limitations
 
 - An installed supported browser is required. Configured notifications need access to the system credential store.
-- Windows uses WebView2. If missing, install [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+- Windows uses WebView2. The MSI installer installs it automatically when it is missing; for the portable ZIP on a system without it, install [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 - Linux packages are built on Ubuntu 22.04 and require a compatible graphical environment and system libraries. Under native Wayland, you may need to open the browser window manually.
 - Website errors, HTTP 429 restrictions and reauthentication can occur. An appointment is not guaranteed.
 - [Diagnostics and privacy](docs/PRIVACY.md). Remove personal data before sharing reports.
