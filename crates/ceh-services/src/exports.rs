@@ -172,7 +172,11 @@ pub fn snapshot(statistics: &Value) -> Value {
     }
     // First office / first booking: seconds count only with an `exact` or `minimum` quality.
     for prefix in ["first_office", "first_booking"] {
-        let quality = statistics[format!("{prefix}_active_quality")].as_str().unwrap_or("unknown");
+        // Only these two qualities count; anything else (even a present string) reads as unknown.
+        let quality = match statistics[format!("{prefix}_active_quality")].as_str() {
+            Some(quality @ ("exact" | "minimum")) => quality,
+            _ => "unknown",
+        };
         let seconds = &statistics[format!("{prefix}_seconds")];
         result.insert(format!("{prefix}_active_quality"), json!(quality));
         result.insert(
