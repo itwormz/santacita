@@ -4,6 +4,8 @@
 
 - Open only the application window in Windows release builds, without an extra console.
 
+- Save a Telegram bot token before adding recipients. Explain the missing recipient without blocking profile saving, and make manual Chat ID entry a visible button.
+
 ## 0.4.0-beta.2 — Search recovery and reliable migration
 
 - Apply timing and ban-protection changes throughout the current search, including new browser sessions. Updating an active recovery pause no longer leaves the search waiting indefinitely.

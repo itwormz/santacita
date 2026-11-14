@@ -1,4 +1,4 @@
-#![cfg(all(feature = "native-vault", target_os = "macos"))]
+#![cfg(all(feature = "native-vault", any(target_os = "macos", windows)))]
 use ceh_services::secrets::{Backend, SecretData, Vault, VaultError, native::NativeBackend};
 struct Isolated {
     backend: NativeBackend,
@@ -17,9 +17,9 @@ impl Backend for Isolated {
 }
 #[test]
 #[ignore = "explicit opt-in; creates only fictitious entries under a unique test service"]
-fn native_mac_roundtrip_in_isolated_service() {
+fn native_roundtrip_in_isolated_service() {
     assert_eq!(std::env::var("CEH_NATIVE_VAULT_TEST").as_deref(), Ok("1"));
-    let service = format!("CEH Rust migration TEST {}", uuid::Uuid::new_v4());
+    let service = format!("SantaCita ТЕСТ Ёжик {}", uuid::Uuid::new_v4());
     let backend = Isolated {
         backend: NativeBackend::new(),
         service,
