@@ -365,9 +365,17 @@ fn scroll_with_wheel(connection: &mut BidiConnection, context: &str, realm: &ceh
     }
     let params = json!({"context":context,"actions":[{"type":"wheel","id":"ceh-wheel","actions":actions}]});
     let _ = connection.call("input.performActions", params);
-    // Smooth scrolling finishes after the last notch.
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    let after = element_geometry(connection, realm, shared);
+    // Smooth scrolling (Chrome) keeps going after the last notch: wait until the element stops moving.
+    let mut after = element_geometry(connection, realm, shared);
+    for _ in 0..15 {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        let next = element_geometry(connection, realm, shared);
+        let settled = next.centre.zip(after.centre).is_some_and(|(a, b)| (a.1 - b.1).abs() < 0.5);
+        after = next;
+        if settled {
+            break;
+        }
+    }
     if let Some((_, cy)) = after.centre
         && ceh_core::input::scroll_needed(seed, cy, after.size.height, after.viewport_height) != 0
     {

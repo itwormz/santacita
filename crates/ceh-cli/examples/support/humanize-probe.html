@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><title>SantaCita humanize probe</title>
+<body style="margin:0;font:14px system-ui"><p style="margin:24px">Local probe: scroll down, click the field, type the text shown, then press the button. Nothing here leaves your computer.</p>
+<p style="margin:0 24px"><b>Type: Y1234567X</b></p>
+<div style="height:2600px"></div>
+<div style="margin:24px"><input id="f" autocomplete="off" style="font-size:18px;width:220px;height:32px"> <button id="b" style="font-size:18px;width:160px;height:44px">Done</button></div>
+<div style="height:900px"></div>
+<script>
+const label = new URLSearchParams(location.search).get('label') || 'unlabeled';
+const t0 = performance.now(), ms = () => Math.round(performance.now() - t0);
+const moves = [], keysDown = new Map(), holds = [], pressGaps = [], clicks = [];
+let wheels = 0, scrolls = 0, scrollBeforeWheel = 0, lastMove = 0, lastKey = 0, lastPress = 0, firstWheel = false;
+addEventListener('mousemove', e => { moves.push(ms()); lastMove = ms(); }, true);
+addEventListener('wheel', () => { wheels++; firstWheel = true; }, { capture: true, passive: true });
+addEventListener('scroll', () => { scrolls++; if (!firstWheel) scrollBeforeWheel++; }, { capture: true, passive: true });
+addEventListener('keydown', e => { const n = ms(); keysDown.set(e.code, n); if (lastKey) pressGaps.push(n - lastKey); lastKey = n; }, true);
+addEventListener('keyup', e => { const d = keysDown.get(e.code); if (d !== undefined) holds.push(ms() - d); }, true);
+let downAt = 0;
+addEventListener('mousedown', e => { downAt = ms(); clicks.push({ target: e.target.id || e.target.tagName, offsetX: e.offsetX, offsetY: e.offsetY, screenDX: e.screenX - e.clientX, screenDY: e.screenY - e.clientY, hover_ms: ms() - lastMove, trusted: e.isTrusted }); }, true);
+addEventListener('mouseup', () => { if (clicks.length) clicks[clicks.length - 1].hold_ms = ms() - downAt; }, true);
+document.getElementById('b').addEventListener('click', () => {
+  const gaps = moves.slice(1).map((v, i) => v - moves[i]);
+  const report = { label, at: new Date().toISOString(), typed: document.getElementById('f').value, mousemove_gaps_ms: gaps, wheel_events: wheels, scroll_events: scrolls, scroll_before_wheel: scrollBeforeWheel, key_holds_ms: holds, key_gaps_ms: pressGaps, clicks, ua: navigator.userAgent, webdriver: navigator.webdriver };
+  fetch('/report?label=' + encodeURIComponent(label), { method: 'POST', body: JSON.stringify(report) }).then(() => { document.title = 'sent ' + label; });
+});
+</script>
