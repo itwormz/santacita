@@ -1,10 +1,21 @@
 # Changelog
 
-## Unreleased
+## Unreleased — First stable SantaCita
 
-- Open only the application window in Windows release builds, without an extra console.
-
-- Save a Telegram bot token before adding recipients. Explain the missing recipient without blocking profile saving, and make manual Chat ID entry a visible button.
+- Introduce SantaCita, a new desktop application built with Rust, Tauri and Svelte for Toma de huellas / TIE and Autorización de regreso searches. It replaces the Python application as the main line; supported on macOS (Apple Silicon and Intel), Windows 10/11 x64 and Linux x64.
+- Use an installed Chrome, Brave, Edge (Windows), Chromium or Firefox in a separate browser profile; a browser is not bundled. New profiles start with the first Chromium-based browser found and fall back to Firefox. Linux snap versions of Firefox and Chromium are not supported.
+- Control Firefox through its own remote-control mode, so the page no longer sees an automation marker; a compatible fallback is used when the installed Firefox cannot switch. Chrome-based browsers keep a native, unmasked setup.
+- Make input behave like a person at the keyboard and mouse: clicks land inside the element from the last cursor position, move at a natural pace and hold for varying times; pages are scrolled with the mouse wheel; typing has its own rhythm per key; the app pauses to read a new page and moves the cursor slightly while it waits. Page reads run in an isolated context that the website cannot observe.
+- Import profiles, statistics, achievements and journals from the installed Python application, repeatedly and without replacing your current data. The original data stays untouched; notification credentials stay in the system vault.
+- Keep appointment dates, times, CAPTCHA and final confirmation manual. Continue to use per-profile search settings, protective pauses, persistent statistics and Telegram/webhook notifications. The separate `cod. oper` pauses and the minimum pause between attempts are no longer applied.
+- Apply timing and ban-protection changes throughout the current search, including new browser sessions. Use the configured click-retry, result-wait and restart delays, retry only actions proven not to have been sent, and never replay uncertain submissions. Preserve attempt budgets and restriction history across imports and days.
+- Redesign the journal: one row per step with short texts, passes separated and repeated waiting collapsed, selectable rows, and resizable columns. Correct an existing booking from Statistics without creating another achievement; Enter in a profile field keeps editing.
+- Show the owned browser window on macOS, Windows and Linux (X11/XWayland); if the desktop cannot activate it, the app explains how to continue manually. Check console availability before saving a diagnostic image.
+- Fix the Windows build that opened an extra console window. Save a Telegram bot token before adding recipients, explain a missing recipient without blocking the profile, and make manual Chat ID entry a visible button.
+- Run a single copy per data folder: starting SantaCita again shows the open window instead of a second instance.
+- Offer stable and optional beta updates, verifying checksums and Sigstore build provenance before installation. On Linux the update replaces the AppImage you started from; Windows portable updates preserve the adjacent data folder. Beta releases of later versions (0.5.0 and above) stay opt-in.
+- Provide optimized packages: macOS DMG, Windows MSI (installs the WebView2 runtime when it is missing) and portable ZIP, and Linux AppImage. Packages are not signed with a paid developer certificate.
+- Document Linux requirements: `libfuse2t64` (Ubuntu 24.04) or `libfuse2` (22.04) for AppImages and a non-snap browser.
 
 ## 0.4.0-beta.2 — Search recovery and reliable migration
 
