@@ -358,13 +358,20 @@ fn scroll_with_wheel(connection: &mut BidiConnection, context: &str, realm: &ceh
     }
     let (x, y) = connection.cursor().unwrap_or((cx, geometry.viewport_height / 2.0));
     let (x, y) = (x.round().max(1.0) as i64, y.round().clamp(1.0, (geometry.viewport_height - 1.0).max(1.0)) as i64);
-    let mut actions = Vec::new();
-    for notch in ceh_core::input::wheel_plan(seed, needed) {
-        actions.push(json!({"type":"scroll","x":x,"y":y,"deltaX":0,"deltaY":notch.delta,"duration":0,"origin":"viewport"}));
-        actions.push(json!({"type":"pause","duration":notch.pause_ms}));
+    // Chunks of 20 notches: one command must finish well inside the 5 s command timeout, which a timed-out
+    // command would otherwise poison.
+    let notches = ceh_core::input::wheel_plan(seed, needed);
+    for chunk in notches.chunks(20) {
+        let mut actions = Vec::new();
+        for notch in chunk {
+            actions.push(json!({"type":"scroll","x":x,"y":y,"deltaX":0,"deltaY":notch.delta,"duration":0,"origin":"viewport"}));
+            actions.push(json!({"type":"pause","duration":notch.pause_ms}));
+        }
+        let params = json!({"context":context,"actions":[{"type":"wheel","id":"ceh-wheel","actions":actions}]});
+        if connection.call("input.performActions", params).is_err() {
+            break;
+        }
     }
-    let params = json!({"context":context,"actions":[{"type":"wheel","id":"ceh-wheel","actions":actions}]});
-    let _ = connection.call("input.performActions", params);
     // Smooth scrolling (Chrome) keeps going after the last notch: wait until the element stops moving.
     let mut after = element_geometry(connection, realm, shared);
     for _ in 0..15 {
