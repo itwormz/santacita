@@ -172,7 +172,9 @@ pub fn snapshot(statistics: &Value) -> Value {
     }
     // First office / first booking: seconds count only with an `exact` or `minimum` quality.
     for prefix in ["first_office", "first_booking"] {
-        // Only these two qualities count; anything else (even a present string) reads as unknown.
+        // Only these two qualities count; anything else (even a present string) reads as unknown. Not
+        // `unwrap_or`: the match filters by value.
+        #[allow(clippy::manual_unwrap_or)]
         let quality = match statistics[format!("{prefix}_active_quality")].as_str() {
             Some(quality @ ("exact" | "minimum")) => quality,
             _ => "unknown",
