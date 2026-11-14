@@ -61,7 +61,7 @@ All outputs are under `.local/builds/releases/`. The Cargo target directory is `
 
 macOS uses ad-hoc signing without notarization. `packaging/macos/make-dmg.sh` creates the final image with the app, Applications link and visible licence; it verifies the image and its contents. The native packager checks the app signature.
 
-Windows requires .NET 8 and WiX **4.0.6** (`dotnet tool install --global wix --version 4.0.6`). MSI installs for the current user. The portable ZIP contains the EXE, licence and `portable.flag`, never a real `data` directory. WebView2 is a runtime prerequisite; the MSI does not install it.
+Windows requires .NET 8 and WiX **4.0.6** (`dotnet tool install --global wix --version 4.0.6`). MSI installs for the current user. The portable ZIP contains the EXE, licence and `portable.flag`, never a real `data` directory. The MSI embeds Microsoft's signed Evergreen WebView2 bootstrapper (`-WebView2Setup`, fetched by the release workflow and refused unless validly signed by Microsoft) and runs it after copying files when no WebView2 runtime is registered; the portable ZIP does not install it.
 
 Linux requires `libwebkit2gtk-4.1-dev`, `build-essential`, `libssl-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`, `libfuse2` and `file` to build. Ubuntu 22.04 is the baseline. CI extracts the AppImage and checks the executable and desktop entry. This is not a native GUI or browser test.
 

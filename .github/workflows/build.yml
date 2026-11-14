@@ -75,6 +75,15 @@ jobs:
         env:
           DOTNET_ROLL_FORWARD: Major
         run: dotnet tool install --global wix --version 4.0.6
+      - name: Fetch Microsoft's WebView2 bootstrapper
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $path
+          # package.ps1 refuses anything that is not validly signed by Microsoft.
+          "WEBVIEW2_SETUP=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CEH_REQUIRE_WEBVIEW2_SETUP=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Compile optimized release and package
         env:
           DOTNET_ROLL_FORWARD: Major
