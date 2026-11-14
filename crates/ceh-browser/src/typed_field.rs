@@ -25,6 +25,8 @@ pub(crate) struct Field<'a> {
 pub(crate) type FreshPage<'a> =
     &'a dyn Fn(&mut BidiConnection, &mut PageObserver) -> Result<ObservedPage, BrowserError>;
 
+// The step is one typed operation; its inputs are all distinct and a struct would only rename them.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn enter(
     connection: &mut BidiConnection,
     observer: &mut PageObserver,

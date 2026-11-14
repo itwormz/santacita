@@ -317,12 +317,12 @@ impl ProfileLease {
                 return false;
             };
             // Signal 0 only checks that the process exists.
-            return std::process::Command::new("kill")
+            std::process::Command::new("kill")
                 .args(["-0", &pid.to_string()])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
-                .is_ok_and(|status| status.success());
+                .is_ok_and(|status| status.success())
         }
         #[cfg(not(unix))]
         {
@@ -338,12 +338,12 @@ impl ProfileLease {
             let Some(pid) = target.to_str().and_then(|t| t.rsplit_once('-')).and_then(|(_, pid)| pid.parse::<u32>().ok()) else {
                 return false;
             };
-            return std::process::Command::new("kill")
+            std::process::Command::new("kill")
                 .args(["-0", &pid.to_string()])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
-                .is_ok_and(|status| status.success());
+                .is_ok_and(|status| status.success())
         }
         #[cfg(not(unix))]
         {

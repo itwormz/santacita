@@ -15,8 +15,7 @@ fn serve(listener: TcpListener, out: std::path::PathBuf) {
         let mut data = Vec::new();
         let mut buffer = [0u8; 8192];
         let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-        loop {
-            let Ok(n) = stream.read(&mut buffer) else { break };
+        while let Ok(n) = stream.read(&mut buffer) {
             if n == 0 { break; }
             data.extend_from_slice(&buffer[..n]);
             let text = String::from_utf8_lossy(&data).to_string();

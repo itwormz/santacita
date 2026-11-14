@@ -117,7 +117,7 @@ pub fn status_pixels(
 /// Shrink an RGBA icon by an integer `factor` with an alpha-weighted box average. Windows scales a 512 px window
 /// icon down to 16-32 px roughly; handing it a 64 px version keeps the small icons sharp.
 pub fn shrink_icon(rgba: &[u8], width: u32, height: u32, factor: u32) -> Result<(Vec<u8>, u32, u32), &'static str> {
-    if factor == 0 || width == 0 || height == 0 || width % factor != 0 || height % factor != 0 {
+    if factor == 0 || width == 0 || height == 0 || !width.is_multiple_of(factor) || !height.is_multiple_of(factor) {
         return Err("icon_size_invalid");
     }
     if rgba.len() != (width as usize) * (height as usize) * 4 {

@@ -51,7 +51,7 @@ fn a_profile_id_cannot_leave_the_journal_folder_and_old_searches_are_pruned() {
     assert!(JournalLog::open(root.path(), "", 1).is_none());
     assert!(load_history(root.path(), "../escape", 10).is_empty());
     for start in 1..=30 {
-        JournalLog::open(root.path(), "p", start).unwrap().record(&[row(start as u64, None)]);
+        JournalLog::open(root.path(), "p", start).unwrap().record(&[row(start, None)]);
     }
     let files = std::fs::read_dir(root.path().join("data/journal/p")).unwrap().count();
     assert_eq!(files, 20);
@@ -88,7 +88,7 @@ fn a_journal_that_drops_its_oldest_rows_is_still_stored_row_by_row() {
 fn a_search_that_never_records_leaves_no_file_and_prunes_nothing() {
     let root = tempfile::tempdir().unwrap();
     for start in 1..=20 {
-        JournalLog::open(root.path(), "p", start).unwrap().record(&[row(start as u64, None)]);
+        JournalLog::open(root.path(), "p", start).unwrap().record(&[row(start, None)]);
     }
     for start in 100..130 {
         let _unused = JournalLog::open(root.path(), "p", start).unwrap();

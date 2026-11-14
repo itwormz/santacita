@@ -46,7 +46,8 @@ fn journals(root: &Path, profile: &str) -> Vec<PathBuf> {
 }
 
 /// Read the complete new lines of one journal; returns the visits and the new cursor.
-fn read_visits(path: &Path, mut offset: u64) -> std::io::Result<Option<(Vec<(String, String)>, u64)>> {
+type Visits = (Vec<(String, String)>, u64);
+fn read_visits(path: &Path, mut offset: u64) -> std::io::Result<Option<Visits>> {
     let size = path.metadata()?.len();
     if size == offset {
         return Ok(None);

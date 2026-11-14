@@ -119,14 +119,13 @@ pub fn apply_portable_update(zip: &std::path::Path, exe: &std::path::Path) -> Re
         Ok(())
     })();
     let _ = std::fs::remove_dir_all(&staging);
-    if result.is_ok() {
-        if let Some(downloads) = zip.parent() {
+    if result.is_ok()
+        && let Some(downloads) = zip.parent() {
             let sum = zip.with_file_name(format!("{}.sha256", zip.file_name().and_then(|n| n.to_str()).unwrap_or("")));
             let _ = std::fs::remove_file(zip);
             let _ = std::fs::remove_file(sum);
             let _ = std::fs::remove_dir(downloads);
         }
-    }
     result
 }
 /// Replace the AppImage the program runs from (`$APPIMAGE`) with the verified download: the new file is written

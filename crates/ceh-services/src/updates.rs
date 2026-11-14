@@ -57,9 +57,8 @@ fn find_release(client:&reqwest::blocking::Client,include_beta:bool) -> Result<O
             if !include_beta { return Ok(Some((parse_entry(&entries,false,Some(repository))?,body))); }
             let list=entries.as_array().ok_or(UpdateError::Invalid)?;
             for entry in list {
-                if let Ok(candidate)=parse_entry(entry,true,Some(repository)) {
-                    if best.as_ref().is_none_or(|(old,_)|version_key(&candidate.version)>version_key(&old.version)) {best=Some((candidate,entry.to_string()));}
-                }
+                if let Ok(candidate)=parse_entry(entry,true,Some(repository))
+                    && best.as_ref().is_none_or(|(old,_)|version_key(&candidate.version)>version_key(&old.version)) {best=Some((candidate,entry.to_string()));}
             }
             if list.len()<100 {break;}
             if page==10 {return Err(UpdateError::Invalid);}

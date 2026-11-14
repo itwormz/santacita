@@ -364,9 +364,8 @@ mod protection {
         let original = with_block("      distribute_attempts: true\n");
         std::fs::write(&path, &original).unwrap();
         let revision = decode_profiles(original.as_bytes(), &catalog(), "ru").unwrap().revision().to_owned();
-        for bad in [
-            AppointmentPolicy { daily_target: 0, ..Default::default() },
-        ] {
+        {
+            let bad = AppointmentPolicy { daily_target: 0, ..Default::default() };
             let result = save_profile_changes(&path, Some("fixture"), draft(&original), &revision, &catalog(),
                 ProfileEdits { protection: Some(&bad), ..Default::default() });
             assert!(matches!(result, Err(ProfileWriteError::Validation(_))), "{bad:?}");

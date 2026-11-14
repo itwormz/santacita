@@ -224,7 +224,7 @@ pub struct WheelNotch {
 /// A scroll of `distance` px (negative: up) as wheel notches of 80-120 px with 40-120 ms between them; the last
 /// notch is cut so the sum is exactly the distance. A person turns a wheel, a script jumps.
 pub fn wheel_plan(seed: u64, distance: i32) -> Vec<WheelNotch> {
-    let mut rng = Rng::new(seed ^ 0x7768_6565_6C);
+    let mut rng = Rng::new(seed ^ 0x0077_6865_656C);
     let sign = distance.signum();
     let mut left = distance.abs();
     let mut notches = Vec::new();
