@@ -57,6 +57,7 @@ static CATALOG: LazyLock<ProfileCatalog> = LazyLock::new(|| {
             .collect(),
     }
 });
+pub mod instance_lock;
 pub mod restart;
 pub mod session_timeline;
 pub mod startup_report;
@@ -125,6 +126,32 @@ pub fn apply_portable_update(zip: &std::path::Path, exe: &std::path::Path) -> Re
             let _ = std::fs::remove_file(sum);
             let _ = std::fs::remove_dir(downloads);
         }
+    }
+    result
+}
+/// Replace the AppImage the program runs from (`$APPIMAGE`) with the verified download: the new file is written
+/// beside it and renamed over it (atomic; the running file keeps working until it exits), made executable, and the
+/// download is removed. Nothing changes when the folder cannot be written. The caller starts it and exits.
+#[cfg(unix)]
+pub fn replace_appimage(package: &std::path::Path, installed: &std::path::Path) -> Result<(), &'static str> {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = installed.parent().ok_or("update_install_failed")?;
+    let name = installed.file_name().and_then(|n| n.to_str()).ok_or("update_install_failed")?;
+    let staged = directory.join(format!(".{name}.update"));
+    let result = (|| {
+        std::fs::copy(package, &staged).map_err(|_| "update_install_failed")?;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).map_err(|_| "update_install_failed")?;
+        std::fs::rename(&staged, installed).map_err(|_| "update_install_failed")
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&staged);
+        return result;
+    }
+    if let Some(downloads) = package.parent() {
+        let sum = package.with_file_name(format!("{}.sha256", package.file_name().and_then(|n| n.to_str()).unwrap_or("")));
+        let _ = std::fs::remove_file(package);
+        let _ = std::fs::remove_file(sum);
+        let _ = std::fs::remove_dir(downloads);
     }
     result
 }
