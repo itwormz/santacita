@@ -167,7 +167,8 @@ fn report(out: &Path) -> Result<(), Fail> {
         let group = stem.rsplit_once('-').map_or(stem, |(g, _)| g).to_owned();
         if let Ok(value) = serde_json::from_str::<Value>(&std::fs::read_to_string(entry.path())?) { groups.entry(group).or_default().push(value); }
     }
-    let rows: [(&str, Box<dyn Fn(&Value) -> Vec<f64>>); 8] = [
+    type Extract = Box<dyn Fn(&Value) -> Vec<f64>>;
+    let rows: [(&str, Extract); 8] = [
         ("mousemove gap, ms (p10 / median / p90)", Box::new(|r| nums(&r["mousemove_gaps_ms"]))),
         ("click hover before press, ms", Box::new(|r| r["clicks"].as_array().into_iter().flatten().filter_map(|c| c["hover_ms"].as_f64()).collect())),
         ("button hold, ms", Box::new(|r| r["clicks"].as_array().into_iter().flatten().filter_map(|c| c["hold_ms"].as_f64()).collect())),
@@ -184,7 +185,7 @@ fn report(out: &Path) -> Result<(), Fail> {
     md.push('\n');
     for (name, extract) in &rows {
         md.push_str(&format!("| {name} |"));
-        for runs in groups.values() { md.push_str(&format!(" {} |", quantiles(runs.iter().flat_map(|r| extract(r)).collect()))); }
+        for runs in groups.values() { md.push_str(&format!(" {} |", quantiles(runs.iter().flat_map(extract).collect()))); }
         md.push('\n');
     }
     md.push_str("| scroll events before any wheel |");
