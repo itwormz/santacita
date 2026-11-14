@@ -101,7 +101,7 @@ fn cancellation_and_symlinked_preferences_do_not_start_or_write_outside_owned_pr
 fn resume_needs_a_handed_off_live_browser_and_returns_ownership() {
     use ceh_browser::firefox::OwnedFirefox;
     use std::sync::atomic::AtomicBool;
-    let Ok(installation) = FirefoxInstallation::discover() else { return };
+    let Ok(installation) = FirefoxInstallation::discover() else { return ceh_browser::skip_missing_browser("Firefox") };
     let runtime = tempfile::tempdir().unwrap();
     let lease = ProfileLease::temporary(runtime.path()).unwrap();
     let mut browser = OwnedFirefox::start(&installation, lease, true, &AtomicBool::new(false)).unwrap();
@@ -209,7 +209,7 @@ fn a_context_tree_lists_the_page_only_while_it_is_open() {
 fn real_firefox_reports_when_the_person_closes_the_page() {
     use ceh_browser::firefox::OwnedFirefox;
     use std::sync::atomic::AtomicBool;
-    let Ok(installation) = FirefoxInstallation::discover() else { return };
+    let Ok(installation) = FirefoxInstallation::discover() else { return ceh_browser::skip_missing_browser("Firefox") };
     let runtime = tempfile::tempdir().unwrap();
     let lease = ProfileLease::temporary(runtime.path()).unwrap();
     let mut browser = OwnedFirefox::start(&installation, lease, true, &AtomicBool::new(false)).unwrap();
@@ -251,7 +251,7 @@ fn a_profile_held_by_a_live_firefox_is_busy_even_without_this_apps_lock() {
 fn a_page_that_is_gone_lets_the_app_quit_the_browser_even_after_a_handoff() {
     use ceh_browser::firefox::OwnedFirefox;
     use std::sync::atomic::AtomicBool;
-    let Ok(installation) = FirefoxInstallation::discover() else { return };
+    let Ok(installation) = FirefoxInstallation::discover() else { return ceh_browser::skip_missing_browser("Firefox") };
     let runtime = tempfile::tempdir().unwrap();
     let lease = ProfileLease::persistent(runtime.path(), "gone").unwrap();
     let mut browser = OwnedFirefox::start(&installation, lease, true, &AtomicBool::new(false)).unwrap();
@@ -309,7 +309,7 @@ fn remote_control_mode_reports_webdriver_false() {
     use ceh_browser::firefox::OwnedFirefox;
     use ceh_browser::firefox_control::WebdriverMode;
     use std::sync::atomic::AtomicBool;
-    let Ok(installation) = FirefoxInstallation::discover() else { return };
+    let Ok(installation) = FirefoxInstallation::discover() else { return ceh_browser::skip_missing_browser("Firefox") };
     let runtime = tempfile::tempdir().unwrap();
     let lease = ProfileLease::temporary(runtime.path()).unwrap();
     let mut browser = OwnedFirefox::start(&installation, lease, std::env::var_os("CEH_TEST_HEADED").is_none(), &AtomicBool::new(false)).unwrap();
@@ -326,7 +326,7 @@ fn the_mask_fallback_is_indistinguishable_by_to_string() {
     use ceh_browser::firefox::OwnedFirefox;
     use ceh_browser::firefox_control::WebdriverMode;
     use std::sync::atomic::AtomicBool;
-    let Ok(installation) = FirefoxInstallation::discover() else { return };
+    let Ok(installation) = FirefoxInstallation::discover() else { return ceh_browser::skip_missing_browser("Firefox") };
     let runtime = tempfile::tempdir().unwrap();
     let lease = ProfileLease::temporary(runtime.path()).unwrap();
     let mut browser = OwnedFirefox::start_masked(&installation, lease, true, &AtomicBool::new(false)).unwrap();

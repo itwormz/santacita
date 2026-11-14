@@ -525,7 +525,7 @@ mod tests {
     #[ignore = "launches the installed Firefox"]
     fn firefox_scrolls_with_the_wheel_before_a_click() {
         use crate::firefox::{FirefoxInstallation, OwnedFirefox, ProfileLease};
-        let Ok(installation) = FirefoxInstallation::discover() else { return };
+        let Ok(installation) = FirefoxInstallation::discover() else { return crate::skip_missing_browser("Firefox") };
         let runtime = tempfile::tempdir().unwrap();
         let lease = ProfileLease::temporary(runtime.path()).unwrap();
         wheel_scrolls_to_a_button_below_the_screen(OwnedFirefox::start(&installation, lease, false, &std::sync::atomic::AtomicBool::new(false)).unwrap());
@@ -534,7 +534,7 @@ mod tests {
     #[ignore = "launches the installed Chrome"]
     fn chrome_scrolls_with_the_wheel_before_a_click() {
         use crate::firefox::{OwnedFirefox, ProfileKind, ProfileLease};
-        let Ok(installation) = crate::chromium::ChromiumInstallation::discover(ProfileKind::Chrome) else { return };
+        let Ok(installation) = crate::chromium::ChromiumInstallation::discover(ProfileKind::Chrome) else { return crate::skip_missing_browser("Chrome") };
         let runtime = tempfile::tempdir().unwrap();
         let lease = ProfileLease::temporary_kind(runtime.path(), ProfileKind::Chrome).unwrap();
         wheel_scrolls_to_a_button_below_the_screen(OwnedFirefox::start_chromium(&installation, lease, &std::sync::atomic::AtomicBool::new(false)).unwrap());
@@ -563,7 +563,7 @@ mod tests {
     fn real_firefox_reports_only_trusted_events_for_clear_text_and_select() {
         use crate::firefox::{FirefoxInstallation, OwnedFirefox, ProfileLease};
         use std::io::{Read, Write};
-        let Ok(installation) = FirefoxInstallation::discover() else { return };
+        let Ok(installation) = FirefoxInstallation::discover() else { return crate::skip_missing_browser("Firefox") };
         let page = include_str!("../tests/fixtures/trusted-events.html");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/", listener.local_addr().unwrap());

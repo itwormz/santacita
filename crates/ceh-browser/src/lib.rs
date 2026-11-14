@@ -208,3 +208,11 @@ pub mod session_driver;
 
 #[cfg(feature = "bidi")]
 mod firefox_certificates;
+
+/// For the opt-in live tests: a browser that is not installed is reported as `SKIPPED` (never as a silent pass),
+/// and fails the test when `CEH_REQUIRE_BROWSERS` is set (a machine that is meant to have the browsers).
+#[doc(hidden)]
+pub fn skip_missing_browser(name: &str) {
+    assert!(std::env::var_os("CEH_REQUIRE_BROWSERS").is_none() && std::env::var_os("CEH_REQUIRE_BROWSER").is_none(), "{name} is required but not installed");
+    eprintln!("SKIPPED: {name} not installed");
+}

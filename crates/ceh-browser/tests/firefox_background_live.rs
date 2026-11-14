@@ -7,7 +7,7 @@ use std::{io::{Read, Write}, net::TcpListener, sync::atomic::AtomicBool, time::I
 #[test]
 #[ignore = "launches the installed Firefox and hides it"]
 fn a_hidden_firefox_still_completes_a_click() {
-    let Ok(installation) = FirefoxInstallation::discover() else { return };
+    let Ok(installation) = FirefoxInstallation::discover() else { return ceh_browser::skip_missing_browser("Firefox") };
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {

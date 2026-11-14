@@ -247,7 +247,7 @@ mod live {
     #[test]
     #[ignore = "launches the installed Firefox"]
     fn firefox_reads_in_a_sandbox_the_page_cannot_trap() {
-        let Ok(installation) = FirefoxInstallation::discover() else { return };
+        let Ok(installation) = FirefoxInstallation::discover() else { return crate::skip_missing_browser("Firefox") };
         let runtime = tempfile::tempdir().unwrap();
         let lease = ProfileLease::temporary(runtime.path()).unwrap();
         reads_leave_the_page_untouched(OwnedFirefox::start_masked(&installation, lease, false, &AtomicBool::new(false)).unwrap(), true);
@@ -255,7 +255,7 @@ mod live {
     #[test]
     #[ignore = "launches the installed Chrome"]
     fn chrome_reads_in_an_isolated_world_the_page_cannot_trap() {
-        let Ok(installation) = crate::chromium::ChromiumInstallation::discover(ProfileKind::Chrome) else { return };
+        let Ok(installation) = crate::chromium::ChromiumInstallation::discover(ProfileKind::Chrome) else { return crate::skip_missing_browser("Chrome") };
         let runtime = tempfile::tempdir().unwrap();
         let lease = ProfileLease::temporary_kind(runtime.path(), ProfileKind::Chrome).unwrap();
         reads_leave_the_page_untouched(OwnedFirefox::start_chromium(&installation, lease, &AtomicBool::new(false)).unwrap(), false);
