@@ -1,50 +1,223 @@
-use ceh_core::input::{selection_keys,SelectionKey,POINTER_TIMING};
+use ceh_core::input::{selection_keys,SelectionKey,POINTER_BOUNDS};
 #[test]
 fn selection_requires_backend_verified_commit_without_form_submission(){
  assert_eq!(selection_keys(0,true).unwrap(),vec![SelectionKey::Home,SelectionKey::Commit]);
  assert_eq!(selection_keys(2,true).unwrap(),vec![SelectionKey::Home,SelectionKey::Down,SelectionKey::Down,SelectionKey::Commit]);
  assert!(selection_keys(257,true).is_err());assert!(selection_keys(2,false).is_err());
- assert!(POINTER_TIMING.move_ms>0);assert!(POINTER_TIMING.press_ms>0);assert!(POINTER_TIMING.move_ms+POINTER_TIMING.press_ms<1000);
+ const { assert!(POINTER_BOUNDS.hover_ms.0 > 0 && POINTER_BOUNDS.press_ms.0 > 0 && POINTER_BOUNDS.hover_ms.1 + POINTER_BOUNDS.press_ms.1 < 1000) };
 }
 
-use ceh_core::input::{pointer_path, Reach};
+use ceh_core::input::{click_plan, ClickPlan, ElementBox, PointerStep, Reach};
 const OPEN: Reach = Reach { left: 2000, right: 2000, up: 2000, down: 2000 };
+const BUTTON: ElementBox = ElementBox { width: 200.0, height: 40.0 };
+fn dist(a: (i32, i32), b: (i32, i32)) -> f64 {
+    (((a.0 - b.0) as f64).powi(2) + ((a.1 - b.1) as f64).powi(2)).sqrt()
+}
+fn total(plan: &ClickPlan) -> u64 {
+    plan.moves.iter().map(|s| s.ms).sum()
+}
+
 #[test]
-fn the_cursor_travels_a_curved_path_that_ends_on_the_target() {
-    for seed in [1u64, 7, 99, 123_456_789] {
-        let path = pointer_path(seed, OPEN);
-        assert!(path.len() >= 8, "a path of several moves, got {}", path.len());
-        let last = path.last().unwrap();
-        assert_eq!((last.x, last.y), (0, 0), "ends exactly on the element centre");
-        let first = path.first().unwrap();
-        assert!(first.x.abs() + first.y.abs() >= 100, "starts away from the target");
-        let total: u64 = path.iter().map(|s| s.ms).sum();
-        assert!((250..=700).contains(&total), "total move time {total} ms");
-        // Not a straight line: some point is off the chord from start to target.
-        let off_chord = path.iter().any(|s| {
-            let cross = (first.x as i64 * s.y as i64 - first.y as i64 * s.x as i64).abs();
-            cross > 400
-        });
-        assert!(off_chord, "the path bends (seed {seed})");
-        // It keeps getting closer overall: distance at the end is below the start and the middle.
-        let dist = |s: &ceh_core::input::PointerStep| ((s.x as f64).powi(2) + (s.y as f64).powi(2)).sqrt();
-        assert!(dist(path.last().unwrap()) < dist(&path[path.len() / 2]));
+fn the_click_lands_inside_the_inner_part_of_the_element_and_not_always_on_the_centre() {
+    let mut xs = Vec::new();
+    let mut distinct = std::collections::HashSet::new();
+    for seed in 0..1000u64 {
+        let plan = click_plan(seed, OPEN, BUTTON, None);
+        assert!(plan.end.0.abs() <= 70 && plan.end.1.abs() <= 14, "seed {seed}: {:?} outside the inner 70 %", plan.end);
+        xs.push(plan.end.0 as f64);
+        distinct.insert(plan.end);
     }
-    assert_ne!(pointer_path(1, OPEN), pointer_path(2, OPEN), "different seeds give different paths");
-    assert_eq!(pointer_path(5, OPEN), pointer_path(5, OPEN), "a seed gives the same path");
+    assert!(distinct.len() > 50, "the offsets vary, got {} different", distinct.len());
+    let mean = xs.iter().sum::<f64>() / xs.len() as f64;
+    assert!(mean.abs() < 5.0, "centred on the middle, mean {mean}");
+    // The last move arrives at the chosen point.
+    let plan = click_plan(9, OPEN, BUTTON, None);
+    let last = plan.moves.last().unwrap();
+    assert_eq!((last.x, last.y), plan.end);
+}
+
+#[test]
+fn a_small_element_is_hit_near_its_centre() {
+    for seed in 0..200u64 {
+        let plan = click_plan(seed, OPEN, ElementBox { width: 10.0, height: 10.0 }, None);
+        assert!(plan.end.0.abs() <= 2 && plan.end.1.abs() <= 2, "{:?}", plan.end);
+    }
+}
+
+#[test]
+fn the_path_starts_where_the_cursor_was_and_not_at_a_random_point() {
+    let from = (300, -80);
+    for seed in 0..100u64 {
+        let plan = click_plan(seed, OPEN, BUTTON, Some(from));
+        let first = plan.moves.first().unwrap();
+        let reach_of_trip = dist(from, plan.end);
+        assert!(dist((first.x, first.y), from) < reach_of_trip * 0.3, "seed {seed}: first move {first:?} jumps away from the previous position");
+    }
+    // The very first move of a session has no previous position and starts away from the target.
+    for seed in 0..50u64 {
+        let plan = click_plan(seed, OPEN, BUTTON, None);
+        let start = plan.moves.first().unwrap();
+        assert!(dist((start.x, start.y), plan.end) >= 60.0, "seed {seed}");
+    }
+}
+
+#[test]
+fn the_path_is_deterministic_per_seed_and_bends() {
+    assert_eq!(click_plan(5, OPEN, BUTTON, None), click_plan(5, OPEN, BUTTON, None));
+    assert_ne!(click_plan(1, OPEN, BUTTON, None), click_plan(2, OPEN, BUTTON, None));
+    let plan = click_plan(3, OPEN, BUTTON, Some((400, 200)));
+    let first = plan.moves.first().unwrap();
+    let off_chord = plan.moves.iter().any(|s: &PointerStep| {
+        let cross = ((first.x - plan.end.0) as i64 * (s.y - plan.end.1) as i64 - (first.y - plan.end.1) as i64 * (s.x - plan.end.0) as i64).abs();
+        cross > 300
+    });
+    assert!(off_chord, "the path bends");
+}
+
+#[test]
+fn a_longer_trip_takes_longer_by_fitts_law_and_steps_are_unequal() {
+    let median = |from: (i32, i32)| {
+        let mut all: Vec<u64> = (0..101u64).map(|seed| total(&click_plan(seed, OPEN, BUTTON, Some(from)))).collect();
+        all.sort_unstable();
+        all[50]
+    };
+    let (near, far) = (median((120, 0)), median((900, 0)));
+    assert!(far > near + 80, "near {near} ms, far {far} ms");
+    assert!((250..=1400).contains(&near) && (250..=1800).contains(&far));
+    let plan = click_plan(4, OPEN, BUTTON, Some((600, 100)));
+    assert!(plan.moves.len() >= 10);
+    let distinct: std::collections::HashSet<u64> = plan.moves.iter().map(|s| s.ms).collect();
+    assert!(distinct.len() >= 3, "the step times differ: {distinct:?}");
+    assert!(plan.moves.iter().all(|s| s.ms >= 1));
+}
+
+#[test]
+fn hover_and_press_times_are_random_inside_their_bounds() {
+    let mut hovers = std::collections::HashSet::new();
+    let mut presses = std::collections::HashSet::new();
+    for seed in 0..300u64 {
+        let plan = click_plan(seed, OPEN, BUTTON, None);
+        assert!((80..=250).contains(&plan.hover_ms), "{}", plan.hover_ms);
+        assert!((50..=140).contains(&plan.press_ms), "{}", plan.press_ms);
+        hovers.insert(plan.hover_ms);
+        presses.insert(plan.press_ms);
+    }
+    assert!(hovers.len() > 30 && presses.len() > 30, "not constants");
+}
+
+#[test]
+fn some_clicks_overshoot_by_a_few_pixels_and_come_back() {
+    let mut overshoots = 0;
+    for seed in 0..1000u64 {
+        let plan = click_plan(seed, OPEN, BUTTON, Some((500, 150)));
+        let n = plan.moves.len();
+        let before_last = &plan.moves[n - 2];
+        let gap = dist((before_last.x, before_last.y), plan.end);
+        // Beyond the target along the direction of travel (an ordinary approach arrives from this side).
+        let beyond = (before_last.x - plan.end.0) as f64 * (plan.end.0 - 500) as f64 + (before_last.y - plan.end.1) as f64 * (plan.end.1 - 150) as f64 > 0.0;
+        if gap >= 2.0 && beyond {
+            assert!((2.0..=9.5).contains(&gap), "seed {seed}: gap {gap}");
+            overshoots += 1;
+        }
+    }
+    assert!((60..=260).contains(&overshoots), "about 15 % of the clicks, got {overshoots}/1000");
 }
 
 #[test]
 fn the_cursor_never_leaves_the_room_the_element_has_in_the_viewport() {
     // An element near the left edge, 200 px from it, 40 px from the top.
     let reach = Reach { left: 198, right: 900, up: 38, down: 600 };
-    for seed in 0..200u64 {
-        for step in pointer_path(seed, reach) {
-            assert!(step.x >= -198 && step.x <= 900 && step.y >= -38 && step.y <= 600, "seed {seed}: {step:?}");
+    for seed in 0..300u64 {
+        for from in [None, Some((-700, -500)), Some((1500, 900))] {
+            let plan = click_plan(seed, reach, BUTTON, from);
+            for step in &plan.moves {
+                assert!(step.x >= -198 && step.x <= 900 && step.y >= -38 && step.y <= 600, "seed {seed}: {step:?}");
+            }
+            let end = plan.end;
+            assert!(end.0 >= -198 && end.0 <= 900 && end.1 >= -38 && end.1 <= 600);
         }
-        assert_eq!((pointer_path(seed, reach).last().unwrap().x, pointer_path(seed, reach).last().unwrap().y), (0, 0));
     }
-    // No room at all (unknown geometry): the path collapses onto the target instead of leaving the page.
+    // No room at all (unknown geometry): everything collapses onto the centre instead of leaving the page.
     let none = Reach { left: 0, right: 0, up: 0, down: 0 };
-    assert!(pointer_path(3, none).iter().all(|s| (s.x, s.y) == (0, 0)));
+    let plan = click_plan(3, none, BUTTON, None);
+    assert!(plan.moves.iter().all(|s| (s.x, s.y) == (0, 0)) && plan.end == (0, 0));
+}
+
+use ceh_core::input::typing_rhythm;
+
+#[test]
+fn typing_has_its_own_pause_and_hold_for_every_key() {
+    let rhythm = typing_rhythm(7, 90, 20);
+    assert_eq!(rhythm.keys.len(), 20);
+    assert!((200..=600).contains(&rhythm.first_ms), "{}", rhythm.first_ms);
+    let pauses: std::collections::HashSet<u64> = rhythm.keys.iter().map(|k| k.pause_ms).collect();
+    assert!(pauses.len() >= 8, "intervals are not all equal: {pauses:?}");
+    assert!(rhythm.keys.iter().all(|k| (30..=110).contains(&k.hold_ms)), "{:?}", rhythm.keys);
+    assert_eq!(typing_rhythm(7, 90, 20), typing_rhythm(7, 90, 20), "a seed gives the same rhythm");
+}
+
+#[test]
+fn the_pauses_centre_on_the_configured_value_with_rare_longer_stops() {
+    let mut pauses: Vec<u64> = (0..200u64).flat_map(|seed| typing_rhythm(seed, 90, 20).keys.into_iter().map(|k| k.pause_ms)).collect();
+    pauses.sort_unstable();
+    let median = pauses[pauses.len() / 2];
+    assert!((75..=105).contains(&median), "median {median}");
+    assert!(pauses.iter().all(|p| *p <= 400));
+    let regular_max = 250;
+    let long = pauses.iter().filter(|p| **p > regular_max).count() as f64 / pauses.len() as f64;
+    let hesitations = pauses.iter().filter(|p| (150..=400).contains(*p)).count() as f64 / pauses.len() as f64;
+    assert!(long < 0.08 && hesitations > 0.02, "long {long}, hesitations {hesitations}");
+}
+
+#[test]
+fn no_configured_typing_delay_means_no_added_time() {
+    let rhythm = typing_rhythm(3, 0, 10);
+    assert_eq!(rhythm.first_ms, 0);
+    assert!(rhythm.keys.iter().all(|k| k.pause_ms == 0 && k.hold_ms == 0));
+}
+
+use ceh_core::input::reading_pause_ms;
+
+#[test]
+fn a_page_is_read_before_the_first_action_longer_when_it_has_more_text() {
+    for seed in 0..200u64 {
+        let empty = reading_pause_ms(seed, 0);
+        assert!((600..=1500).contains(&empty), "{empty}");
+        let form = reading_pause_ms(seed, 100);
+        assert!((2100..=3000).contains(&form), "100 words add about 1.5 s, got {form}");
+        let wall_of_text = reading_pause_ms(seed, 5000);
+        assert!(wall_of_text <= 1500 + 4000, "the words add at most 4 s, got {wall_of_text}");
+    }
+    assert_eq!(reading_pause_ms(4, 40), reading_pause_ms(4, 40));
+    assert_ne!(reading_pause_ms(4, 40), reading_pause_ms(5, 40));
+}
+
+use ceh_core::input::{scroll_needed, wheel_plan};
+
+#[test]
+fn an_element_that_is_fully_in_view_is_not_scrolled_to() {
+    // Viewport 800 px high, element 40 px high with its centre at 400: nothing to do.
+    assert_eq!(scroll_needed(1, 400.0, 40.0, 800.0), 0);
+    // Near the bottom edge (cut off) or the top edge: scroll.
+    assert!(scroll_needed(1, 790.0, 40.0, 800.0) > 0);
+    assert!(scroll_needed(1, 10.0, 40.0, 800.0) < 0);
+    // Far below: bring it to the middle part of the viewport, not to the very edge.
+    let needed = scroll_needed(1, 2000.0, 40.0, 800.0);
+    assert!((2000 - 560..=2000 - 280).contains(&needed), "{needed}");
+}
+
+#[test]
+fn the_wheel_scrolls_in_notches_of_about_a_hundred_pixels_with_pauses() {
+    for seed in 0..100u64 {
+        let plan = wheel_plan(seed, 1234);
+        assert_eq!(plan.iter().map(|n| n.delta).sum::<i32>(), 1234, "exactly the needed distance");
+        assert!(plan.len() >= 10);
+        assert!(plan.iter().all(|n| (1..=120).contains(&n.delta)));
+        assert!(plan[..plan.len() - 1].iter().all(|n| (80..=120).contains(&n.delta)), "{plan:?}");
+        assert!(plan.iter().all(|n| (40..=120).contains(&n.pause_ms)));
+    }
+    let up = wheel_plan(2, -500);
+    assert_eq!(up.iter().map(|n| n.delta).sum::<i32>(), -500);
+    assert!(wheel_plan(2, 0).is_empty());
+    assert_ne!(wheel_plan(1, 900), wheel_plan(2, 900));
 }

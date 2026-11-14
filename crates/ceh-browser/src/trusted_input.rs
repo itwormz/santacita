@@ -151,7 +151,7 @@ fn activate(
         .unwrap_or(&fresh.observation.document);
     let allowed = origin.predicate();
     let declaration = format!(
-        "raw=>{{const inspect={INSPECT_DOCUMENT};const validate={GUARD};const operation={target_script};const allowed={allowed};const target=validate(raw,inspect,operation,allowed);if(target instanceof Element)target.scrollIntoView({{block:'center',inline:'nearest',behavior:'instant'}});return target;}}"
+        "raw=>{{const inspect={INSPECT_DOCUMENT};const validate={GUARD};const operation={target_script};const allowed={allowed};const target=validate(raw,inspect,operation,allowed);return target;}}"
     );
     payload["expectedText"] = json!(frame.text);
     payload["expectedVisible"] = json!(snapshot.visible);
@@ -184,8 +184,7 @@ fn activate(
         permit.complete_step(DispatchOutcome::NotDispatched)?;
         return Ok(permit.finish());
     }
-    // Resolving an actionable node also scrolls it into view in this automatic
-    // phase. Preserve that acknowledged change even if the later click is refused.
+    // The node resolved; a person scrolls it into view with the wheel just before the click (below).
     permit.complete_step(DispatchOutcome::Dispatched)?;
     let Some(shared) = result["result"]["sharedId"]
         .as_str()
@@ -232,8 +231,17 @@ fn activate(
     } else {
         gate.begin_preparation(guard, &current.observation, action)?
     };
-    let reach = cursor_reach(connection, realm, &shared);
-    let params = json!({"context":context,"actions":[{"type":"pointer","id":"ceh-pointer","parameters":{"pointerType":"mouse"},"actions":click_actions(&shared, pointer_seed(), reach)}]});
+    let mut geometry = element_geometry(connection, realm, &shared);
+    if scroll_with_wheel(connection, &context, realm, &shared, &geometry) {
+        geometry = element_geometry(connection, realm, &shared);
+    }
+    // From where the cursor was left (viewport coordinates), expressed relative to this element's centre.
+    let from = geometry.centre.zip(connection.cursor()).map(|((cx, cy), (x, y))| ((x - cx).round() as i32, (y - cy).round() as i32));
+    let plan = ceh_core::input::click_plan(pointer_seed(), geometry.reach, geometry.size, from);
+    if let Some((cx, cy)) = geometry.centre {
+        connection.set_cursor(Some((cx + plan.end.0 as f64, cy + plan.end.1 as f64)));
+    }
+    let params = json!({"context":context,"actions":[{"type":"pointer","id":"ceh-pointer","parameters":{"pointerType":"mouse"},"actions":click_actions(&shared, &plan)}]});
     let mut ticket = None;
     let sent = permit.send(&current.observation, || {
         send(connection, "input.performActions", params, &mut ticket)
@@ -288,27 +296,87 @@ fn describe_change(kind: PageKind, before: &PageSnapshot, after: &PageSnapshot) 
     }
     text
 }
-/// The cursor travels a curved path to the element centre, then presses and releases there.
-pub(crate) fn click_actions(shared: &str, seed: u64, reach: ceh_core::input::Reach) -> Vec<Value> {
+/// The cursor travels the planned path to a point inside the element, hovers, presses and releases there.
+pub(crate) fn click_actions(shared: &str, plan: &ceh_core::input::ClickPlan) -> Vec<Value> {
     let origin = json!({"type":"element","element":{"sharedId":shared}});
-    let mut actions: Vec<Value> = ceh_core::input::pointer_path(seed, reach)
-        .into_iter()
+    let mut actions: Vec<Value> = plan
+        .moves
+        .iter()
         .map(|step| json!({"type":"pointerMove","duration":step.ms,"x":step.x,"y":step.y,"origin":origin}))
         .collect();
+    actions.push(json!({"type":"pause","duration":plan.hover_ms}));
     actions.push(json!({"type":"pointerDown","button":0}));
-    actions.push(json!({"type":"pause","duration":ceh_core::input::POINTER_TIMING.press_ms}));
+    actions.push(json!({"type":"pause","duration":plan.press_ms}));
     actions.push(json!({"type":"pointerUp","button":0}));
     actions
 }
-/// Room the cursor has around the element inside the viewport; none when it cannot be read.
-fn cursor_reach(connection: &mut BidiConnection, realm: &ceh_core::model::DocumentId, shared: &str) -> ceh_core::input::Reach {
-    const NONE: ceh_core::input::Reach = ceh_core::input::Reach { left: 0, right: 0, up: 0, down: 0 };
+/// Where the element is and how much room the cursor has around it inside the viewport. `None` fields stay
+/// unknown when the geometry cannot be read: the click then collapses onto the centre.
+struct ElementGeometry {
+    viewport_height: f64,
+    reach: ceh_core::input::Reach,
+    size: ceh_core::input::ElementBox,
+    centre: Option<(f64, f64)>,
+}
+fn element_geometry(connection: &mut BidiConnection, realm: &ceh_core::model::DocumentId, shared: &str) -> ElementGeometry {
+    let unknown = ElementGeometry {
+        viewport_height: 0.0,
+        reach: ceh_core::input::Reach { left: 0, right: 0, up: 0, down: 0 },
+        size: ceh_core::input::ElementBox { width: 0.0, height: 0.0 },
+        centre: None,
+    };
     let params = json!({"target":{"realm":realm.as_str()},"awaitPromise":false,"arguments":[{"sharedId":shared}],
-        "functionDeclaration":"el=>{const r=el.getBoundingClientRect();const w=document.documentElement.clientWidth,h=document.documentElement.clientHeight;const cx=r.left+r.width/2,cy=r.top+r.height/2;return JSON.stringify([cx,w-cx,cy,h-cy]);}"});
-    let Ok(result) = connection.call("script.callFunction", params) else { return NONE };
-    let Some(values) = result["result"]["value"].as_str().and_then(|t| serde_json::from_str::<Vec<f64>>(t).ok()).filter(|v| v.len() == 4) else { return NONE };
+        "functionDeclaration":"el=>{const r=el.getBoundingClientRect();const w=document.documentElement.clientWidth,h=document.documentElement.clientHeight;const cx=r.left+r.width/2,cy=r.top+r.height/2;return JSON.stringify([cx,w-cx,cy,h-cy,r.width,r.height]);}"});
+    let Ok(result) = connection.call("script.callFunction", params) else { return unknown };
+    let Some(v) = result["result"]["value"].as_str().and_then(|t| serde_json::from_str::<Vec<f64>>(t).ok()).filter(|v| v.len() == 6) else { return unknown };
     let room = |v: f64| (v.floor() as i32 - 2).max(0);
-    ceh_core::input::Reach { left: room(values[0]), right: room(values[1]), up: room(values[2]), down: room(values[3]) }
+    ElementGeometry {
+        viewport_height: v[2] + v[3],
+        reach: ceh_core::input::Reach { left: room(v[0]), right: room(v[1]), up: room(v[2]), down: room(v[3]) },
+        size: ceh_core::input::ElementBox { width: v[4], height: v[5] },
+        centre: Some((v[0], v[2])),
+    }
+}
+thread_local! {
+    static SCROLL_FALLBACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+/// Whether the last click had to fall back to `scrollIntoView` because the wheel did not bring the element
+/// into view (diagnostics); read once.
+pub fn take_scroll_fallback() -> bool {
+    SCROLL_FALLBACK.with(|f| f.replace(false))
+}
+/// Scrolls the page with wheel notches until the element is comfortably in view. A script's `scrollIntoView`
+/// leaves a scroll with no wheel behind it, which is not what a person produces. When the wheel did not get
+/// there (a scroll container that ignores it) the instant scroll is the last resort and is recorded.
+/// Returns whether the page was scrolled.
+fn scroll_with_wheel(connection: &mut BidiConnection, context: &str, realm: &ceh_core::model::DocumentId, shared: &str, geometry: &ElementGeometry) -> bool {
+    let Some((cx, cy)) = geometry.centre else { return false };
+    let seed = pointer_seed() ^ 0x5352;
+    let needed = ceh_core::input::scroll_needed(seed, cy, geometry.size.height, geometry.viewport_height);
+    if needed == 0 {
+        return false;
+    }
+    let (x, y) = connection.cursor().map_or((cx, geometry.viewport_height / 2.0), |p| p);
+    let (x, y) = (x.round().max(1.0) as i64, y.round().clamp(1.0, (geometry.viewport_height - 1.0).max(1.0)) as i64);
+    let mut actions = Vec::new();
+    for notch in ceh_core::input::wheel_plan(seed, needed) {
+        actions.push(json!({"type":"scroll","x":x,"y":y,"deltaX":0,"deltaY":notch.delta,"duration":0,"origin":"viewport"}));
+        actions.push(json!({"type":"pause","duration":notch.pause_ms}));
+    }
+    let params = json!({"context":context,"actions":[{"type":"wheel","id":"ceh-wheel","actions":actions}]});
+    let _ = connection.call("input.performActions", params);
+    // Smooth scrolling finishes after the last notch.
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    let after = element_geometry(connection, realm, shared);
+    if let Some((_, cy)) = after.centre
+        && ceh_core::input::scroll_needed(seed, cy, after.size.height, after.viewport_height) != 0
+    {
+        SCROLL_FALLBACK.with(|f| f.set(true));
+        let params = json!({"target":{"realm":realm.as_str()},"awaitPromise":false,"arguments":[{"sharedId":shared}],
+            "functionDeclaration":"el=>{el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});}"});
+        let _ = connection.call("script.callFunction", params);
+    }
+    true
 }
 fn pointer_seed() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)
@@ -336,16 +404,18 @@ pub(crate) fn key(
     permit: &mut crate::ActionPermit,
     fresh: &ObservedPage,
     value: char,
+    hold_ms: u64,
 ) -> Result<DispatchOutcome, BrowserError> {
-    perform_keys(
-        connection,
-        permit,
-        fresh,
-        vec![
-            json!({"type":"keyDown","value":value.to_string()}),
-            json!({"type":"keyUp","value":value.to_string()}),
-        ],
-    )
+    perform_keys(connection, permit, fresh, key_actions(value, hold_ms))
+}
+/// A key press: down, held for `hold_ms` (a person's finger does not lift at once), then up.
+pub(crate) fn key_actions(value: char, hold_ms: u64) -> Vec<Value> {
+    let mut actions = vec![json!({"type":"keyDown","value":value.to_string()})];
+    if hold_ms > 0 {
+        actions.push(json!({"type":"pause","duration":hold_ms}));
+    }
+    actions.push(json!({"type":"keyUp","value":value.to_string()}));
+    actions
 }
 /// Key actions that type `text` one character at a time (a select's type-ahead needs them in one chain).
 const BACKSPACE: &str = "\u{E003}";
@@ -405,18 +475,76 @@ fn perform_keys(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn a_click_moves_along_a_curve_then_presses_on_the_element() {
-        let actions = super::click_actions("node-1", 42, ceh_core::input::Reach { left: 500, right: 500, up: 500, down: 500 });
+    fn a_click_moves_along_a_curve_hovers_then_presses_inside_the_element() {
+        let plan = ceh_core::input::click_plan(42, ceh_core::input::Reach { left: 500, right: 500, up: 500, down: 500 }, ceh_core::input::ElementBox { width: 120.0, height: 30.0 }, Some((200, 90)));
+        let actions = super::click_actions("node-1", &plan);
         let moves: Vec<_> = actions.iter().filter(|a| a["type"] == "pointerMove").collect();
         assert!(moves.len() >= 8, "several moves, not one jump");
         assert!(moves.iter().all(|m| m["origin"]["element"]["sharedId"] == "node-1"));
         let last = moves.last().unwrap();
-        assert_eq!((last["x"].as_i64(), last["y"].as_i64()), (Some(0), Some(0)));
-        let kinds: Vec<_> = actions.iter().rev().take(3).map(|a| a["type"].as_str().unwrap()).collect();
-        assert_eq!(kinds, ["pointerUp", "pause", "pointerDown"]);
+        assert_eq!((last["x"].as_i64(), last["y"].as_i64()), (Some(plan.end.0 as i64), Some(plan.end.1 as i64)));
+        let tail: Vec<_> = actions.iter().rev().take(4).map(|a| (a["type"].as_str().unwrap(), a["duration"].as_u64())).collect();
+        assert_eq!(tail, [("pointerUp", None), ("pause", Some(plan.press_ms)), ("pointerDown", None), ("pause", Some(plan.hover_ms))]);
     }
 
     use super::*;
+    const TALL_PAGE: &str = "<!doctype html><title>t</title><body style='margin:0'><div style='height:3000px'>spacer</div><button id='b' style='height:40px;width:160px'>go</button><div style='height:800px'></div><script>const note=k=>document.documentElement.setAttribute('data-log',(document.documentElement.getAttribute('data-log')||'')+k+',');addEventListener('wheel',()=>note('wheel'),{passive:true});addEventListener('scroll',()=>note('scroll'),{passive:true});</script>";
+    /// A button 3000 px down is reached by wheel notches: the page sees `wheel` before every `scroll`.
+    fn wheel_scrolls_to_a_button_below_the_screen(mut browser: crate::firefox::OwnedFirefox) {
+        let context = browser.context().to_owned();
+        let url = format!("data:text/html;base64,{}", base64_encode(TALL_PAGE.as_bytes()));
+        browser.connection().call("browsingContext.navigate", json!({"context":context,"url":url,"wait":"complete"})).unwrap();
+        let node = browser.connection().call("script.evaluate", json!({"expression":"document.getElementById('b')","target":{"context":context},"awaitPromise":false,"resultOwnership":"root"})).unwrap();
+        let shared = node["result"]["sharedId"].as_str().unwrap().to_owned();
+        let realm = ceh_core::model::DocumentId::new(node["realm"].as_str().unwrap()).unwrap();
+        let geometry = element_geometry(browser.connection(), &realm, &shared);
+        assert!(geometry.centre.unwrap().1 > geometry.viewport_height, "below the fold to begin with");
+        assert!(scroll_with_wheel(browser.connection(), &context, &realm, &shared, &geometry));
+        let after = element_geometry(browser.connection(), &realm, &shared);
+        let (_, y) = after.centre.unwrap();
+        assert!(y > 0.0 && y < after.viewport_height, "in view now: {y} of {}", after.viewport_height);
+        assert!(!take_scroll_fallback(), "the wheel was enough");
+        let log = browser.connection().call("script.evaluate", json!({"expression":"document.documentElement.getAttribute('data-log')||''","target":{"context":context},"awaitPromise":false})).unwrap();
+        let log: Vec<String> = log["result"]["value"].as_str().unwrap().split(',').filter(|e| !e.is_empty()).map(str::to_owned).collect();
+        assert!(log.iter().filter(|e| *e == "wheel").count() >= 10, "{log:?}");
+        assert_eq!(log.first().map(String::as_str), Some("wheel"), "the first scroll is caused by a wheel: {log:?}");
+        let _ = browser.stop();
+    }
+    fn base64_encode(bytes: &[u8]) -> String {
+        const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | (u32::from(*b) << (16 - 8 * i)));
+            for i in 0..4 {
+                if i <= chunk.len() { out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char) } else { out.push('=') }
+            }
+        }
+        out
+    }
+    #[test]
+    #[ignore = "launches the installed Firefox"]
+    fn firefox_scrolls_with_the_wheel_before_a_click() {
+        use crate::firefox::{FirefoxInstallation, OwnedFirefox, ProfileLease};
+        let Ok(installation) = FirefoxInstallation::discover() else { return };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary(runtime.path()).unwrap();
+        wheel_scrolls_to_a_button_below_the_screen(OwnedFirefox::start(&installation, lease, false, &std::sync::atomic::AtomicBool::new(false)).unwrap());
+    }
+    #[test]
+    #[ignore = "launches the installed Chrome"]
+    fn chrome_scrolls_with_the_wheel_before_a_click() {
+        use crate::firefox::{OwnedFirefox, ProfileKind, ProfileLease};
+        let Ok(installation) = crate::chromium::ChromiumInstallation::discover(ProfileKind::Chrome) else { return };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary_kind(runtime.path(), ProfileKind::Chrome).unwrap();
+        wheel_scrolls_to_a_button_below_the_screen(OwnedFirefox::start_chromium(&installation, lease, &std::sync::atomic::AtomicBool::new(false)).unwrap());
+    }
+    #[test]
+    fn a_key_is_held_between_down_and_up_only_when_a_hold_is_set() {
+        let held: Vec<_> = key_actions('7', 64).iter().map(|a| (a["type"].as_str().unwrap().to_owned(), a["duration"].as_u64())).collect();
+        assert_eq!(held, [("keyDown".to_owned(), None), ("pause".to_owned(), Some(64)), ("keyUp".to_owned(), None)]);
+        assert_eq!(key_actions('7', 0).len(), 2);
+    }
     #[test]
     fn clear_holds_the_platform_modifier_around_a_then_deletes() {
         for (mac, modifier) in [(true, META), (false, CONTROL)] {

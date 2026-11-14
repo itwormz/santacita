@@ -647,6 +647,12 @@ impl CdpWire {
                         self.page("Input.dispatchMouseEvent", json!({"type":"mouseMoved","x":x,"y":y,"modifiers":modifiers}), deadline)?;
                         self.pointer = (x, y);
                     }
+                    "scroll" => {
+                        // A wheel notch at a viewport position.
+                        let (x, y) = (action["x"].as_f64().unwrap_or(0.0), action["y"].as_f64().unwrap_or(0.0));
+                        let (dx, dy) = (action["deltaX"].as_f64().unwrap_or(0.0), action["deltaY"].as_f64().unwrap_or(0.0));
+                        self.page("Input.dispatchMouseEvent", json!({"type":"mouseWheel","x":x,"y":y,"deltaX":dx,"deltaY":dy,"modifiers":modifiers}), deadline)?;
+                    }
                     "pointerDown" | "pointerUp" => {
                         let down = action["type"] == "pointerDown";
                         let (x, y) = self.pointer;

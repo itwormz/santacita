@@ -42,6 +42,10 @@ pub struct NativeStep {
     planned_at: Instant,
 }
 impl NativeStep {
+    /// Words of visible text on the observed page (sets how long a person reads before acting).
+    pub fn visible_words(&self) -> usize {
+        self.page.page.snapshot.frames.first().map_or(0, |f| f.text.split_whitespace().count())
+    }
     pub fn diagnostic_snapshot(&self, connection: &mut BidiConnection) -> Option<String> {
         if self.update.control.mode() != ControlMode::Automatic
             || !self.page.page.snapshot.official

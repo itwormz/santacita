@@ -84,7 +84,10 @@ pub(crate) fn enter(
         return Ok(PreparationOutcome::Failed);
     }
     let mut prefix = String::new();
-    for character in field.value.chars() {
+    let rhythm = ceh_core::input::typing_rhythm(rhythm_seed(), typing_delay.as_millis() as u64, field.value.chars().count());
+    // A person looks at the focused field before the first key.
+    pause(Duration::from_millis(rhythm.first_ms), deadline);
+    for (character, stroke) in field.value.chars().zip(&rhythm.keys) {
         if Instant::now() >= deadline {
             return Ok(PreparationOutcome::Failed);
         }
@@ -95,15 +98,13 @@ pub(crate) fn enter(
         if ready != Receipt::Unchanged {
             return Ok(PreparationOutcome::Failed);
         }
-        match trusted_input::key(connection, &mut permit, &fresh, character)? {
+        match trusted_input::key(connection, &mut permit, &fresh, character, stroke.hold_ms)? {
             DispatchOutcome::Unknown => return Ok(PreparationOutcome::Unknown),
             DispatchOutcome::NotDispatched => return Ok(PreparationOutcome::Failed),
             DispatchOutcome::Dispatched => {}
         }
         prefix.push(character);
-        if !typing_delay.is_zero() {
-            std::thread::sleep(typing_delay.min(deadline.saturating_duration_since(Instant::now())));
-        }
+        pause(Duration::from_millis(stroke.pause_ms), deadline);
     }
     let verified = mutation::perform(connection, &mut permit, &fresh, (field.payload)("verify", ""), field.script)?;
     if verified == Receipt::Unknown {
@@ -115,6 +116,14 @@ pub(crate) fn enter(
     Ok(PreparationOutcome::Completed)
 }
 
+fn pause(wait: Duration, deadline: Instant) {
+    if !wait.is_zero() {
+        std::thread::sleep(wait.min(deadline.saturating_duration_since(Instant::now())));
+    }
+}
+fn rhythm_seed() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)
+}
 /// Longest pause between two typed characters: a person never types slower than the typing-ability spec
 /// allows, but a long configured pause must not abort the step (the spec accepts up to 1000 ms).
 pub(crate) const MAX_TYPING_DELAY: Duration = Duration::from_millis(250);

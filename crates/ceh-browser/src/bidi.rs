@@ -96,6 +96,9 @@ pub struct BidiConnection {
     /// Sanitized rows of the commands sent, drained by the diagnostics timeline.
     command_log: Vec<Value>,
     in_flight: Option<(Instant, i64, String, Value)>,
+    /// Where the pointer was last left, in viewport coordinates: the next move starts there (a person's
+    /// cursor does not jump between actions).
+    cursor: Option<(f64, f64)>,
 }
 impl BidiConnection {
     pub fn connect(address: SocketAddr, timeout: Duration) -> Result<Self, ProtocolError> {
@@ -135,6 +138,7 @@ impl BidiConnection {
             native_select_commit:false,
             command_log: Vec::new(),
             in_flight: None,
+            cursor: None,
         })
     }
     /// Chrome/Brave: connect to the browser websocket named by `DevToolsActivePort` and attach to its page.
@@ -165,6 +169,7 @@ impl BidiConnection {
             native_select_commit: false,
             command_log: Vec::new(),
             in_flight: None,
+            cursor: None,
         })
     }
     /// Chrome: ask the browser to quit cleanly (it flushes its cookie store); a no-op for other connections.
@@ -322,6 +327,12 @@ impl BidiConnection {
         }
     }
     /// A poisoned transport must never be retried or reused.
+    pub fn cursor(&self) -> Option<(f64, f64)> {
+        self.cursor
+    }
+    pub fn set_cursor(&mut self, position: Option<(f64, f64)>) {
+        self.cursor = position;
+    }
     pub fn available(&self) -> bool {
         !self.failed
     }

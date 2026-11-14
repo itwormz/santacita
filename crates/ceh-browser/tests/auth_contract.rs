@@ -73,7 +73,7 @@ fn certificate_publication_is_reported_before_the_input_acknowledgement() {
                     if declaration.contains("const facts={portal_entry") {
                         let facts = json!({"portal_entry":false,"provider":true,"certificate":true,"movil":false,"permanente":false,"requires_attention":false,"input_started":false});
                         json!({"type":"success","result":{"type":"string","value":facts.to_string()}})
-                    } else if declaration.contains("scrollIntoView") {
+                    } else if declaration.contains("validate(raw") {
                         json!({"type":"success","result":{"type":"node","sharedId":"certificate-button"}})
                     } else {
                         let snapshot = json!({"visible":["body"],"frames":[{"text":"Certificado electrónico"}],"official":false,"endpoint":"ServiceProvider","button_label":""});
