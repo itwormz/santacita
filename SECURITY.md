@@ -5,7 +5,7 @@
 Potential exposure of applicant data, credentials or browser sessions, unsafe
 update handling and other security vulnerabilities should be reported privately.
 Ordinary website errors or missing appointment availability belong in
-[Issues](https://github.com/itwormz/extranjeria-cita-helper/issues/new/choose).
+[Issues](https://github.com/itwormz/santacita/issues/new/choose).
 Reports are welcome in English, Spanish or Russian.
 
 If available, use **Security → Advisories → Report a vulnerability** in this
@@ -29,9 +29,9 @@ Please avoid testing against other people's data or the live appointment service
 
 ## Supported versions and response
 
-I maintain the latest stable Python release and the current SantaCita beta. Reports about older releases are welcome,
+I maintain the latest stable SantaCita release (and any current beta of a later version). The previous Python 0.3.x line receives fixes only when they are critical. Reports about older releases are welcome,
 but fixes may be provided only through an update to the latest version. See
-[Releases](https://github.com/itwormz/extranjeria-cita-helper/releases).
+[Releases](https://github.com/itwormz/santacita/releases).
 
 I maintain this project independently and cannot promise a response or resolution
 deadline. I will assess reports when available and coordinate publication of a

@@ -1,6 +1,6 @@
 # Working on SantaCita
 
-This is the Rust/Tauri/Svelte line for **Toma de huellas / TIE** and **Autorización de regreso** on ICP Plus. Python 0.3.x remains on `main` during beta testing; SantaCita targets `santacita-beta`. Do not merge or rename branches, publish, tag or push without the user's instruction. The repository name stays `itwormz/extranjeria-cita-helper` until a separate rename.
+This is the Rust/Tauri/Svelte line for **Toma de huellas / TIE** and **Autorización de regreso** on ICP Plus. The Python 0.3.x line lives in the `ceh-python` branch; SantaCita is `main`, and its betas (0.5.0 and above) go through `santacita-beta`. Do not merge or rename branches, publish, tag or push without the user's instruction. The repository is `itwormz/santacita`; the updaters still accept the old `itwormz/extranjeria-cita-helper` name.
 
 Read README.md, CHANGELOG.md and relevant modules before changing behavior.
 

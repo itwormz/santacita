@@ -5,12 +5,12 @@ Issues and pull requests are welcome in **English, Spanish or Russian**.
 
 ## Report a problem or suggest a change
 
-Use [Discussions](https://github.com/itwormz/extranjeria-cita-helper/discussions)
+Use [Discussions](https://github.com/itwormz/santacita/discussions)
 for usage questions, early ideas and experiences with the app. See the
-[pinned welcome](https://github.com/itwormz/extranjeria-cita-helper/discussions/1)
+[pinned welcome](https://github.com/itwormz/santacita/discussions/1)
 for categories and guidance.
 
-Use the [issue forms](https://github.com/itwormz/extranjeria-cita-helper/issues/new/choose)
+Use the [issue forms](https://github.com/itwormz/santacita/issues/new/choose)
 for an application bug, a changed website screen or an improvement.
 Describe what happened and what was expected. Include the application version and
 operating system; for website problems, include the province and selected service.
@@ -44,7 +44,7 @@ agreed. Small fixes and documentation improvements can be proposed directly.
 
 ## Development and checks
 
-SantaCita development targets `santacita-beta`; Python maintenance stays on `main` during the beta period. The repository has not been renamed. Use the pinned Rust toolchain and Node.js 24:
+SantaCita development targets `main`; beta releases (0.5.0 and above) go through `santacita-beta`, and Python maintenance stays on `ceh-python`. Use the pinned Rust toolchain and Node.js 24:
 
 ```sh
 cargo test --workspace --locked

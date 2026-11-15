@@ -2,15 +2,15 @@
 
 🇬🇧 **English** · 🇷🇺 [Русский](README.ru.md) · 🇪🇸 [Español](README.es.md)
 
-[![Latest published release](https://img.shields.io/github/v/release/itwormz/extranjeria-cita-helper?sort=semver&label=release&color=626bdf&logo=github)](https://github.com/itwormz/extranjeria-cita-helper/releases)
+[![Latest published release](https://img.shields.io/github/v/release/itwormz/santacita?sort=semver&label=release&color=626bdf&logo=github)](https://github.com/itwormz/santacita/releases)
 
 An assistant for **Toma de huellas / TIE** and **Autorización de regreso** appointments on ICP Plus. A new application built with Rust, Tauri and Svelte.
 
-SantaCita 0.4.0 is the first stable release of the new application. The 0.3.x line is the previous Python application. The repository is still named `extranjeria-cita-helper`.
+SantaCita 0.4.0 is the first stable release of the new application. The 0.3.x line is the previous Python application; its code stays in the `ceh-python` branch.
 
 ## 🚀 Quick start
 
-1. Open [Releases](https://github.com/itwormz/extranjeria-cita-helper/releases) and download the latest SantaCita release for your system.
+1. Open [Releases](https://github.com/itwormz/santacita/releases) and download the latest SantaCita release for your system.
 2. Install the app and select an installed browser: Chrome, Brave, Edge, Chromium or Firefox. A browser is not bundled; new profiles start with the first Chromium-based browser found (Chrome first), and Firefox when there is none.
 3. Create a profile with the province, service, authentication and applicant details. Start the search and sign in through the browser.
 4. When notified, choose an office or complete the booking. **Date, time, CAPTCHA and final confirmation remain manual.**

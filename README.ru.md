@@ -2,15 +2,15 @@
 
 🇷🇺 **Русский** · 🇬🇧 [English](README.md) · 🇪🇸 [Español](README.es.md)
 
-[![Последний опубликованный релиз](https://img.shields.io/github/v/release/itwormz/extranjeria-cita-helper?sort=semver&label=release&color=626bdf&logo=github)](https://github.com/itwormz/extranjeria-cita-helper/releases)
+[![Последний опубликованный релиз](https://img.shields.io/github/v/release/itwormz/santacita?sort=semver&label=release&color=626bdf&logo=github)](https://github.com/itwormz/santacita/releases)
 
 Помощник для поиска **Toma de huellas / TIE** и **Autorización de regreso** на ICP Plus. Новое приложение на Rust, Tauri и Svelte.
 
-SantaCita 0.4.0 — первый стабильный выпуск нового приложения. Линия 0.3.x — прежнее Python-приложение. Репозиторий пока сохраняет имя `extranjeria-cita-helper`.
+SantaCita 0.4.0 — первый стабильный выпуск нового приложения. Линия 0.3.x — прежнее Python-приложение; его код остаётся в ветке `ceh-python`.
 
 ## 🚀 Быстрый старт
 
-1. Откройте [релизы](https://github.com/itwormz/extranjeria-cita-helper/releases) и скачайте последний выпуск SantaCita для вашей системы.
+1. Откройте [релизы](https://github.com/itwormz/santacita/releases) и скачайте последний выпуск SantaCita для вашей системы.
 2. Установите приложение и выберите установленный браузер: Chrome, Brave, Edge, Chromium или Firefox. Браузер не входит в пакет; новые профили начинают с первого найденного браузера на Chromium (сначала Chrome), а если его нет — с Firefox.
 3. Создайте профиль: провинция, услуга, авторизация и данные заявителя. Запустите поиск и пройдите авторизацию в браузере.
 4. При уведомлении выберите офис или завершите запись. **Дата, время, CAPTCHA и подтверждение записи остаются ручными.**
