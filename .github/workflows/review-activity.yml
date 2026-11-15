@@ -1,0 +1,31 @@
+name: Review activity
+
+# Wake-up signal for the review gate. Pull-request events run the workflow from the PR itself, so this
+# workflow has no permissions and runs no code. `review-gate.yml` reacts to its completion through
+# `workflow_run`, which always runs the trusted default-branch version with its own token.
+# Resolving a discussion cannot trigger Actions; replies do, and the gate's schedule covers the rest.
+on:
+  pull_request:
+    types: [ready_for_review, reopened]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: review-activity-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  signal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Record the event
+        env:
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          echo "Review activity ($EVENT) on PR #$PR"
