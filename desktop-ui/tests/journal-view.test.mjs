@@ -59,3 +59,14 @@ test('rows are two cells (time and what happened) with an icon only where it hel
  assert.deepEqual(shown.map(r=>r.icon),[null,'clock','alert','office']);
  assert.deepEqual(buildEntries([]),[]);
 });
+
+test('a long text (a list of offices) wraps over several lines instead of becoming one invisible line',()=>{
+ next=1;
+ const long='Доступно несколько офисов: '+Array.from({length:12},(_,i)=>`CNP COMISARIA SANT ANDREU ${i}, Calle Cabanes 3, 08030 Barcelona`).join(' · ')+' — требуется выбор';
+ const context={...ctx(),what:()=>long};
+ const [offices]=displayRows(buildEntries([row('office','choice_required')]),context);
+ assert.equal(offices.wrap,true,`${long.length} characters do not fit in one line`);
+ const [short]=displayRows(buildEntries([row('office','passed','contact',{selected_office:'CNP'})]),ctx());
+ assert.equal(short.wrap,false);
+ assert.equal(displayRows(buildEntries([row('applicant_no_slots','passed','applicant_no_slots')]),ctx())[0].wrap,false,'a wait row never wraps');
+});
