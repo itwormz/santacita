@@ -85,7 +85,7 @@ fn a_longer_trip_takes_longer_by_fitts_law_and_steps_are_unequal() {
     assert!(far > near + 80, "near {near} ms, far {far} ms");
     assert!((250..=1400).contains(&near) && (250..=1800).contains(&far));
     let plan = click_plan(4, OPEN, BUTTON, Some((600, 100)));
-    assert!(plan.moves.len() >= 10);
+    assert!(plan.moves.len() >= 12, "steps are about 16 ms apart like a 60 Hz mouse");
     let distinct: std::collections::HashSet<u64> = plan.moves.iter().map(|s| s.ms).collect();
     assert!(distinct.len() >= 3, "the step times differ: {distinct:?}");
     assert!(plan.moves.iter().all(|s| s.ms >= 1));
@@ -97,7 +97,7 @@ fn hover_and_press_times_are_random_inside_their_bounds() {
     let mut presses = std::collections::HashSet::new();
     for seed in 0..300u64 {
         let plan = click_plan(seed, OPEN, BUTTON, None);
-        assert!((80..=250).contains(&plan.hover_ms), "{}", plan.hover_ms);
+        assert!((15..=90).contains(&plan.hover_ms), "{}", plan.hover_ms);
         assert!((50..=140).contains(&plan.press_ms), "{}", plan.press_ms);
         hovers.insert(plan.hover_ms);
         presses.insert(plan.press_ms);
@@ -152,7 +152,7 @@ fn typing_has_its_own_pause_and_hold_for_every_key() {
     assert!((200..=600).contains(&rhythm.first_ms), "{}", rhythm.first_ms);
     let pauses: std::collections::HashSet<u64> = rhythm.keys.iter().map(|k| k.pause_ms).collect();
     assert!(pauses.len() >= 8, "intervals are not all equal: {pauses:?}");
-    assert!(rhythm.keys.iter().all(|k| (30..=110).contains(&k.hold_ms)), "{:?}", rhythm.keys);
+    assert!(rhythm.keys.iter().all(|k| (45..=190).contains(&k.hold_ms)), "{:?}", rhythm.keys);
     assert_eq!(typing_rhythm(7, 90, 20), typing_rhythm(7, 90, 20), "a seed gives the same rhythm");
 }
 
@@ -163,7 +163,7 @@ fn the_pauses_centre_on_the_configured_value_with_rare_longer_stops() {
     let median = pauses[pauses.len() / 2];
     assert!((75..=105).contains(&median), "median {median}");
     assert!(pauses.iter().all(|p| *p <= 400));
-    let regular_max = 250;
+    let regular_max = 350;
     let long = pauses.iter().filter(|p| **p > regular_max).count() as f64 / pauses.len() as f64;
     let hesitations = pauses.iter().filter(|p| (150..=400).contains(*p)).count() as f64 / pauses.len() as f64;
     assert!(long < 0.08 && hesitations > 0.02, "long {long}, hesitations {hesitations}");

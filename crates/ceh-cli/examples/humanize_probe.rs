@@ -174,8 +174,8 @@ fn report(out: &Path) -> Result<(), Fail> {
         ("button hold, ms", Box::new(|r| r["clicks"].as_array().into_iter().flatten().filter_map(|c| c["hold_ms"].as_f64()).collect())),
         ("click offsetX", Box::new(|r| r["clicks"].as_array().into_iter().flatten().filter_map(|c| c["offsetX"].as_f64()).collect())),
         ("click screenX - clientX", Box::new(|r| r["clicks"].as_array().into_iter().flatten().filter_map(|c| c["screenDX"].as_f64()).collect())),
-        ("key hold, ms", Box::new(|r| nums(&r["key_holds_ms"]))),
-        ("key gap, ms", Box::new(|r| nums(&r["key_gaps_ms"]))),
+        ("key hold, ms (without holds over 500)", Box::new(|r| nums(&r["key_holds_ms"]).into_iter().filter(|v| *v <= 500.0).collect())),
+        ("key gap, ms (without gaps over 700: keyboard layout switches, thinking)", Box::new(|r| nums(&r["key_gaps_ms"]).into_iter().filter(|v| *v <= 700.0).collect())),
         ("wheel events per run", Box::new(|r| vec![r["wheel_events"].as_f64().unwrap_or(0.0)])),
     ];
     let mut md = String::from("# Humanize probe: person vs application\n\nEach cell: p10 / median / p90 (min, max, samples). A value that is constant for the app but varies for the person is a finding.\n\n| Measure |");

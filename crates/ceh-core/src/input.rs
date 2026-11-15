@@ -9,7 +9,7 @@ pub fn selection_keys(enabled_index:usize,safe_commit:bool)->Result<Vec<Selectio
 }
 /// Bounds (inclusive, ms) of the random hover before a press and of the button hold; never constants.
 pub struct PointerBounds{pub hover_ms:(u64,u64),pub press_ms:(u64,u64)}
-pub const POINTER_BOUNDS:PointerBounds=PointerBounds{hover_ms:(80,250),press_ms:(50,140)};
+pub const POINTER_BOUNDS:PointerBounds=PointerBounds{hover_ms:(15,90),press_ms:(50,140)};
 
 /// How far the cursor may stray from the element centre in each direction while staying inside the page's
 /// viewport (WebDriver rejects a pointer move outside it).
@@ -94,7 +94,7 @@ fn clamp_to(point: (f64, f64), reach: Reach) -> (i32, i32) {
 /// was left, relative to this element's centre; `None` for the first move of a session, which starts 180-420 px
 /// away), follows an eased cubic Bezier with jitter, takes as long as Fitts' law says (250 + 120 log2(D/W + 1)
 /// ms, plus or minus 20 %) in unequal steps, and in about 15 % of the clicks overshoots by 3-8 px and returns.
-/// Then it hovers 80-250 ms and holds the button 50-140 ms. The browser's own pointer input performs it, so
+/// Then it hovers 15-90 ms (people click almost as soon as the cursor stops) and holds the button 50-140 ms. The browser's own pointer input performs it, so
 /// every move reaches the page as a trusted `mousemove`.
 pub fn click_plan(seed: u64, reach: Reach, element: ElementBox, from: Option<(i32, i32)>) -> ClickPlan {
     let mut rng = Rng::new(seed);
@@ -123,7 +123,7 @@ pub fn click_plan(seed: u64, reach: Reach, element: ElementBox, from: Option<(i3
     };
     let width = element.width.min(element.height).max(8.0);
     let fitts = (250.0 + 120.0 * (distance / width + 1.0).log2()) * rng.range(0.8, 1.2);
-    let steps = ((fitts / 20.0).round() as usize).clamp(8, 48);
+    let steps = ((fitts / 16.0).round() as usize).clamp(8, 64);
     // Unequal step times that add up to the Fitts time.
     let weights: Vec<f64> = (0..steps).map(|_| rng.range(0.7, 1.3)).collect();
     let weight_sum: f64 = weights.iter().sum();
@@ -175,8 +175,8 @@ pub struct TypingRhythm {
     pub keys: Vec<Keystroke>,
 }
 /// Per-key pauses from a log-normal distribution whose median is the profile's typing delay (about plus or
-/// minus 40 %), cut to 20 ms .. 250 ms; about one key in twenty is followed by a longer stop of 150-400 ms.
-/// Holds last 30-110 ms and the first key waits 200-600 ms. A delay of 0 adds no time at all.
+/// minus 40 %), cut to 20 ms .. 350 ms; about one key in twenty is followed by a longer stop of 150-400 ms.
+/// Holds last 45-190 ms and the first key waits 200-600 ms. A delay of 0 adds no time at all.
 pub fn typing_rhythm(seed: u64, median_ms: u64, count: usize) -> TypingRhythm {
     let mut rng = Rng::new(seed ^ 0x7479_7069_6E67);
     if median_ms == 0 {
@@ -185,11 +185,11 @@ pub fn typing_rhythm(seed: u64, median_ms: u64, count: usize) -> TypingRhythm {
     let first_ms = rng.ms((200, 600));
     let keys = (0..count)
         .map(|_| {
-            let hold_ms = rng.ms((30, 110));
+            let hold_ms = rng.ms((45, 190));
             let pause_ms = if rng.unit() < 0.05 {
                 rng.ms((150, 400))
             } else {
-                ((median_ms as f64 * (0.4 * rng.normal()).exp()).round() as u64).clamp(20, 250)
+                ((median_ms as f64 * (0.55 * rng.normal()).exp()).round() as u64).clamp(20, 350)
             };
             Keystroke { hold_ms, pause_ms }
         })
