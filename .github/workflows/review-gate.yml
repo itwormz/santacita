@@ -1,0 +1,91 @@
+name: Review gate
+
+# Requests CodeRabbit only after Greptile has reviewed the current commit, its findings are resolved and the
+# required CI checks pass (scripts/review_gate.py). Every run reconciles all open PRs, so the triggers are
+# only wake-ups: a delayed, skipped or replaced run loses nothing.
+#
+# Trust: every trigger below runs the default-branch version of this file and of the script; no PR code is
+# checked out or executed, and no artifacts of the triggering runs are read.
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] -- no PR code or artifacts are used
+    workflows: [Tests, CodeQL, Review activity]
+    types: [completed]
+  check_run:
+    types: [completed]
+  schedule:
+    # Safety net for discussions resolved without a reply. GitHub may delay or drop scheduled runs.
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number (empty = all open PRs). A manual request may repeat CodeRabbit.
+        required: false
+        type: string
+      mode:
+        description: check = read-only report from the selected branch; request = label and status (default branch only)
+        type: choice
+        options: [check, request]
+        default: check
+
+permissions: {}
+
+concurrency:
+  # One gate at a time keeps label and status writes ordered. A newer pending run replaces an older one;
+  # that is safe because each run reconciles every open PR.
+  group: review-gate
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Report readiness (read-only)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read # gh pr checks reads checkSuite.workflowRun
+      checks: read
+      contents: read
+      pull-requests: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Report without writing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PR_NUMBER" ]; then target=(--pr "$PR_NUMBER"); else target=(--sweep); fi
+          python3 scripts/review_gate.py --repo "$GITHUB_REPOSITORY" "${target[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  gate:
+    name: Request ready reviews
+    if: >-
+      github.event.repository.fork == false &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      !(github.event_name == 'workflow_dispatch' && inputs.mode == 'check') &&
+      (github.event_name != 'check_run' || github.event.check_run.name == 'Greptile Review') &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.event != 'push')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read # gh pr checks reads checkSuite.workflowRun
+      checks: read
+      contents: read
+      pull-requests: write # the CodeRabbit opt-in label
+      statuses: write # the review-gate commit status
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Reconcile open pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PR_NUMBER:-}" ]; then target=(--pr "$PR_NUMBER"); else target=(--sweep); fi
+          python3 scripts/review_gate.py --repo "$GITHUB_REPOSITORY" "${target[@]}" --write | tee -a "$GITHUB_STEP_SUMMARY"

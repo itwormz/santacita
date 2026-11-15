@@ -32,6 +32,8 @@ jobs:
         run: |
           node packaging/check-docs.mjs
           node --test packaging/tests/*.test.mjs
+      - name: Review gate script
+        run: python3 -m unittest discover -s scripts/tests -v
       - name: Install pinned Rust toolchain
         if: needs.scope.outputs.mode != 'docs'
         run: |
