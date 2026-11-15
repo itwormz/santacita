@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased — First stable SantaCita
+## Unreleased
+
+## 0.4.0 — First stable SantaCita
 
 - Introduce SantaCita, a new desktop application built with Rust, Tauri and Svelte for Toma de huellas / TIE and Autorización de regreso searches. It replaces the Python application as the main line; supported on macOS (Apple Silicon and Intel), Windows 10/11 x64 and Linux x64.
 - Use an installed Chrome, Brave, Edge (Windows), Chromium or Firefox in a separate browser profile; a browser is not bundled. New profiles start with the first Chromium-based browser found and fall back to Firefox. Linux snap versions of Firefox and Chromium are not supported.
-- Control Firefox through its own remote-control mode, so the page no longer sees an automation marker; a compatible fallback is used when the installed Firefox cannot switch. Chrome-based browsers keep a native, unmasked setup.
+- Control Firefox through its own remote-control mode, so the page no longer sees an automation marker (Firefox 155 or newer); older versions use a compatible fallback. Chrome-based browsers keep a native, unmasked setup.
 - Make input behave like a person at the keyboard and mouse: clicks land inside the element from the last cursor position, move at a natural pace and hold for varying times; pages are scrolled with the mouse wheel; typing has its own rhythm per key; the app pauses to read a new page and moves the cursor slightly while it waits. Page reads run in an isolated context that the website cannot observe.
 - Import profiles, statistics, achievements and journals from the installed Python application, repeatedly and without replacing your current data. The original data stays untouched; notification credentials stay in the system vault.
 - Keep appointment dates, times, CAPTCHA and final confirmation manual. Continue to use per-profile search settings, protective pauses, persistent statistics and Telegram/webhook notifications. The separate `cod. oper` pauses and the minimum pause between attempts are no longer applied.
