@@ -246,3 +246,28 @@ fn the_cursor_is_never_moved_while_a_person_has_the_page_or_the_search_is_paused
     assert!(!idle_motion_allowed(ControlMode::Manual, true));
     assert!(!idle_motion_allowed(ControlMode::Paused, true));
 }
+
+use ceh_core::input::clamp_idle_moves;
+
+#[test]
+fn idle_moves_never_leave_the_viewport_and_report_where_the_cursor_ends() {
+    let steps = |v: &[(i32, i32)]| v.iter().map(|(x, y)| PointerStep { x: *x, y: *y, ms: 100 }).collect::<Vec<_>>();
+    // Near the right and bottom edge: the offsets that would leave the page are cut short.
+    let (moves, end) = clamp_idle_moves((795.0, 595.0), &steps(&[(10, 10), (10, 10), (-6, -6)]), (800.0, 600.0));
+    assert_eq!(moves.iter().map(|m| (m.x, m.y)).collect::<Vec<_>>(), vec![(3, 3), (-6, -6)], "cut at the edge, and the move that changes nothing is dropped");
+    assert_eq!(end, (792.0, 592.0), "ends where the sent moves end");
+    let mut at = (795.0, 595.0);
+    for m in &moves {
+        at = (at.0 + m.x as f64, at.1 + m.y as f64);
+        assert!(at.0 >= 2.0 && at.0 <= 798.0 && at.1 >= 2.0 && at.1 <= 598.0, "{at:?}");
+    }
+    assert_eq!(at, end);
+    // A move that would not change anything is not sent.
+    let (moves, end) = clamp_idle_moves((798.0, 598.0), &steps(&[(5, 5)]), (800.0, 600.0));
+    assert!(moves.is_empty());
+    assert_eq!(end, (798.0, 598.0));
+    // Inside the page nothing changes.
+    let (moves, end) = clamp_idle_moves((300.0, 300.0), &steps(&[(7, -4), (-3, 9)]), (800.0, 600.0));
+    assert_eq!(moves.iter().map(|m| (m.x, m.y)).collect::<Vec<_>>(), vec![(7, -4), (-3, 9)]);
+    assert_eq!(end, (304.0, 305.0));
+}

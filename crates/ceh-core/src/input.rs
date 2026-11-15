@@ -261,3 +261,22 @@ pub fn idle_motion(seed: u64) -> IdleMotion {
 pub fn idle_motion_allowed(mode: crate::control::ControlMode, pointer_known: bool) -> bool {
     mode == crate::control::ControlMode::Automatic && pointer_known
 }
+
+/// Cuts idle moves (offsets from the current position) so every destination stays 2 px inside the viewport, drops
+/// the moves that would change nothing, and returns the offsets to send with the position the cursor ends at.
+pub fn clamp_idle_moves(start: (f64, f64), moves: &[PointerStep], viewport: (f64, f64)) -> (Vec<PointerStep>, (f64, f64)) {
+    let (mut x, mut y) = start;
+    let mut sent = Vec::with_capacity(moves.len());
+    for step in moves {
+        let next = (
+            (x + f64::from(step.x)).clamp(2.0, (viewport.0 - 2.0).max(2.0)),
+            (y + f64::from(step.y)).clamp(2.0, (viewport.1 - 2.0).max(2.0)),
+        );
+        let (dx, dy) = ((next.0 - x).round() as i32, (next.1 - y).round() as i32);
+        if (dx, dy) != (0, 0) {
+            sent.push(PointerStep { x: dx, y: dy, ms: step.ms });
+            (x, y) = (x + f64::from(dx), y + f64::from(dy));
+        }
+    }
+    (sent, (x, y))
+}

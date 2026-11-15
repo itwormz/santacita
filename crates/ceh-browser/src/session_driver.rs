@@ -306,19 +306,27 @@ impl SessionDriver {
             return None;
         }
         let motion = ceh_core::input::idle_motion(seed);
-        let (mut x, mut y) = position?;
-        let actions: Vec<serde_json::Value> = motion
-            .moves
+        let position = position?;
+        // The page's size is read first: a move outside it is rejected, and a rejected batch would leave the
+        // tracked position behind the real pointer.
+        let viewport = connection
+            .call("script.evaluate", serde_json::json!({"expression":"[innerWidth,innerHeight].join(',')","target":{"context":context,"sandbox":"ceh"},"awaitPromise":false}))
+            .ok()
+            .and_then(|result| result["result"]["value"].as_str().and_then(|text| text.split_once(',').map(|(w, h)| (w.parse::<f64>().ok(), h.parse::<f64>().ok()))))
+            .and_then(|(w, h)| w.zip(h));
+        let Some(viewport) = viewport else { return Some(motion.next_in_ms) };
+        let (moves, end) = ceh_core::input::clamp_idle_moves(position, &motion.moves, viewport);
+        if moves.is_empty() {
+            return Some(motion.next_in_ms);
+        }
+        let actions: Vec<serde_json::Value> = moves
             .iter()
-            .map(|step| {
-                (x, y) = ((x + f64::from(step.x)).max(2.0), (y + f64::from(step.y)).max(2.0));
-                serde_json::json!({"type":"pointerMove","duration":step.ms,"x":step.x,"y":step.y,"origin":"pointer"})
-            })
+            .map(|step| serde_json::json!({"type":"pointerMove","duration":step.ms,"x":step.x,"y":step.y,"origin":"pointer"}))
             .collect();
         let params = serde_json::json!({"context":context,"actions":[{"type":"pointer","id":"ceh-pointer","parameters":{"pointerType":"mouse"},"actions":actions}]});
-        if connection.call("input.performActions", params).is_ok() {
-            connection.set_cursor(Some((x, y)));
-        }
+        // A failed batch may have moved the pointer part of the way: forget where it is rather than guess.
+        let sent = connection.call("input.performActions", params).is_ok();
+        connection.set_cursor(sent.then_some(end));
         Some(motion.next_in_ms)
     }
     pub fn request_fresh_pass(&mut self) {
