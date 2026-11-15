@@ -53,3 +53,17 @@ fn every_replacement_stages_its_own_file_so_two_clicks_cannot_corrupt_each_other
     assert_eq!(std::fs::read_to_string(&installed).unwrap(), "new");
     assert_eq!(std::fs::read_to_string(&foreign).unwrap(), "someone else's half-written copy", "another staging file is never touched");
 }
+
+#[test]
+fn a_staging_name_that_is_taken_is_skipped_and_never_deleted() {
+    use ceh_desktop::create_staging_file;
+    let dir = tempfile::tempdir().unwrap();
+    let taken = dir.path().join("taken");
+    std::fs::write(&taken, "another call's file").unwrap();
+    let names = ["taken".to_owned(), "taken".to_owned(), "free".to_owned()];
+    let (path, _file) = create_staging_file(dir.path(), names.into_iter()).unwrap();
+    assert_eq!(path, dir.path().join("free"), "the first name that could be created exclusively");
+    assert_eq!(std::fs::read_to_string(&taken).unwrap(), "another call's file", "a name that was already there is left alone");
+    assert!(create_staging_file(dir.path(), ["taken".to_owned()].into_iter()).is_err(), "no free name: an error, and still nothing deleted");
+    assert!(taken.exists());
+}

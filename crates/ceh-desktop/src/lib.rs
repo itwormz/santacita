@@ -131,18 +131,32 @@ pub fn apply_portable_update(zip: &std::path::Path, exe: &std::path::Path) -> Re
 /// Replace the AppImage the program runs from (`$APPIMAGE`) with the verified download: the new file is written
 /// beside it and renamed over it (atomic; the running file keeps working until it exits), made executable, and the
 /// download is removed. Nothing changes when the folder cannot be written. The caller starts it and exits.
+/// Creates the first of `names` that does not exist yet in `directory`, exclusively, and returns it with the open
+/// file. A name that is taken belongs to someone else: it is skipped and never touched.
+pub fn create_staging_file(directory: &std::path::Path, names: impl Iterator<Item = String>) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
+    for name in names {
+        let path = directory.join(name);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "no free staging name"))
+}
 #[cfg(unix)]
 pub fn replace_appimage(package: &std::path::Path, installed: &std::path::Path) -> Result<(), &'static str> {
     use std::os::unix::fs::PermissionsExt;
     let directory = installed.parent().ok_or("update_install_failed")?;
     let name = installed.file_name().and_then(|n| n.to_str()).ok_or("update_install_failed")?;
-    // A file of its own (created exclusively, beside the installation): two replacements started together never
-    // write to, rename or delete each other's copy.
+    // A file of its own, created exclusively beside the installation: two replacements started together never
+    // write to, rename or delete each other's copy. Only a file this call created is ever removed.
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let staged = directory.join(format!(".{name}.update-{}-{unique}", std::process::id()));
+    let names = (0..8).map(|_| format!(".{name}.update-{}-{unique}-{}", std::process::id(), COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let (staged, mut target) = create_staging_file(directory, names).map_err(|_| "update_install_failed")?;
     let result = (|| {
         let mut source = std::fs::File::open(package).map_err(|_| "update_install_failed")?;
-        let mut target = std::fs::OpenOptions::new().write(true).create_new(true).open(&staged).map_err(|_| "update_install_failed")?;
         std::io::copy(&mut source, &mut target).map_err(|_| "update_install_failed")?;
         drop(target);
         std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).map_err(|_| "update_install_failed")?;

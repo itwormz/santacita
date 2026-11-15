@@ -230,6 +230,13 @@ fn activate(
             return Err(stale("source_text_or_realm_changed"));
         }
     }
+    // The page has scrolled and been observed again; the target check of the step script (the element and, for the
+    // contact step, the typed values) runs once more. A scroll handler that changed a value, or a different
+    // element under the same selector, stops the click here.
+    let again = resolve_target(connection, realm, &declaration, &payload);
+    if !still_the_same_target(&shared, again.as_deref()) {
+        return Err(stale("target_changed_after_scroll"));
+    }
     let mut permit = if submission {
         gate.begin(guard, &current.observation, action)?
     } else {
@@ -340,6 +347,19 @@ fn element_geometry(connection: &mut BidiConnection, realm: &ceh_core::model::Do
         size: ceh_core::input::ElementBox { width: v[4], height: v[5] },
         centre: Some((v[0], v[2])),
     }
+}
+/// Runs the target resolution of a step script again and returns the element it names (`None` when the script
+/// refuses: the page no longer matches what was observed).
+fn resolve_target(connection: &mut BidiConnection, realm: &ceh_core::model::DocumentId, declaration: &str, payload: &Value) -> Option<String> {
+    let issued = SystemTime::now().duration_since(UNIX_EPOCH).ok().and_then(|d| u64::try_from(d.as_millis()).ok())?;
+    let mut payload = payload.clone();
+    payload["issuedAt"] = json!(issued);
+    let params = json!({"target":{"realm":realm.as_str()},"awaitPromise":false,"functionDeclaration":declaration,"arguments":[{"type":"string","value":payload.to_string()}]});
+    let result = connection.call("script.callFunction", params).ok()?;
+    (result["type"] == "success" && result["result"]["type"] == "node").then(|| result["result"]["sharedId"].as_str().map(str::to_owned)).flatten()
+}
+fn still_the_same_target(first: &str, again: Option<&str>) -> bool {
+    again == Some(first)
 }
 thread_local! {
     static SCROLL_FALLBACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
