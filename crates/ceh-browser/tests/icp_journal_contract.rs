@@ -44,7 +44,7 @@ fn rows_never_carry_query_strings_headers_or_bodies() {
     let event = json!({"type":"event","method":"network.beforeRequestSent","params":{"context":"c","redirectCount":0,"request":{"request":"r1","url":"https://icp.administracionelectronica.gob.es/icpplus/acCitar?nie=Y1234567X&name=PRIVATE","method":"POST","destination":"document","initiatorType":"other","headers":[{"name":"cookie","value":{"type":"string","value":"SECRET"}}],"body":"PRIVATE"}}});
     let row = journal.record(&event, 0.0, "2026-11-10T10:00:00+01:00").unwrap();
     let text = row.to_string();
-    assert!(!text.contains("Y1234567X") && !text.contains("PRIVATE") && !text.contains("SECRET"), "{text}");
+    assert!(!text.contains("Y1234567X") && !text.contains("PRIVATE") && !text.contains("SECRET"), "the row contains private data ({} characters of row)", text.len());
     assert_eq!(row["endpoint"], "acCitar");
 }
 
@@ -88,8 +88,8 @@ fn metadata_rows_hold_header_and_cookie_names_never_values_or_queries() {
     assert_eq!(row["response_header_names"], serde_json::json!(["content-type", "set-cookie"]));
     assert_eq!(row["set_cookie_names"], serde_json::json!(["TSPD_101", "JSESSIONID"]));
     let text = row.to_string();
-    for secret in ["SECRET", "secret=", "?"] {
-        assert!(!text.contains(secret), "{secret} leaked: {text}");
+    for (index, forbidden) in ["SECRET", "secret=", "?"].into_iter().enumerate() {
+        assert!(!text.contains(forbidden), "forbidden value number {index} appears in the row ({} characters of row)", text.len());
     }
     // Static resources are not part of the metadata stream.
     let script = site_event("network.beforeRequestSent", Some(5), "script", serde_json::json!([]), serde_json::json!({}));

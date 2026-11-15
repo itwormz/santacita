@@ -129,9 +129,9 @@ fn main() {
             results.push(lab.state());
         }
         let ok = results.iter().filter(|r| r["selected"] == *expected).count();
-        let trusted_changes = results.iter().filter(|r| r["events"].as_array().is_some_and(|e| e.iter().any(|x| x["type"] == "change" && x["trusted"] == true))).count();
+        let native_changes = results.iter().filter(|r| r["events"].as_array().is_some_and(|e| e.iter().any(|x| x["type"] == "change" && x["trusted"] == true))).count();
         let untrusted = results.iter().filter(|r| r["untrusted"].as_u64().unwrap_or(0) > 0).count();
-        println!("\n## select: {name}\nselected {expected} {ok}/20, trusted change {trusted_changes}/20, runs with untrusted events {untrusted}/20\nsample: {}", results[0]);
+        println!("\n## select: {name}\nselected {expected} {ok}/20, native change {native_changes}/20, runs with untrusted events {untrusted}/20\nsample: {}", results[0]);
     }
     let _ = lab.browser.stop();
 }
