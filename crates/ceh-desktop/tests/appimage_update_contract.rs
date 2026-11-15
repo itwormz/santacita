@@ -32,7 +32,7 @@ fn a_folder_that_cannot_be_written_leaves_the_installed_file_and_the_download_al
 
 #[test]
 fn a_downloaded_appimage_is_started_as_the_successor_so_it_waits_for_the_data_folder() {
-    use ceh_desktop::notification_actions::appimage_command;
+    use ceh_desktop::appimage_command;
     let command = appimage_command(std::path::Path::new("/data/updates/SantaCita-0.4.0-x86_64.AppImage"));
     let marker = command.get_envs().find(|(name, _)| *name == "CEH_AFTER_UPDATE").and_then(|(_, value)| value);
     assert_eq!(marker, Some(std::ffi::OsStr::new("1")), "without it the new copy meets the old copy's instance lock and exits at once");

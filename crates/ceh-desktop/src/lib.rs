@@ -154,6 +154,14 @@ pub fn replace_appimage(package: &std::path::Path, installed: &std::path::Path) 
     }
     result
 }
+/// The command that starts a downloaded AppImage as the successor of this copy: `CEH_AFTER_UPDATE` makes it wait
+/// for this copy to release the data folder (the caller exits right after starting it).
+pub fn appimage_command(path: &std::path::Path) -> std::process::Command {
+    use std::process::Stdio;
+    let mut command = std::process::Command::new(path);
+    command.env("CEH_AFTER_UPDATE", "1").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command
+}
 /// First start imports the installed Python data without changing the source. A bounded
 /// preflight rejects known invalid input before mutation. A late I/O failure leaves a private
 /// incomplete marker so the next startup safely resumes, even when tasks.yml already copied.

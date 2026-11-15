@@ -260,13 +260,6 @@ impl Actions {
 pub fn open_directory(path: &std::path::Path) -> Result<(), ActionError> {
     open(path.as_os_str())
 }
-/// The command that starts a downloaded AppImage as the successor of this copy: `CEH_AFTER_UPDATE` makes it wait
-/// for this copy to release the data folder (the caller exits right after starting it).
-pub fn appimage_command(path: &std::path::Path) -> Command {
-    let mut command = Command::new(path);
-    command.env("CEH_AFTER_UPDATE", "1").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    command
-}
 /// Open a downloaded update package: a disk image or MSI with the system, an AppImage as a program.
 pub fn open_installer(path: &std::path::Path) -> Result<(), ActionError> {
     #[cfg(target_os = "linux")]
@@ -275,7 +268,7 @@ pub fn open_installer(path: &std::path::Path) -> Result<(), ActionError> {
         let mut permissions = std::fs::metadata(path).map_err(|_| error("unavailable"))?.permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(path, permissions).map_err(|_| error("unavailable"))?;
-        appimage_command(path).spawn().map_err(|_| error("unavailable"))?;
+        crate::appimage_command(path).spawn().map_err(|_| error("unavailable"))?;
         return Ok(());
     }
     #[allow(unreachable_code)]
