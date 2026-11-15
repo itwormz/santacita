@@ -225,9 +225,15 @@ class GitHub:
 
     def relabel(self, number: int, present: bool) -> None:
         # Removing first makes CodeRabbit see a fresh `labeled` event for the current commit.
+        # Any other removal failure must stop here: adding a label that is still present produces no event, and
+        # the request would be recorded without CodeRabbit ever seeing it.
         endpoint = f'repos/{self.repository}/issues/{number}/labels'
         if present:
-            gh_json(['api', '--method', 'DELETE', f'{endpoint}/{REVIEW_LABEL}'], allowed_codes=(0, 1))
+            try:
+                gh_json(['api', '--method', 'DELETE', f'{endpoint}/{REVIEW_LABEL}'])
+            except RuntimeError as exc:
+                if '(HTTP 404)' not in str(exc):  # only "already removed" is harmless
+                    raise
         gh_json(['api', '--method', 'POST', endpoint, '-f', f'labels[]={REVIEW_LABEL}'])
 
     def facts(self, number: int) -> Facts:

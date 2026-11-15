@@ -167,6 +167,36 @@ class SharedCommit(unittest.TestCase):
         self.assertIn('context=review-gate (#8)', call.call_args.args[0])
 
 
+class Relabel(unittest.TestCase):
+    def run_gh(self, delete):
+        calls = []
+
+        def run(command, **_):
+            calls.append(command[3])
+            if command[3] == 'DELETE':
+                return delete
+            return subprocess.CompletedProcess(command, 0, '[]', '')
+        with mock.patch.object(gate.subprocess, 'run', side_effect=run):
+            gate.GitHub(REPO).relabel(7, present=True)
+        return calls
+
+    def test_a_label_already_gone_is_harmless(self):
+        gone = subprocess.CompletedProcess([], 1, '', 'gh: Label does not exist (HTTP 404)')
+        self.assertEqual(self.run_gh(gone), ['DELETE', 'POST'])
+
+    def test_a_failed_removal_stops_before_the_label_is_added(self):
+        broken = subprocess.CompletedProcess([], 1, '', 'gh: Server Error (HTTP 500)')
+        with self.assertRaisesRegex(RuntimeError, 'HTTP 500'):
+            self.run_gh(broken)
+
+    def test_a_failed_removal_records_no_request(self):
+        github = FakeGitHub(facts(labels={gate.REVIEW_LABEL}), [HEAD])
+        github.relabel = mock.Mock(side_effect=RuntimeError('HTTP 500'))
+        with self.assertRaises(RuntimeError):
+            gate.reconcile(github, 7, write=True, automatic=True)
+        self.assertEqual(github.calls, [])
+
+
 class FakeGitHub:
     def __init__(self, current, heads):
         self.current, self.heads, self.calls = current, list(heads), []
