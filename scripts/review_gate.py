@@ -27,7 +27,9 @@ GREPTILE_CHECK = 'Greptile Review'
 GREPTILE_SUMMARY_MARKER = '<!-- greptile_summary -->'
 CODERABBIT = 'coderabbitai'
 REVIEW_LABEL = 'coderabbit-ready'
-STATUS_CONTEXT = 'review-gate'
+# Commit statuses belong to the commit, not the PR: two PRs with the same head (e.g. into main and into
+# santacita-beta) must not see or overwrite each other's marker, so each PR has its own context.
+STATUS_CONTEXT = 'review-gate (#{number})'
 REQUESTED = 'CodeRabbit requested for this commit'
 REVIEWED = 'CodeRabbit has reviewed; request repeats manually'
 STATUS_LIMIT = 140  # GitHub truncates commit status descriptions.
@@ -211,14 +213,15 @@ class GitHub:
                 names |= {c['context'] for c in entry['parameters']['required_status_checks']}
         return names or set(FALLBACK_REQUIRED_CHECKS)
 
-    def gate_status(self, sha: str) -> str | None:
-        statuses = gh_json(['api', f'repos/{self.repository}/commits/{sha}/statuses?per_page=100']) or []
-        mine = [s for s in statuses if s['context'] == STATUS_CONTEXT]
+    def gate_status(self, sha: str, number: int) -> str | None:
+        context = STATUS_CONTEXT.format(number=number)
+        statuses = paged(f'repos/{self.repository}/commits/{sha}/statuses?per_page=100')
+        mine = [s for s in statuses if s['context'] == context]
         return max(mine, key=lambda s: s['id'])['description'] if mine else None
 
-    def set_status(self, sha: str, state: str, description: str) -> None:
-        gh_json(['api', '--method', 'POST', f'repos/{self.repository}/statuses/{sha}',
-                 '-f', f'state={state}', '-f', f'context={STATUS_CONTEXT}', '-f', f'description={description}'])
+    def set_status(self, sha: str, number: int, state: str, description: str) -> None:
+        gh_json(['api', '--method', 'POST', f'repos/{self.repository}/statuses/{sha}', '-f', f'state={state}',
+                 '-f', f'context={STATUS_CONTEXT.format(number=number)}', '-f', f'description={description}'])
 
     def relabel(self, number: int, present: bool) -> None:
         # Removing first makes CodeRabbit see a fresh `labeled` event for the current commit.
@@ -236,7 +239,7 @@ class GitHub:
             threads=self.threads(number), checks=self.checks(number), required=self.required(pull['baseRefName']),
             summary_head=greptile_summary_head(
                 paged(f'repos/{self.repository}/issues/{number}/comments?per_page=100'), self.repository),
-            gate_status=self.gate_status(pull['headRefOid']))
+            gate_status=self.gate_status(pull['headRefOid'], number))
 
 
 # ---- reconcile ----------------------------------------------------------------------------------------------
@@ -253,7 +256,7 @@ def reconcile(github, number: int, *, write: bool, automatic: bool) -> Decision:
     if write and decision.action != 'skip':
         state, description = status_for(decision)
         if facts.gate_status != description:
-            github.set_status(facts.head, state, description)
+            github.set_status(facts.head, number, state, description)
     return decision
 
 

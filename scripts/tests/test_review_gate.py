@@ -149,6 +149,24 @@ class Parsing(unittest.TestCase):
                 gate.gh_json(['api', 'x'])
 
 
+class SharedCommit(unittest.TestCase):
+    statuses = [{'id': 1, 'context': 'review-gate (#7)', 'description': gate.REQUESTED},
+                {'id': 2, 'context': 'review-gate (#8)', 'description': 'Waiting: Greptile must review'}]
+
+    def test_each_pull_request_reads_only_its_own_marker_on_a_shared_commit(self):
+        github = gate.GitHub(REPO)
+        with mock.patch.object(gate, 'gh_json', return_value=[self.statuses]):  # one --slurp page
+            self.assertEqual(github.gate_status(HEAD, 7), gate.REQUESTED)
+            self.assertEqual(github.gate_status(HEAD, 8), 'Waiting: Greptile must review')
+            self.assertIsNone(github.gate_status(HEAD, 9))
+
+    def test_status_is_written_under_the_pull_request_context(self):
+        github = gate.GitHub(REPO)
+        with mock.patch.object(gate, 'gh_json') as call:
+            github.set_status(HEAD, 8, 'success', gate.REQUESTED)
+        self.assertIn('context=review-gate (#8)', call.call_args.args[0])
+
+
 class FakeGitHub:
     def __init__(self, current, heads):
         self.current, self.heads, self.calls = current, list(heads), []
@@ -162,7 +180,7 @@ class FakeGitHub:
     def relabel(self, number, present):
         self.calls.append(('relabel', present))
 
-    def set_status(self, sha, state, description):
+    def set_status(self, sha, number, state, description):
         self.calls.append(('status', sha, state, description))
 
 
