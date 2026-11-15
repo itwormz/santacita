@@ -88,8 +88,8 @@ fn metadata_rows_hold_header_and_cookie_names_never_values_or_queries() {
     assert_eq!(row["response_header_names"], serde_json::json!(["content-type", "set-cookie"]));
     assert_eq!(row["set_cookie_names"], serde_json::json!(["TSPD_101", "JSESSIONID"]));
     let text = row.to_string();
-    for secret in ["SECRET", "secret=", "?"] {
-        assert!(!text.contains(secret), "{secret:?} leaked into the row ({} characters of row)", text.len());
+    for (index, forbidden) in ["SECRET", "secret=", "?"].into_iter().enumerate() {
+        assert!(!text.contains(forbidden), "forbidden value number {index} appears in the row ({} characters of row)", text.len());
     }
     // Static resources are not part of the metadata stream.
     let script = site_event("network.beforeRequestSent", Some(5), "script", serde_json::json!([]), serde_json::json!({}));

@@ -24,8 +24,8 @@ fn a_step_row_names_effects_actions_delay_and_receipts_but_no_document_or_sessio
     assert_eq!(row["elapsed_ms"], 2_900);
     assert_eq!(row["receipts"], json!([{"action":"procedure","outcome":"dispatched"}]));
     let text = row.to_string();
-    for secret in ["secret-session", "secret-document-id", "12345"] {
-        assert!(!text.contains(secret), "the row contains {secret:?} ({} characters of row)", text.len());
+    for (index, forbidden) in ["secret-session", "secret-document-id", "12345"].into_iter().enumerate() {
+        assert!(!text.contains(forbidden), "forbidden value number {index} appears in the row ({} characters of row)", text.len());
     }
 }
 
