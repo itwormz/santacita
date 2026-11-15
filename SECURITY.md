@@ -29,7 +29,7 @@ Please avoid testing against other people's data or the live appointment service
 
 ## Supported versions and response
 
-I maintain the latest stable SantaCita release (and any current beta of a later version). The previous Python 0.3.x line receives fixes only when they are critical. Reports about older releases are welcome,
+I maintain the latest stable SantaCita release (and any current beta of a later version). Reports about older releases are welcome,
 but fixes may be provided only through an update to the latest version. See
 [Releases](https://github.com/itwormz/santacita/releases).
 
