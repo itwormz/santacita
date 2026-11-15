@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.4.1 — Chrome input fix
+
+- Fix a regression in 0.4.0 that stopped searches in Chrome and other Chromium-based browsers at the province step and asked for your participation immediately. The check that the clicked element is unchanged after scrolling compared browser handles that Chromium renews on every read; it now compares the elements themselves. Firefox was not affected.
+- Fix the update block in About: its buttons no longer cover the "new version available" text when the window is narrow or the labels are long.
+
 ## 0.4.0 — First stable SantaCita
 
 - Introduce SantaCita, a new desktop application built with Rust, Tauri and Svelte for Toma de huellas / TIE and Autorización de regreso searches. It replaces the Python application as the main line; supported on macOS (Apple Silicon and Intel), Windows 10/11 x64 and Linux x64.
