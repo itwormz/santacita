@@ -58,6 +58,20 @@ test('release preparation synchronizes source and notes and is safe to repeat',a
  await writeFile(join(root,'.github/release-version'),'0.4.0-beta.1\n');await assert.rejects(prepareVersion(root));
 });
 
+test('after the stable 0.4.0 no 0.4.0 beta can be prepared, while a 0.5.0 beta can (a beta never outranks a stable)',async t=>{
+ const root=await fixture(t);await mkdir(join(root,'desktop-ui'));await mkdir(join(root,'.github'));
+ await writeFile(join(root,'Cargo.toml'),'[workspace.package]\nversion = "0.4.0"\n');
+ await writeFile(join(root,'Cargo.lock'),'[[package]]\nname = "ceh-core"\nversion = "0.4.0"\n');
+ await writeFile(join(root,'desktop-ui/package.json'),JSON.stringify({version:'0.4.0'}));
+ await writeFile(join(root,'desktop-ui/package-lock.json'),JSON.stringify({version:'0.4.0',packages:{'':{version:'0.4.0'}}}));
+ await writeFile(join(root,'CHANGELOG.md'),'# Changelog\n\n## Unreleased — Next\n\n- Something new.\n\n## 0.4.0 — First release\n\n- Everything.\n');
+ await writeFile(join(root,'.github/release-version'),'0.4.0-beta.3\n');
+ await assert.rejects(prepareVersion(root),/backwards/);
+ await writeFile(join(root,'.github/release-version'),'0.5.0-beta.1\n');
+ await prepareVersion(root);
+ assert.equal((await readMetadata(root)).version,'0.5.0-beta.1');
+ assert(versionKey('0.5.0-beta.1')>versionKey('0.4.0'));
+});
 test('Windows CRLF metadata is accepted and the declared tag version must agree',async t=>{
  const root=await fixture(t);await mkdir(join(root,'desktop-ui'));await mkdir(join(root,'.github'));
  await writeFile(join(root,'.github/release-version'),'0.4.0-beta.2\r\n');
@@ -90,4 +104,18 @@ test('published releases must be immutable, complete and have matching remote di
  await assert.rejects(verifyPublishedRelease({...published,prerelease:false},dir,version));
  published.assets[0].digest='sha256:'+'0'.repeat(64);
  await assert.rejects(verifyPublishedRelease(published,dir,version));
+});
+
+test('the MSI installs WebView2 with Microsoft\'s signed bootstrapper only when no runtime is registered, and releases require it',async()=>{
+ const wxs=await readFile(new URL('../windows/SantaCita.wxs',import.meta.url),'utf8');
+ const script=await readFile(new URL('../windows/package.ps1',import.meta.url),'utf8');
+ const workflow=await readFile(new URL('../../.github/workflows/build.yml',import.meta.url),'utf8');
+ assert.match(wxs,/F3017226-FE2A-4295-8BDF-00C3A9A7E4C5/);
+ // NOT REMOVE (not NOT Installed): a repair retries after an offline install. A registered version of 0.0.0.0 means "no runtime" (Microsoft's own rule).
+ assert.match(wxs,/Condition="NOT REMOVE AND \(NOT WEBVIEW2_MACHINE OR WEBVIEW2_MACHINE = &quot;0\.0\.0\.0&quot;\) AND \(NOT WEBVIEW2_USER OR WEBVIEW2_USER = &quot;0\.0\.0\.0&quot;\)"/);
+ assert.match(wxs,/Impersonate="yes"/,'runs as the installing user, so a per-user MSI stays free of administrator rights');
+ assert.match(wxs,/Return="ignore"/,'a missing network never fails the installation');
+ assert.match(script,/Get-AuthenticodeSignature/);assert.match(script,/O=Microsoft Corporation/);
+ assert.match(script,/CEH_REQUIRE_WEBVIEW2_SETUP/);
+ assert.match(workflow,/CEH_REQUIRE_WEBVIEW2_SETUP=1/,'a release build cannot skip the embedded installer');
 });

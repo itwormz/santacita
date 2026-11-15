@@ -13,3 +13,10 @@ export function fallbackBrowser(list:InstalledBrowser[]|null,current:string):str
  if(!installed.length||installed.some(b=>b.id===current))return null;
  return installed[0].id;
 }
+const PREFERENCE=['chrome','brave','edge','chromium','firefox'];
+/** The browser a NEW profile starts with: the first installed supported one, Chromium-based before Firefox
+ * (they carry no automation marker); null while the list is unknown or empty. Saved profiles keep their own. */
+export function preferredBrowser(list:InstalledBrowser[]|null):string|null{
+ const installed=(list??[]).filter(b=>b.support==='supported').map(b=>b.id);
+ return PREFERENCE.find(id=>installed.includes(id))??installed[0]??null;
+}

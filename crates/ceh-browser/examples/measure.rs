@@ -109,7 +109,8 @@ fn main() {
     println!("Meta+A then Backspace leaves: {}", lab.json("document.getElementById('txtIdCitado').value"));
 
     // option indexes: 0 Seleccione, 1 ALEMANIA, 2 ESPAÑA, 3 UCRANIA, 4 UCRANIA (EX)
-    let methods: [(&str, &str, Box<dyn Fn(&mut Lab)>); 9] = [
+    type Method = (&'static str, &'static str, Box<dyn Fn(&mut Lab)>);
+    let methods: [Method; 9] = [
         ("click opens list, ArrowDown x3, Enter", "UCRANIA", Box::new(|lab| { lab.click("#txtPaisNac"); lab.keys(&[DOWN, DOWN, DOWN, ENTER]); })),
         ("click opens list, Escape, ArrowDown x3 (closed)", "UCRANIA", Box::new(|lab| { lab.click("#txtPaisNac"); lab.keys(&[ESCAPE]); lab.keys(&[DOWN, DOWN, DOWN]); })),
         ("Tab from previous field, ArrowDown x3 (closed)", "UCRANIA", Box::new(|lab| { lab.click("#txtDesCitado"); lab.keys(&[TAB]); lab.keys(&[DOWN, DOWN, DOWN]); })),

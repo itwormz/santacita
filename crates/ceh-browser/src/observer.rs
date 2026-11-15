@@ -68,13 +68,13 @@ impl PageObserver {
                 None => tap.started.elapsed().as_secs_f64(),
             };
             let wall = &tap.wall;
-            if let Some(row) = tap.journal.record_with(event, now, |ms| wall(ms)) {
+            if let Some(row) = tap.journal.record_with(event, now, wall) {
                 if tap.rows.len() >= MAX_NETWORK_ROWS {
                     tap.rows.pop_front();
                 }
                 tap.rows.push_back(row);
             }
-            if let Some(row) = tap.journal.meta(event, |ms| wall(ms)) {
+            if let Some(row) = tap.journal.meta(event, wall) {
                 if tap.meta.len() >= MAX_NETWORK_ROWS {
                     tap.meta.pop_front();
                 }

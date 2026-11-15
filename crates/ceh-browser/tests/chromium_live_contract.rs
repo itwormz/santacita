@@ -31,9 +31,8 @@ fn string(result: &Value) -> String {
 
 fn exercise(kind: ProfileKind) {
     let Ok(installation) = ChromiumInstallation::discover(kind) else {
-        // A machine that is meant to have the browser sets CEH_REQUIRE_BROWSER, so "not found" cannot pass silently.
-        assert!(std::env::var_os("CEH_REQUIRE_BROWSER").is_none(), "{kind:?} was not found");
-        eprintln!("not installed: nothing to check");
+        // Reported as SKIPPED; a machine that is meant to have the browser sets CEH_REQUIRE_BROWSERS.
+        ceh_browser::skip_missing_browser(&format!("{kind:?}"));
         return;
     };
     let runtime = tempfile::tempdir().unwrap();

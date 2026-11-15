@@ -536,3 +536,26 @@ mod protection {
         assert_eq!(std::fs::read(root.path().join("tasks.yml")).unwrap(), before);
     }
 }
+
+#[test]
+fn telegram_token_without_recipients_can_be_saved_and_reopened() {
+    let root = tempfile::Builder::new().prefix("СантаСита Ёжик ").tempdir().unwrap();
+    let vault = Vault::new(Memory::default());
+    let (mut draft, revision) = profile(root.path());
+    draft.label = "Тестовый профиль Ёжик".into();
+    let mut notifications = enabled();
+    notifications.telegram.recipients.clear();
+    notifications.webhook.enabled = false;
+    let created = save(root.path(), None, draft, &revision, None, Some(&notifications), &vault)
+        .expect("a recipient is not required to save a valid bot token");
+    assert_eq!(ceh_desktop::profile_editor(root.path(), Some(&created.id)).unwrap().draft.label, "Тестовый профиль Ёжик");
+    let opened = editor(root.path(), Some(&created.id), &created.revision, &vault).unwrap();
+    assert!(opened.draft.telegram.enabled);
+    assert!(opened.draft.telegram.recipients.is_empty());
+    assert_eq!(opened.draft.telegram.token, "123456:FAKE_TOKEN");
+    assert!(!std::fs::read_to_string(root.path().join("tasks.yml")).unwrap().contains("FAKE_TOKEN"));
+    let basic = ceh_desktop::profile_editor(root.path(), Some(&created.id)).unwrap();
+    let mut invalid = opened.draft;
+    invalid.telegram.token = "invalid".into();
+    assert!(save(root.path(), Some(&created.id), basic.draft, &basic.revision, None, Some(&invalid), &vault).is_err());
+}

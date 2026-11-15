@@ -289,7 +289,7 @@ fn validate(draft: &NotificationDraft) -> Result<(), EditError> {
     {
         return Err(EditError::Invalid);
     }
-    if tg.enabled && (tg.recipients.is_empty() || Telegram::new(tg.token.trim()).is_err()) {
+    if tg.enabled && Telegram::new(tg.token.trim()).is_err() {
         return Err(EditError::Invalid);
     }
     if hook.enabled {

@@ -52,3 +52,17 @@ jobs:
       - name: Test desktop controller and runtime
         if: needs.scope.outputs.mode != 'docs'
         run: cargo test -p ceh-desktop --features shell --locked --no-fail-fast
+  audit:
+    name: Dependency audit
+    needs: scope
+    if: needs.scope.outputs.mode != 'docs'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Audit Cargo.lock against the RustSec advisory database
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit

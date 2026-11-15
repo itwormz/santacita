@@ -45,11 +45,14 @@ fn a_header_row_holds_the_session_facts_and_nothing_else() {
         app_version: "0.0.0-dev.1".into(), firefox_version: "159.0".into(), os: "macos".into(), profile_persistent: true,
         profile_age_days: Some(3), certificate_cache: "ready".into(),
         action_delay_ms: [300, 800], first_bootstrap_ms: 6_100, typing_ms: 91, contact_typing_ms: 48,
+        webdriver_mode: "mask".into(), webdriver_fallback: Some("timeout".into()),
     });
     assert_eq!(row["profile"], json!({"persistent":true,"age_days":3}));
     assert_eq!(row["certificate_cache"], "ready");
     assert_eq!(row["timings"]["action_delay_ms"], json!([300, 800]));
     assert_eq!(row["firefox"], "159.0");
+    assert_eq!(row["webdriver_mode"], "mask");
+    assert_eq!(row["webdriver_fallback"], "timeout");
 }
 
 #[test]
@@ -99,4 +102,15 @@ fn a_failed_step_keeps_its_effects_and_delay_with_the_error_code() {
     assert_eq!(row["delay_ms"], 400);
     assert_eq!(row["error"], "browser_action_failed");
     assert_eq!(row["receipts"], json!([]));
+}
+
+#[test]
+fn a_visibility_row_is_written_only_when_visibility_or_focus_changes() {
+    use ceh_desktop::session_timeline::{visibility_change, visibility_row};
+    assert_eq!(visibility_change(None, ("visible", true)), Some(visibility_row("visible", true)));
+    assert_eq!(visibility_change(Some(("visible", true)), ("visible", true)), None);
+    let hidden = visibility_change(Some(("visible", true)), ("hidden", false)).unwrap();
+    assert_eq!(hidden["visibility"], "hidden");
+    assert_eq!(hidden["focused"], false);
+    assert!(visibility_change(Some(("hidden", false)), ("visible", false)).is_some(), "focus is tracked separately");
 }

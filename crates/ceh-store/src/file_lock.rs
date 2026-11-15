@@ -1,7 +1,8 @@
 //! Normalize fs2 lock contention across Unix and Windows.
 use std::{fs::File, io};
 
-pub(crate) fn try_exclusive(file: &File) -> io::Result<()> {
+/// Try to lock `file` exclusively without waiting; contention is `ErrorKind::WouldBlock` on every platform.
+pub fn try_exclusive(file: &File) -> io::Result<()> {
     fs2::FileExt::try_lock_exclusive(file).map_err(|error| {
         // Windows ERROR_LOCK_VIOLATION is not mapped to WouldBlock by std.
         if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() {

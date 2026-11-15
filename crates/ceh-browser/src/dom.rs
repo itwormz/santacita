@@ -9,6 +9,12 @@ pub struct DocumentRead {
     pub realm: DocumentId,
     pub snapshot: PageSnapshot,
 }
+/// Where the driver reads a page. Firefox: a BiDi sandbox of its own (`ceh`), so a page script cannot see or
+/// trap the reads (its prototypes and `querySelectorAll` stay out of reach); the realm this read reports is
+/// that sandbox's, and every later call names it. Chrome already runs the driver in an isolated world.
+pub(crate) fn reading_target(context: &str) -> Value {
+    json!({"context":context,"sandbox":"ceh"})
+}
 pub const INSPECT_DOCUMENT: &str = include_str!("inspect-document.js");
 fn read_document_before(
     connection: &mut BidiConnection,
@@ -19,7 +25,7 @@ fn read_document_before(
     if context.is_empty() || context.len() > 512 || !matches!(fill_mode, "manual" | "copy") {
         return Err(ProtocolError::InvalidData);
     }
-    let value=connection.call_before("script.callFunction",json!({"target":{"context":context},"awaitPromise":false,"functionDeclaration":INSPECT_DOCUMENT,"arguments":[{"type":"string","value":fill_mode}]}),deadline)?;
+    let value=connection.call_before("script.callFunction",json!({"target":reading_target(context),"awaitPromise":false,"functionDeclaration":INSPECT_DOCUMENT,"arguments":[{"type":"string","value":fill_mode}]}),deadline)?;
     if value["type"] != "success" || value["result"]["type"] != "string" {
         return Err(ProtocolError::InvalidData);
     }
@@ -199,4 +205,59 @@ pub fn read_page(
         sources: inspection.sources,
         snapshot: inspection.snapshot.ok_or(ProtocolError::InvalidData)?,
     })
+}
+
+#[cfg(test)]
+mod live {
+    use super::*;
+    use crate::firefox::{FirefoxInstallation, OwnedFirefox, ProfileKind, ProfileLease};
+    use std::sync::atomic::AtomicBool;
+    /// A page that traps what a driver reading it would call.
+    const TRAPS: &str = "<!doctype html><title>t</title><select id='s'><option>a</option><option>b</option></select><p>texto</p><script>\
+        const note=k=>document.documentElement.setAttribute('data-hit',(document.documentElement.getAttribute('data-hit')||'')+k+',');\
+        const options=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'options');\
+        Object.defineProperty(HTMLSelectElement.prototype,'options',{configurable:true,get(){note('options');return options.get.call(this)}});\
+        const all=Document.prototype.querySelectorAll;\
+        Document.prototype.querySelectorAll=function(...a){note('qsa');return all.apply(this,a)};\
+        const style=window.getComputedStyle;window.getComputedStyle=function(...a){note('style');return style.apply(this,a)};</script>";
+    fn data_url(page: &str) -> String {
+        let mut out = String::from("data:text/html;charset=utf-8,");
+        for byte in page.bytes() {
+            if byte.is_ascii_alphanumeric() || b"-_.~ <>/=':,;()!".contains(&byte) { out.push(byte as char) } else { out.push_str(&format!("%{byte:02X}")) }
+        }
+        out
+    }
+    fn reads_leave_the_page_untouched(mut browser: OwnedFirefox, main_world_sees_traps: bool) {
+        let context = browser.context().to_owned();
+        browser.connection().call("browsingContext.navigate", json!({"context":context,"url":data_url(TRAPS),"wait":"complete"})).unwrap();
+        let read = read_document(browser.connection(), &context, "manual").unwrap();
+        assert!(!read.snapshot.frames.is_empty());
+        let hits = |browser: &mut OwnedFirefox| {
+            let r = browser.connection().call("script.evaluate", json!({"expression":"document.documentElement.getAttribute('data-hit')||''","target":{"context":context},"awaitPromise":false})).unwrap();
+            r["result"]["value"].as_str().unwrap_or("?").to_owned()
+        };
+        assert_eq!(hits(&mut browser), "", "the page's traps were not triggered by the driver's read");
+        if main_world_sees_traps {
+            // Control: the same call from the page's own world does hit the traps (so the trap works).
+            browser.connection().call("script.evaluate", json!({"expression":"document.querySelectorAll('select')","target":{"context":context},"awaitPromise":false})).unwrap();
+            assert!(hits(&mut browser).contains("qsa"));
+        }
+        let _ = browser.stop();
+    }
+    #[test]
+    #[ignore = "launches the installed Firefox"]
+    fn firefox_reads_in_a_sandbox_the_page_cannot_trap() {
+        let Ok(installation) = FirefoxInstallation::discover() else { return crate::skip_missing_browser("Firefox") };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary(runtime.path()).unwrap();
+        reads_leave_the_page_untouched(OwnedFirefox::start_masked(&installation, lease, false, &AtomicBool::new(false)).unwrap(), true);
+    }
+    #[test]
+    #[ignore = "launches the installed Chrome"]
+    fn chrome_reads_in_an_isolated_world_the_page_cannot_trap() {
+        let Ok(installation) = crate::chromium::ChromiumInstallation::discover(ProfileKind::Chrome) else { return crate::skip_missing_browser("Chrome") };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary_kind(runtime.path(), ProfileKind::Chrome).unwrap();
+        reads_leave_the_page_untouched(OwnedFirefox::start_chromium(&installation, lease, &AtomicBool::new(false)).unwrap(), false);
+    }
 }

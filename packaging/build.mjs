@@ -21,7 +21,7 @@ if(platform==='macos'){
  run('bash',[join(ROOT,'packaging/macos/make-dmg.sh'),dmg,join(target,'bundle/macos/SantaCita.app'),join(ROOT,'LICENSE'),join(ROOT,'assets/dmg-background.png'),join(output,names[0])]);
  run('codesign',['--verify','--deep','--strict',join(target,'bundle/macos/SantaCita.app')]);
 }else if(platform==='windows'){
- run('pwsh',['-NoProfile','-File',join(ROOT,'packaging/windows/package.ps1'),'-Exe',join(target,'ceh-desktop.exe'),'-License',join(ROOT,'LICENSE'),'-Icon',join(ROOT,'.local/builds/work/rust-ui-icons/icon.ico'),'-Version',version,'-Out',output]);
+ run('pwsh',['-NoProfile','-File',join(ROOT,'packaging/windows/package.ps1'),'-Exe',join(target,'ceh-desktop.exe'),'-License',join(ROOT,'LICENSE'),'-Icon',join(ROOT,'.local/builds/work/rust-ui-icons/icon.ico'),'-Version',version,'-Out',output,...(process.env.WEBVIEW2_SETUP?['-WebView2Setup',process.env.WEBVIEW2_SETUP]:[])]);
 }else{
  const images=(await readdir(join(target,'bundle/appimage'))).filter(name=>name.endsWith('.AppImage'));
  if(images.length!==1)throw new Error('Expected one native AppImage');

@@ -15,8 +15,7 @@ fn serve(listener: TcpListener, out: std::path::PathBuf) {
         let mut data = Vec::new();
         let mut buffer = [0u8; 8192];
         let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-        loop {
-            let Ok(n) = stream.read(&mut buffer) else { break };
+        while let Ok(n) = stream.read(&mut buffer) {
             if n == 0 { break; }
             data.extend_from_slice(&buffer[..n]);
             let text = String::from_utf8_lossy(&data).to_string();
@@ -56,13 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             let installation = FirefoxInstallation::discover().map_err(|_| "no firefox")?;
             let lease = ProfileLease::temporary(&runtime).map_err(|_| "profile")?;
-            OwnedFirefox::start(&installation, lease, false, &AtomicBool::new(false)).map_err(|e| format!("start {e:?}"))?
+            if std::env::var("MASK").is_ok() { OwnedFirefox::start_masked(&installation, lease, false, &AtomicBool::new(false)) } else { OwnedFirefox::start(&installation, lease, false, &AtomicBool::new(false)) }.map_err(|e| format!("start {e:?}"))?
         };
         let context = browser.context().to_owned();
-        if std::env::var("MASK").is_ok() {
-            let f = "() => { const d = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver'); if (d && d.get) { Object.defineProperty(Navigator.prototype, 'webdriver', { ...d, get: new Proxy(d.get, { apply: () => false }) }); } }";
-            browser.connection().call("script.addPreloadScript", serde_json::json!({"functionDeclaration":f})).map_err(|e| format!("preload {e:?}"))?;
-        }
+        eprintln!("webdriver mode: {} fallback: {:?}", browser.webdriver_mode().name(), browser.webdriver_fallback().map(|f| f.name()));
         browser.connection().call("browsingContext.navigate", serde_json::json!({"context":context,"url":format!("{url}?label={label}"),"wait":"complete"})).map_err(|_| "navigate")?;
         let file = out.join(format!("{label}.json"));
         let deadline = Instant::now() + Duration::from_secs(20);

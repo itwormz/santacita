@@ -42,6 +42,10 @@ pub struct NativeStep {
     planned_at: Instant,
 }
 impl NativeStep {
+    /// Words of visible text on the observed page (sets how long a person reads before acting).
+    pub fn visible_words(&self) -> usize {
+        self.page.page.snapshot.frames.first().map_or(0, |f| f.text.split_whitespace().count())
+    }
     pub fn diagnostic_snapshot(&self, connection: &mut BidiConnection) -> Option<String> {
         if self.update.control.mode() != ControlMode::Automatic
             || !self.page.page.snapshot.official
@@ -294,6 +298,37 @@ impl SessionDriver {
     pub fn apply_recovery_carry(&mut self, carry: ceh_core::flow::RecoveryCarry) {
         self.flow.apply_carry(carry);
     }
+    /// A few small cursor movements while the page is only being waited on. Does nothing (and sends nothing)
+    /// unless the app drives the page and the pointer position is known. Returns the wait until the next ones.
+    pub fn idle_motion(&mut self, connection: &mut BidiConnection, context: &str, seed: u64) -> Option<u64> {
+        let position = connection.cursor();
+        if !ceh_core::input::idle_motion_allowed(self.flow.control().mode(), position.is_some()) {
+            return None;
+        }
+        let motion = ceh_core::input::idle_motion(seed);
+        let position = position?;
+        // The page's size is read first: a move outside it is rejected, and a rejected batch would leave the
+        // tracked position behind the real pointer.
+        let viewport = connection
+            .call("script.evaluate", serde_json::json!({"expression":"[innerWidth,innerHeight].join(',')","target":{"context":context,"sandbox":"ceh"},"awaitPromise":false}))
+            .ok()
+            .and_then(|result| result["result"]["value"].as_str().and_then(|text| text.split_once(',').map(|(w, h)| (w.parse::<f64>().ok(), h.parse::<f64>().ok()))))
+            .and_then(|(w, h)| w.zip(h));
+        let Some(viewport) = viewport else { return Some(motion.next_in_ms) };
+        let (moves, end) = ceh_core::input::clamp_idle_moves(position, &motion.moves, viewport);
+        if moves.is_empty() {
+            return Some(motion.next_in_ms);
+        }
+        let actions: Vec<serde_json::Value> = moves
+            .iter()
+            .map(|step| serde_json::json!({"type":"pointerMove","duration":step.ms,"x":step.x,"y":step.y,"origin":"pointer"}))
+            .collect();
+        let params = serde_json::json!({"context":context,"actions":[{"type":"pointer","id":"ceh-pointer","parameters":{"pointerType":"mouse"},"actions":actions}]});
+        // A failed batch may have moved the pointer part of the way: forget where it is rather than guess.
+        let sent = connection.call("input.performActions", params).is_ok();
+        connection.set_cursor(sent.then_some(end));
+        Some(motion.next_in_ms)
+    }
     pub fn request_fresh_pass(&mut self) {
         self.fresh_pass_requested = true;
     }
@@ -499,8 +534,20 @@ impl SessionDriver {
         for effect in effects {
             match effect {
                 FlowEffect::Prepare { guard, action } => {
+                    // Typing is paced like a person's, so its time is added to the navigation budget.
+                    let typing = match action {
+                        ActionKind::Applicant => crate::typed_field::typing_budget(
+                            self.profile.document_number.chars().count() + self.profile.full_name.chars().count(),
+                            2,
+                        ),
+                        ActionKind::Contact => crate::typed_field::typing_budget(
+                            self.profile.phone.chars().count() + 2 * self.profile.email.chars().count(),
+                            3,
+                        ),
+                        _ => Duration::ZERO,
+                    };
                     let deadline =
-                        Instant::now() + Duration::from_secs_f64(self.timings.navigation_seconds());
+                        Instant::now() + Duration::from_secs_f64(self.timings.navigation_seconds()) + typing;
                     let result = match action {
                         ActionKind::Province | ActionKind::Procedure | ActionKind::Office => {
                             let selection = self.selection(*action)?;

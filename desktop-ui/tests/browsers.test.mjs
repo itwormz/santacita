@@ -33,3 +33,16 @@ test('Chromium is a browser of its own with a readable name',()=>{
  assert.deepEqual(browserChoices(null,'chromium').options,[{value:'chromium',label:'Chromium'}]);
  assert.equal(fallbackBrowser(chromium,'firefox'),'chromium');
 });
+
+import {preferredBrowser} from '../src/browsers.ts';
+const b=(id,support='supported')=>({id,name:id,version:'1',support});
+test('a new profile starts on the first installed Chromium-based browser, Firefox only when nothing else is there',()=>{
+ assert.equal(preferredBrowser([b('firefox'),b('brave'),b('chrome')]),'chrome');
+ assert.equal(preferredBrowser([b('firefox'),b('edge'),b('brave')]),'brave');
+ assert.equal(preferredBrowser([b('firefox'),b('edge')]),'edge');
+ assert.equal(preferredBrowser([b('firefox'),b('chromium')]),'chromium');
+ assert.equal(preferredBrowser([b('firefox')]),'firefox');
+ assert.equal(preferredBrowser([b('chrome','unsupported'),b('firefox')]),'firefox','unsupported ones are never chosen');
+ assert.equal(preferredBrowser([]),null);
+ assert.equal(preferredBrowser(null),null);
+});

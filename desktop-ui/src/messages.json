@@ -356,7 +356,7 @@
     "Ожидаем повторную попытку": "Waiting for another attempt",
     "Шагов: {count} → {destination}": "Steps: {count} → {destination}",
     "Сайт вернул на выбор провинции": "The site went back to the province choice",
-    "Версии из snap не подходят: установите браузер из репозитория дистрибутива или с сайта разработчика.": "Snap versions do not work: install the browser from your distribution’s repository or from the developer’s website.",
+    "Версии из snap не подходят. Установите Chrome из пакета .deb или Firefox из APT-репозитория Mozilla.": "Snap versions do not work. Install Chrome from its .deb package or Firefox from Mozilla’s APT repository.",
     "Предлагать бета-версии": "Offer beta versions",
     "Проверять обновления при запуске и раз в сутки. Скачивание и установка — по кнопке.": "Check at startup and once a day. Download and installation require your confirmation.",
     "Показывать стабильные и тестовые версии. В бета-версиях возможны ошибки. Скачивание и установка — по кнопке.": "Offer stable and beta versions. Betas may contain bugs. Download and installation require your confirmation.",
@@ -365,7 +365,8 @@
     "Для другого получателя — отправить ему ссылку. Срок действия: {minutes} мин.": "For another recipient, send them the link. It expires in {minutes} min.",
     "Для другого получателя — отправить ему ссылку.": "For another recipient, send them the link.",
     "Окно браузера нельзя поднять в этой среде. Откройте его вручную.": "The browser window cannot be brought forward in this environment. Open it manually.",
-    "Импорт старых данных не завершён. Повторите импорт в настройках.": "Importing the previous data is incomplete. Retry the import in Settings."
+    "Импорт старых данных не завершён. Повторите импорт в настройках.": "Importing the previous data is incomplete. Retry the import in Settings.",
+    "Добавьте получателя, чтобы получать уведомления. Токен можно сохранить сейчас.": "Add a recipient to receive notifications. You can save the token now."
   },
   "es": {
     "Всего": "Total",
@@ -724,7 +725,7 @@
     "Ожидаем повторную попытку": "Esperando otro intento",
     "Шагов: {count} → {destination}": "Pasos: {count} → {destination}",
     "Сайт вернул на выбор провинции": "El sitio volvió a la elección de provincia",
-    "Версии из snap не подходят: установите браузер из репозитория дистрибутива или с сайта разработчика.": "Las versiones snap no sirven: instala el navegador desde el repositorio de tu distribución o desde la web del desarrollador.",
+    "Версии из snap не подходят. Установите Chrome из пакета .deb или Firefox из APT-репозитория Mozilla.": "Las versiones snap no sirven. Instala Chrome desde su paquete .deb o Firefox desde el repositorio APT de Mozilla.",
     "Предлагать бета-версии": "Ofrecer versiones beta",
     "Проверять обновления при запуске и раз в сутки. Скачивание и установка — по кнопке.": "Comprobar al iniciar y una vez al día. La descarga e instalación requieren confirmación.",
     "Показывать стабильные и тестовые версии. В бета-версиях возможны ошибки. Скачивание и установка — по кнопке.": "Ofrecer versiones estables y beta. Las betas pueden contener errores. La descarga e instalación requieren confirmación.",
@@ -733,6 +734,7 @@
     "Для другого получателя — отправить ему ссылку. Срок действия: {minutes} мин.": "Para otro destinatario, enviarle el enlace. Caduca en {minutes} min.",
     "Для другого получателя — отправить ему ссылку.": "Para otro destinatario, enviarle el enlace.",
     "Окно браузера нельзя поднять в этой среде. Откройте его вручную.": "No se puede traer al frente la ventana del navegador en este entorno. Ábrala manualmente.",
-    "Импорт старых данных не завершён. Повторите импорт в настройках.": "La importación de los datos anteriores no ha terminado. Repítala en Ajustes."
+    "Импорт старых данных не завершён. Повторите импорт в настройках.": "La importación de los datos anteriores no ha terminado. Repítala en Ajustes.",
+    "Добавьте получателя, чтобы получать уведомления. Токен можно сохранить сейчас.": "Añade un destinatario para recibir notificaciones. Puedes guardar el token ahora."
   }
 }

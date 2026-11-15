@@ -43,11 +43,23 @@ pub(crate) fn perform(
     let declaration = format!(
         "raw => {{const inspect={INSPECT_DOCUMENT};const validate={GUARD};const step={script};return validate(raw,inspect,step);}}"
     );
+    // Reads run in the driver's own BiDi sandbox, invisible to the page. Choosing a `<select>` is the one
+    // change made in the page's own world (as Python does with `mw:`), so its handlers see an ordinary event.
+    // The sandbox realm that names this document is probed first: a navigated page fails closed.
+    let main_world = connection.cdp_target().is_none() && payload["operation"] == "select";
+    let context = fresh.page.sources.first().map(|source| source.context.clone());
+    if main_world && connection.call("script.evaluate", json!({"expression":"true","target":{"realm":fresh.observation.document.as_str()},"awaitPromise":false})).is_err() {
+        return Ok(Receipt::Refused);
+    }
+    let target = match (main_world, context) {
+        (true, Some(context)) => json!({"context":context}),
+        _ => json!({"realm":fresh.observation.document.as_str()}),
+    };
     let mut ticket = None;
     let sent=permit.send(&fresh.observation,|| {
   let Some(now)=SystemTime::now().duration_since(UNIX_EPOCH).ok().and_then(|d|u64::try_from(d.as_millis()).ok()) else {return DispatchOutcome::NotDispatched;};
   payload["issuedAt"]=json!(now);
-  let params=json!({"target":{"realm":fresh.observation.document.as_str()},"awaitPromise":false,"functionDeclaration":declaration,"arguments":[{"type":"string","value":payload.to_string()}]});
+  let params=json!({"target":target,"awaitPromise":false,"functionDeclaration":declaration,"arguments":[{"type":"string","value":payload.to_string()}]});
   match connection.send("script.callFunction",params) {Ok(value)=>{ticket=Some(value);DispatchOutcome::Unknown},Err(ProtocolError::InvalidData|ProtocolError::PendingCommand)=>DispatchOutcome::NotDispatched,Err(_)=>DispatchOutcome::Unknown}
  })?;
     let Some(ticket) = ticket else {

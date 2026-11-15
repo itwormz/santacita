@@ -41,7 +41,9 @@ export function buildEntries(rows:SearchRow[]):Entry[]{
  return out.reverse();
 }
 
-export interface DisplayRow{key:string;kind:'row'|'wait'|'pass';cells:[string,string];icon:'alert'|'clock'|'restart'|'office'|null}
+/** `wrap`: the text is too long for one line (a list of offices) and is shown over several lines. */
+export const WRAP_FROM=80;
+export interface DisplayRow{key:string;kind:'row'|'wait'|'pass';cells:[string,string];icon:'alert'|'clock'|'restart'|'office'|null;wrap:boolean}
 export interface ViewContext{
  time:(ms:number)=>string;minute:(ms:number)=>string;what:(row:SearchRow)=>string;
  t:(key:string)=>string;fill:(text:string,values:Record<string,string>)=>string;
@@ -58,12 +60,13 @@ export function displayRows(entries:Entry[],ctx:ViewContext):DisplayRow[]{
  return entries.map((entry):DisplayRow=>{
   if(entry.kind==='pass'){
    const title=ctx.fill(ctx.t('Новый проход {number}'),{number:String(entry.number)});
-   return {key:`e${entry.id}`,kind:'pass',cells:[ctx.time(entry.time),entry.reason==='restart'?`${title} · ${ctx.t('перезапуск')}`:title],icon:'restart'};
+   return {key:`e${entry.id}`,kind:'pass',cells:[ctx.time(entry.time),entry.reason==='restart'?`${title} · ${ctx.t('перезапуск')}`:title],icon:'restart',wrap:false};
   }
   if(entry.kind==='wait'){
-   return {key:`e${entry.id}`,kind:'wait',cells:[range(entry.first,entry.last,ctx),entry.count>1?ctx.fill(ctx.t('Сит нет · проверок: {count}'),{count:String(entry.count)}):ctx.t('Сит нет')],icon:'clock'};
+   return {key:`e${entry.id}`,kind:'wait',cells:[range(entry.first,entry.last,ctx),entry.count>1?ctx.fill(ctx.t('Сит нет · проверок: {count}'),{count:String(entry.count)}):ctx.t('Сит нет')],icon:'clock',wrap:false};
   }
   const row=entry.row;
-  return {key:`e${entry.id}`,kind:'row',cells:[ctx.time(row.time),ctx.what(row)],icon:row.status==='offices_found'?'office':isWarn(row)?'alert':null};
+  const what=ctx.what(row);
+  return {key:`e${entry.id}`,kind:'row',cells:[ctx.time(row.time),what],icon:row.status==='offices_found'?'office':isWarn(row)?'alert':null,wrap:what.length>WRAP_FROM};
  });
 }

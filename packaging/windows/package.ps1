@@ -8,13 +8,21 @@ param(
   [Parameter(Mandatory)][string]$License,
   [Parameter(Mandatory)][string]$Icon,
   [Parameter(Mandatory)][string]$Version,
-  [Parameter(Mandatory)][string]$Out
+  [Parameter(Mandatory)][string]$Out,
+  # Microsoft's Evergreen WebView2 bootstrapper, embedded in the MSI. Required when CEH_REQUIRE_WEBVIEW2_SETUP is set (release builds).
+  [string]$WebView2Setup
 )
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$') { throw "Unsupported version: $Version" }
 # Windows Installer versions are numeric: beta N becomes the fourth field (0.4.0-beta.2 -> 0.4.0.2).
 $msiVersion = if ($Matches[4]) { "$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])" } else { "$($Matches[1]).$($Matches[2]).$($Matches[3])" }
 foreach ($path in $Exe, $License, $Icon, "$PSScriptRoot\SantaCita.wxs") { if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing: $path" } }
+if ($WebView2Setup) {
+  if (-not (Test-Path -LiteralPath $WebView2Setup -PathType Leaf)) { throw "Missing: $WebView2Setup" }
+  # Only Microsoft's own signed installer is embedded.
+  $signature = Get-AuthenticodeSignature -LiteralPath $WebView2Setup
+  if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw "The WebView2 bootstrapper is not validly signed by Microsoft ($($signature.Status))" }
+} elseif ($env:CEH_REQUIRE_WEBVIEW2_SETUP) { throw 'WebView2 bootstrapper required (CEH_REQUIRE_WEBVIEW2_SETUP) but -WebView2Setup was not given' }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $work = Join-Path ([IO.Path]::GetTempPath()) ("santacita-" + [guid]::NewGuid())
 try {
@@ -23,8 +31,9 @@ try {
   Copy-Item -LiteralPath $Exe -Destination (Join-Path $payload 'SantaCita.exe')
   Copy-Item -LiteralPath $License -Destination (Join-Path $payload 'LICENSE.txt')
 
+  $webView2Define = if ($WebView2Setup) { @('-d', "WebView2Setup=$((Resolve-Path $WebView2Setup).Path)") } else { @() }
   $msi = Join-Path $Out "SantaCita-$Version-windows-x64.msi"
-  & wix build "$PSScriptRoot\SantaCita.wxs" -arch x64 -d "Version=$msiVersion" -d "SourceDir=$payload" -d "IconFile=$((Resolve-Path $Icon).Path)" -pdbtype none -o $msi
+  & wix build "$PSScriptRoot\SantaCita.wxs" -arch x64 -d "Version=$msiVersion" -d "SourceDir=$payload" -d "IconFile=$((Resolve-Path $Icon).Path)" $webView2Define -pdbtype none -o $msi
   if ($LASTEXITCODE -ne 0) { throw 'wix build failed' }
 
   $portable = Join-Path $work 'portable\SantaCita'

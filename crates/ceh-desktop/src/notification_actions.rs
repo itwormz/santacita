@@ -268,7 +268,7 @@ pub fn open_installer(path: &std::path::Path) -> Result<(), ActionError> {
         let mut permissions = std::fs::metadata(path).map_err(|_| error("unavailable"))?.permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(path, permissions).map_err(|_| error("unavailable"))?;
-        Command::new(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|_| error("unavailable"))?;
+        crate::appimage_command(path).spawn().map_err(|_| error("unavailable"))?;
         return Ok(());
     }
     #[allow(unreachable_code)]

@@ -30,7 +30,7 @@ pub mod selection;
 #[cfg(feature = "bidi")]
 mod trusted_input;
 #[cfg(feature = "bidi")]
-pub use trusted_input::take_stale_reason;
+pub use trusted_input::{take_scroll_fallback, take_stale_reason};
 #[cfg(feature = "bidi")]
 mod typed_field;
 #[cfg(feature = "bidi")]
@@ -194,6 +194,8 @@ pub mod launch;
 
 #[cfg(feature = "bidi")]
 pub mod firefox;
+#[cfg(feature = "bidi")]
+pub mod firefox_control;
 
 #[cfg(feature = "bidi")]
 pub mod chromium;
@@ -206,3 +208,11 @@ pub mod session_driver;
 
 #[cfg(feature = "bidi")]
 mod firefox_certificates;
+
+/// For the opt-in live tests: a browser that is not installed is reported as `SKIPPED` (never as a silent pass),
+/// and fails the test when `CEH_REQUIRE_BROWSERS` is set (a machine that is meant to have the browsers).
+#[doc(hidden)]
+pub fn skip_missing_browser(name: &str) {
+    assert!(std::env::var_os("CEH_REQUIRE_BROWSERS").is_none() && std::env::var_os("CEH_REQUIRE_BROWSER").is_none(), "{name} is required but not installed");
+    eprintln!("SKIPPED: {name} not installed");
+}

@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use ceh_core::profiles::{ProfileDraft, ValidationReport, validate_desktop_profile};
 use ceh_desktop::{Bootstrap, bootstrap, trusted_origin};
 use std::path::PathBuf;
@@ -252,6 +254,37 @@ async fn update_install(window: WebviewWindow, runtime: State<'_, DesktopRuntime
         window.app_handle().exit(0);
         return Ok(());
     }
+    // An AppImage replaces the file it was started from; without `$APPIMAGE` (or when its folder is not
+    // writable) the downloaded file is started instead, as before.
+    #[cfg(target_os = "linux")]
+    if let Some(installed) = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from).filter(|p| p.is_file()) {
+        if runtime.search.snapshot()?.active {
+            return Err("search_already_running");
+        }
+        let (package, target) = (path.clone(), installed.clone());
+        let replaced = tauri::async_runtime::spawn_blocking(move || ceh_desktop::replace_appimage(&package, &target))
+            .await
+            .map_err(|_| "update_install_failed")?;
+        if replaced.is_ok() {
+            std::process::Command::new(&installed).env("CEH_AFTER_UPDATE", "1").spawn().map_err(|_| "update_install_failed")?;
+            window.app_handle().exit(0);
+            return Ok(());
+        }
+    }
+    // On Linux the downloaded AppImage is the next copy of the program: this one leaves so it can take the data folder.
+    #[cfg(target_os = "linux")]
+    {
+        if runtime.search.snapshot()?.active {
+            return Err("search_already_running");
+        }
+        tauri::async_runtime::spawn_blocking(move || ceh_desktop::notification_actions::open_installer(&path))
+            .await
+            .map_err(|_| "update_install_failed")?
+            .map_err(|_| "update_install_failed")?;
+        window.app_handle().exit(0);
+        return Ok(());
+    }
+    #[cfg(not(target_os = "linux"))]
     tauri::async_runtime::spawn_blocking(move || ceh_desktop::notification_actions::open_installer(&path))
         .await
         .map_err(|_| "update_install_failed")?
@@ -703,9 +736,13 @@ async fn startup_report_copy(
     .map_err(|_| "clipboard_unavailable")?
 }
 
+/// This start follows an update: the previous copy may still hold the data folder for a moment.
+static AFTER_UPDATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn main() {
     // Just updated: the previous program is still shutting down; wait for it, and do not pass the marker on.
     if std::env::var_os("CEH_AFTER_UPDATE").is_some() {
+        AFTER_UPDATE.store(true, std::sync::atomic::Ordering::Release);
         std::thread::sleep(std::time::Duration::from_millis(1500));
         // SAFETY: nothing else runs yet; this only removes a marker for the child processes started later.
         unsafe { std::env::remove_var("CEH_AFTER_UPDATE") };
@@ -805,6 +842,27 @@ fn main() {
                 let _ = ceh_desktop::auto_import(&root, &ceh_desktop::legacy_support_dirs(), ceh_desktop::catalog());
                 (root, "installed")
             };
+            // One copy per data folder: a second start shows the first one's window and leaves.
+            let wait = if AFTER_UPDATE.load(std::sync::atomic::Ordering::Acquire) { std::time::Duration::from_secs(8) } else { std::time::Duration::ZERO };
+            match ceh_desktop::instance_lock::InstanceLock::acquire(&root, wait) {
+                ceh_desktop::instance_lock::Acquire::AlreadyRunning => std::process::exit(0),
+                ceh_desktop::instance_lock::Acquire::Owned(lock) => {
+                    let lock = std::sync::Arc::new(lock);
+                    app.manage(lock.clone());
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || loop {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        if lock.take_activation_request()
+                            && let Some(window) = handle.get_webview_window("main")
+                        {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    });
+                }
+                ceh_desktop::instance_lock::Acquire::Unavailable => {}
+            }
             let dark = bootstrap(&root, "ru")
                 .map(|data| data.preferences.dark)
                 .unwrap_or(true);

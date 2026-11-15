@@ -752,6 +752,8 @@ fn run_owned(
                 // Typing samples are already milliseconds; bootstrap is seconds.
                 typing_ms: timings.sample(TimingKind::Typing, samples.typing).map(|v| v.round() as u64).unwrap_or(0),
                 contact_typing_ms: timings.sample(TimingKind::ContactTyping, samples.contact_typing).map(|v| v.round() as u64).unwrap_or(0),
+                webdriver_mode: browser.webdriver_mode().name().to_owned(),
+                webdriver_fallback: browser.webdriver_fallback().map(|f| f.name().to_owned()),
             },
         );
     }
@@ -780,6 +782,10 @@ fn run_owned(
         let mut preferences_at = Instant::now() - Duration::from_secs(3);
         let mut sound_enabled = false;
         let mut page_checked = Instant::now();
+        // The page the person has already been given time to read: the first action on a new one waits to read it.
+        let mut read_document: Option<String> = None;
+        // When the cursor next stirs while the page is only waited on.
+        let mut idle_at = Instant::now() + Duration::from_secs(3);
         loop {
             while let Ok(message) = receiver.try_recv() {
                 match message.command {
@@ -915,6 +921,10 @@ fn run_owned(
             }
             publish_budget(state, &mut budget, crate::current_time()?, &appointment_policy, observer.hot_retry())?;
             let paused = driver.control().mode() == ControlMode::Paused;
+            if !paused && !manual && (wait || Instant::now() < retry_at) && Instant::now() >= idle_at {
+                let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().map_err(|_| "search_unavailable")?);
+                idle_at = Instant::now() + Duration::from_millis(driver.idle_motion(browser.connection(), &context, seed).unwrap_or(4000));
+            }
             let mut effects = Vec::new();
             let mut action_delay_ms: Option<u64> = None;
             if !paused && !manual && Instant::now() < retry_at {
@@ -1092,6 +1102,14 @@ fn run_owned(
                     ) as f64
                         / u64::MAX as f64;
                     let pause = timings.sample(ceh_core::timings::TimingKind::Action,sample).map_err(|_|"profile_invalid")?;
+                    let document = before.observation.document.as_str().to_owned();
+                    let reading = if read_document.as_deref() == Some(document.as_str()) {
+                        0.0
+                    } else {
+                        read_document = Some(document);
+                        ceh_core::input::reading_pause_ms(u64::from_le_bytes(bytes.as_bytes()[8..16].try_into().map_err(|_| "search_unavailable")?), step.visible_words()) as f64 / 1000.0
+                    };
+                    let pause = pause + reading;
                     action_delay_ms = Some((pause * 1000.0).round() as u64);
                     let until = Instant::now() + Duration::from_secs_f64(pause);
                     while Instant::now() < until && !cancelled.load(Ordering::Acquire) {
@@ -1163,12 +1181,16 @@ fn run_owned(
                         return Err("browser_action_failed");
                     }
                 };
-                diagnostics.step(crate::session_timeline::step_row(
+                let mut row = crate::session_timeline::step_row(
                     &effects,
                     action_delay_ms,
                     &after.receipts.iter().map(|r| (r.action, r.outcome)).collect::<Vec<_>>(),
                     executing_since.elapsed().as_millis() as u64,
-                ));
+                );
+                if ceh_browser::take_scroll_fallback() {
+                    row["scroll_fallback"] = serde_json::json!(true);
+                }
+                diagnostics.step(row);
                 if profile.fill_mode == "copy" && after.applicant_prepared {
                     let identity = driver.copied_budget_identity(browser.connection(), &after.observation)
                         .map_err(|_| "appointment_budget_unavailable")?;
@@ -1365,6 +1387,7 @@ fn run_owned(
                 }
                 preferences_at = Instant::now();
             }
+            diagnostics.window_state(browser.connection(), &context);
             diagnostics.flush_timeline(browser.connection(), &mut driver);
             let change = presenter
                 .update(

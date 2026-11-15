@@ -93,6 +93,7 @@ impl Card {
             .unwrap_or(source)
             .to_string()
     }
+    #[allow(clippy::too_many_arguments)]
     fn rectangle(&mut self, x: i64, y: i64, w: Value, h: i64, color: &str, border: Option<&str>, radius: i64) {
         self.ops.push(json!({"op":"box","x":x,"y":y,"w":w,"h":h,"color":color,"border":border,"radius":radius}));
     }

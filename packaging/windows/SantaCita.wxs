@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Per-user installer without questions: no administrator rights, no folder or licence pages, only the progress bar.
-     Same shape as the Python version's MSI. Built with WiX 4: wix build SantaCita.wxs -arch x64 -d Version=0.4.0.1 -d SourceDir=<folder> -d IconFile=<icon.ico> -->
+     Same shape as the Python version's MSI. Built with WiX 4: wix build SantaCita.wxs -arch x64 -d Version=0.4.0.1 -d SourceDir=<folder> -d IconFile=<icon.ico> [-d WebView2Setup=<MicrosoftEdgeWebview2Setup.exe>] -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="SantaCita" Manufacturer="itwormz" Version="$(Version)"
            UpgradeCode="42DDB187-3A0C-5D7D-BC5B-DB5BA305900E" Scope="perUser" InstallerVersion="500">
@@ -9,7 +9,7 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
     <Property Id="ARPCOMMENTS" Value="Appointment helper for Extranjería: fingerprinting and autorización de regreso" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/itwormz/extranjeria-cita-helper" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/itwormz/santacita" />
     <!-- A small .ico, not the program itself: using the exe here would embed a second copy of it in the MSI. -->
     <Icon Id="AppIcon" SourceFile="$(IconFile)" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
@@ -22,6 +22,25 @@
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="AppMenu" Name="SantaCita" />
     </StandardDirectory>
+
+    <?ifdef WebView2Setup?>
+    <!-- The window needs the Microsoft Edge WebView2 runtime. Windows 11 and current Windows 10 have it; when
+         neither the machine-wide nor the per-user runtime is registered, Microsoft's own signed Evergreen
+         bootstrapper (embedded here, about 1.7 MB) installs it after the files are copied (also on a repair, so an offline
+         first install can be retried; a registered version of 0.0.0.0 means that no runtime is installed). It runs as the
+         installing user (per-user when not elevated) and needs the network; a failure does not fail the install. -->
+    <Property Id="WEBVIEW2_MACHINE">
+      <RegistrySearch Id="WebView2Machine" Root="HKLM" Key="SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Bitness="always32" />
+    </Property>
+    <Property Id="WEBVIEW2_USER">
+      <RegistrySearch Id="WebView2User" Root="HKCU" Key="Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Bitness="always32" />
+    </Property>
+    <Binary Id="WebView2Bootstrapper" SourceFile="$(WebView2Setup)" />
+    <CustomAction Id="InstallWebView2" BinaryRef="WebView2Bootstrapper" ExeCommand="/silent /install" Execute="deferred" Impersonate="yes" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="InstallWebView2" After="InstallFiles" Condition="NOT REMOVE AND (NOT WEBVIEW2_MACHINE OR WEBVIEW2_MACHINE = &quot;0.0.0.0&quot;) AND (NOT WEBVIEW2_USER OR WEBVIEW2_USER = &quot;0.0.0.0&quot;)" />
+    </InstallExecuteSequence>
+    <?endif?>
 
     <Feature Id="Application" Title="SantaCita" Level="1">
       <Component Id="ApplicationExe" Directory="INSTALLFOLDER" Guid="55A2F2A3-5DCD-5C0D-83AB-81B433941A60">
