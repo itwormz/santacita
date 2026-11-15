@@ -133,6 +133,8 @@ fn automated(label: &str, runs: usize, out: &Path) -> Result<(), Fail> {
     let mut cursor = None;
     for run in 1..=runs {
         let context = browser.context().to_owned();
+        // A report of an earlier run with the same label must not pass for this one.
+        let _ = std::fs::remove_file(out.join(format!("humanize-{label}-{run}.json")));
         let url = format!("http://127.0.0.1:{PORT}/?label={label}-{run}");
         call(&mut browser, "browsingContext.navigate", json!({"context":context,"url":url,"wait":"complete"}))?;
         std::thread::sleep(Duration::from_millis(800));

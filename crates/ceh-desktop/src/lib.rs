@@ -136,9 +136,15 @@ pub fn replace_appimage(package: &std::path::Path, installed: &std::path::Path) 
     use std::os::unix::fs::PermissionsExt;
     let directory = installed.parent().ok_or("update_install_failed")?;
     let name = installed.file_name().and_then(|n| n.to_str()).ok_or("update_install_failed")?;
-    let staged = directory.join(format!(".{name}.update"));
+    // A file of its own (created exclusively, beside the installation): two replacements started together never
+    // write to, rename or delete each other's copy.
+    let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let staged = directory.join(format!(".{name}.update-{}-{unique}", std::process::id()));
     let result = (|| {
-        std::fs::copy(package, &staged).map_err(|_| "update_install_failed")?;
+        let mut source = std::fs::File::open(package).map_err(|_| "update_install_failed")?;
+        let mut target = std::fs::OpenOptions::new().write(true).create_new(true).open(&staged).map_err(|_| "update_install_failed")?;
+        std::io::copy(&mut source, &mut target).map_err(|_| "update_install_failed")?;
+        drop(target);
         std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).map_err(|_| "update_install_failed")?;
         std::fs::rename(&staged, installed).map_err(|_| "update_install_failed")
     })();

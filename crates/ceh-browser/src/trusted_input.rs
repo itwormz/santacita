@@ -194,6 +194,10 @@ fn activate(
     };
     let shared = shared.to_owned();
     permit.finish();
+    // Scroll with the wheel first: the observation that authorizes the click is then taken after the page
+    // has moved, so a handler that changed the form while scrolling is seen and refused.
+    let before = element_geometry(connection, realm, &shared);
+    scroll_with_wheel(connection, &context, realm, &shared, &before);
     let current = observer
         .observe(connection, fill_mode)
         .map_err(|_| unseen("second_observation_failed"))?;
@@ -231,10 +235,7 @@ fn activate(
     } else {
         gate.begin_preparation(guard, &current.observation, action)?
     };
-    let mut geometry = element_geometry(connection, realm, &shared);
-    if scroll_with_wheel(connection, &context, realm, &shared, &geometry) {
-        geometry = element_geometry(connection, realm, &shared);
-    }
+    let geometry = element_geometry(connection, realm, &shared);
     // From where the cursor was left (viewport coordinates), expressed relative to this element's centre.
     let from = geometry.centre.zip(connection.cursor()).map(|((cx, cy), (x, y))| ((x - cx).round() as i32, (y - cy).round() as i32));
     let plan = ceh_core::input::click_plan(pointer_seed(), geometry.reach, geometry.size, from);
@@ -313,6 +314,7 @@ pub(crate) fn click_actions(shared: &str, plan: &ceh_core::input::ClickPlan) -> 
 /// Where the element is and how much room the cursor has around it inside the viewport. `None` fields stay
 /// unknown when the geometry cannot be read: the click then collapses onto the centre.
 struct ElementGeometry {
+    viewport_width: f64,
     viewport_height: f64,
     reach: ceh_core::input::Reach,
     size: ceh_core::input::ElementBox,
@@ -320,6 +322,7 @@ struct ElementGeometry {
 }
 fn element_geometry(connection: &mut BidiConnection, realm: &ceh_core::model::DocumentId, shared: &str) -> ElementGeometry {
     let unknown = ElementGeometry {
+        viewport_width: 0.0,
         viewport_height: 0.0,
         reach: ceh_core::input::Reach { left: 0, right: 0, up: 0, down: 0 },
         size: ceh_core::input::ElementBox { width: 0.0, height: 0.0 },
@@ -331,6 +334,7 @@ fn element_geometry(connection: &mut BidiConnection, realm: &ceh_core::model::Do
     let Some(v) = result["result"]["value"].as_str().and_then(|t| serde_json::from_str::<Vec<f64>>(t).ok()).filter(|v| v.len() == 6) else { return unknown };
     let room = |v: f64| (v.floor() as i32 - 2).max(0);
     ElementGeometry {
+        viewport_width: v[0] + v[1],
         viewport_height: v[2] + v[3],
         reach: ceh_core::input::Reach { left: room(v[0]), right: room(v[1]), up: room(v[2]), down: room(v[3]) },
         size: ceh_core::input::ElementBox { width: v[4], height: v[5] },
@@ -351,6 +355,15 @@ pub fn take_scroll_fallback() -> bool {
 /// Returns whether the page was scrolled.
 fn scroll_with_wheel(connection: &mut BidiConnection, context: &str, realm: &ceh_core::model::DocumentId, shared: &str, geometry: &ElementGeometry) -> bool {
     let Some((cx, cy)) = geometry.centre else { return false };
+    // The wheel only scrolls vertically here: a target to the left or right of the page is brought into view
+    // the instant way (and the fallback is recorded).
+    if cx < 0.0 || cx > geometry.viewport_width {
+        SCROLL_FALLBACK.with(|f| f.set(true));
+        let params = json!({"target":{"realm":realm.as_str()},"awaitPromise":false,"arguments":[{"sharedId":shared}],
+            "functionDeclaration":"el=>{el.scrollIntoView({block:'center',inline:'center',behavior:'instant'});}"});
+        let _ = connection.call("script.callFunction", params);
+        return true;
+    }
     let seed = pointer_seed() ^ 0x5352;
     let needed = ceh_core::input::scroll_needed(seed, cy, geometry.size.height, geometry.viewport_height);
     if needed == 0 {
@@ -524,6 +537,34 @@ mod tests {
         assert!(log.iter().filter(|e| *e == "wheel").count() >= 10, "{log:?}");
         assert_eq!(log.first().map(String::as_str), Some("wheel"), "the first scroll is caused by a wheel: {log:?}");
         let _ = browser.stop();
+    }
+    /// A button 3000 px to the right is brought into view (the wheel is vertical only) and the fallback is recorded.
+    fn horizontal_target_is_scrolled_into_view(mut browser: crate::firefox::OwnedFirefox) {
+        let context = browser.context().to_owned();
+        let page = "<!doctype html><title>t</title><body style='margin:0'><div style='width:5000px;height:120px;position:relative'><button id='b' style='position:absolute;left:3000px;top:20px;width:160px;height:40px'>go</button></div>";
+        let url = format!("data:text/html;base64,{}", base64_encode(page.as_bytes()));
+        browser.connection().call("browsingContext.navigate", json!({"context":context,"url":url,"wait":"complete"})).unwrap();
+        let node = browser.connection().call("script.evaluate", json!({"expression":"document.getElementById('b')","target":{"context":context},"awaitPromise":false,"resultOwnership":"root"})).unwrap();
+        let shared = node["result"]["sharedId"].as_str().unwrap().to_owned();
+        let realm = ceh_core::model::DocumentId::new(node["realm"].as_str().unwrap()).unwrap();
+        let before = element_geometry(browser.connection(), &realm, &shared);
+        assert!(before.centre.unwrap().0 > before.viewport_width, "off the right edge to begin with");
+        let _ = take_scroll_fallback();
+        assert!(scroll_with_wheel(browser.connection(), &context, &realm, &shared, &before));
+        let after = element_geometry(browser.connection(), &realm, &shared);
+        let x = after.centre.unwrap().0;
+        assert!(x > 0.0 && x < after.viewport_width, "in view now: {x} of {}", after.viewport_width);
+        assert!(take_scroll_fallback(), "the instant scroll is recorded");
+        let _ = browser.stop();
+    }
+    #[test]
+    #[ignore = "launches the installed Firefox"]
+    fn firefox_scrolls_a_horizontally_offscreen_target_into_view() {
+        use crate::firefox::{FirefoxInstallation, OwnedFirefox, ProfileLease};
+        let Ok(installation) = FirefoxInstallation::discover() else { return crate::skip_missing_browser("Firefox") };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary(runtime.path()).unwrap();
+        horizontal_target_is_scrolled_into_view(OwnedFirefox::start(&installation, lease, false, &std::sync::atomic::AtomicBool::new(false)).unwrap());
     }
     fn base64_encode(bytes: &[u8]) -> String {
         const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

@@ -59,7 +59,7 @@ La descarga e instalación requieren su acción. Se verifican SHA256 y la proced
 ## ⚠️ Limitaciones
 
 - Requiere un navegador compatible instalado y acceso al almacén de credenciales para las notificaciones configuradas.
-- Windows usa WebView2. El instalador MSI lo instala solo si falta; para el ZIP portable en un sistema sin él, instale [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+- Windows usa WebView2. El instalador MSI lo instala solo si falta (hace falta acceso a la red; volver a ejecutar el MSI repara un intento fallido). Si no funciona, y para el ZIP portable, instale [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 - Requisitos de Linux: escritorio gráfico, glibc 2.35 o superior (Ubuntu 22.04, Debian 12, Fedora 36 y posteriores), `fuse3` para el AppImage, las bibliotecas Mesa GL/EGL, un llavero Secret Service (gnome-keyring o KWallet) para las credenciales de notificaciones y un navegador que no sea snap. Probado en contenedores con Ubuntu 22.04, Fedora 37, Kali y Arch; la GPU real, Wayland, la bandeja y las notificaciones aún no están verificados. En Wayland nativo puede ser necesario abrir la ventana del navegador manualmente.
 - Pueden producirse errores del sitio, límites HTTP 429 y nuevas autenticaciones. No se garantiza obtener cita.
 - [Diagnóstico y privacidad](docs/PRIVACY.md). Elimine datos personales antes de compartir informes.

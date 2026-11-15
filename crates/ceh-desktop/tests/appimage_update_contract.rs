@@ -38,3 +38,18 @@ fn a_downloaded_appimage_is_started_as_the_successor_so_it_waits_for_the_data_fo
     assert_eq!(marker, Some(std::ffi::OsStr::new("1")), "without it the new copy meets the old copy's instance lock and exits at once");
     assert_eq!(command.get_program(), "/data/updates/SantaCita-0.4.0-x86_64.AppImage");
 }
+
+#[test]
+fn every_replacement_stages_its_own_file_so_two_clicks_cannot_corrupt_each_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let installed = dir.path().join("SantaCita.AppImage");
+    std::fs::write(&installed, "old").unwrap();
+    // The fixed staging name an earlier version used, as if another replacement were in the middle of copying.
+    let foreign = dir.path().join(".SantaCita.AppImage.update");
+    std::fs::write(&foreign, "someone else's half-written copy").unwrap();
+    let package = dir.path().join("package.AppImage");
+    std::fs::write(&package, "new").unwrap();
+    replace_appimage(&package, &installed).unwrap();
+    assert_eq!(std::fs::read_to_string(&installed).unwrap(), "new");
+    assert_eq!(std::fs::read_to_string(&foreign).unwrap(), "someone else's half-written copy", "another staging file is never touched");
+}

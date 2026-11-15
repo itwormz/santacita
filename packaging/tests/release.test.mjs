@@ -111,7 +111,8 @@ test('the MSI installs WebView2 with Microsoft\'s signed bootstrapper only when 
  const script=await readFile(new URL('../windows/package.ps1',import.meta.url),'utf8');
  const workflow=await readFile(new URL('../../.github/workflows/build.yml',import.meta.url),'utf8');
  assert.match(wxs,/F3017226-FE2A-4295-8BDF-00C3A9A7E4C5/);
- assert.match(wxs,/Condition="NOT Installed AND NOT WEBVIEW2_MACHINE AND NOT WEBVIEW2_USER"/);
+ // NOT REMOVE (not NOT Installed): a repair retries after an offline install. A registered version of 0.0.0.0 means "no runtime" (Microsoft's own rule).
+ assert.match(wxs,/Condition="NOT REMOVE AND \(NOT WEBVIEW2_MACHINE OR WEBVIEW2_MACHINE = &quot;0\.0\.0\.0&quot;\) AND \(NOT WEBVIEW2_USER OR WEBVIEW2_USER = &quot;0\.0\.0\.0&quot;\)"/);
  assert.match(wxs,/Impersonate="yes"/,'runs as the installing user, so a per-user MSI stays free of administrator rights');
  assert.match(wxs,/Return="ignore"/,'a missing network never fails the installation');
  assert.match(script,/Get-AuthenticodeSignature/);assert.match(script,/O=Microsoft Corporation/);

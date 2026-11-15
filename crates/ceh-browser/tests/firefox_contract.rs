@@ -313,8 +313,10 @@ fn remote_control_mode_reports_webdriver_false() {
     let runtime = tempfile::tempdir().unwrap();
     let lease = ProfileLease::temporary(runtime.path()).unwrap();
     let mut browser = OwnedFirefox::start(&installation, lease, std::env::var_os("CEH_TEST_HEADED").is_none(), &AtomicBool::new(false)).unwrap();
-    // A Firefox without the mode falls back to the mask by design; this one (160) is expected to have it.
-    assert_eq!(browser.webdriver_mode(), WebdriverMode::RemoteControl, "fallback: {:?}", browser.webdriver_fallback());
+    // Remote control needs Firefox 155 or newer; an older installation falls back to the mask by design.
+    let major: u32 = installation.version().split('.').next().and_then(|m| m.parse().ok()).unwrap_or(0);
+    let expected = if major >= 155 { WebdriverMode::RemoteControl } else { WebdriverMode::Mask };
+    assert_eq!(browser.webdriver_mode(), expected, "Firefox {}, fallback: {:?}", installation.version(), browser.webdriver_fallback());
     let facts = webdriver_facts(&mut browser);
     assert_eq!(facts["webdriver"], false);
     assert_eq!(facts["getter"], MANUAL_GETTER);

@@ -1,3 +1,4 @@
+#![cfg(feature = "bidi")]
 use ceh_browser::firefox::startup_preferences;
 use ceh_browser::firefox_control::{Fallback, WebdriverMode, WEBDRIVER_MASK_V2, parse_port_report, restart_script};
 use ceh_browser::launch::TargetOs;
