@@ -1,6 +1,8 @@
 //! How the owned Firefox is controlled without reporting `navigator.webdriver === true`.
 //! Preferred: restart the Remote Agent in Firefox's own "remote control" mode (`isBrowserAutomation:false`),
 //! where `webdriver` is natively `false`. If the installed Firefox cannot do it, a Proxy mask (v2) is used.
+//! Measured on Linux (headless, 2026-11-15): Firefox 155 and 160 switch; 150-154 have `startAtRuntime` but no
+//! `stopAtRuntime` (`unsupported`); 145 and older give the chrome scope no system access (`no_system_access`).
 use serde_json::json;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,7 +58,7 @@ pub fn restart_script(report_path: &str) -> String {
     let path = json!(report_path);
     format!(
         "(() => {{ const {{ RemoteAgent }} = ChromeUtils.importESModule('chrome://remote/content/components/RemoteAgent.sys.mjs');\n\
-         if (typeof RemoteAgent.startAtRuntime !== 'function') return 'unsupported';\n\
+         if (typeof RemoteAgent.startAtRuntime !== 'function' || typeof RemoteAgent.stopAtRuntime !== 'function') return 'unsupported';\n\
          setTimeout(async () => {{ try {{ await RemoteAgent.stopAtRuntime(); const p = await RemoteAgent.startAtRuntime({{ isBrowserAutomation: false }});\n\
          await IOUtils.writeUTF8({path}, String(p > 0 ? p : RemoteAgent.port) + ' ' + RemoteAgent.isBrowserAutomationRunning); }}\n\
          catch (e) {{ await IOUtils.writeUTF8({path}, 'ERR ' + e); }} }}, 300); return 'scheduled'; }})()"

@@ -26,6 +26,7 @@ fn the_restart_script_embeds_only_a_json_encoded_path() {
     assert!(script.contains(r#""C:\\Users\\a\"b\\ceh-remote-port""#), "{script}");
     assert!(script.contains("startAtRuntime({ isBrowserAutomation: false })"));
     assert!(script.contains("typeof RemoteAgent.startAtRuntime"));
+    assert!(script.contains("typeof RemoteAgent.stopAtRuntime"), "a Firefox with only one of the two is unsupported before anything is stopped");
 }
 
 #[test]
