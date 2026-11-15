@@ -60,7 +60,7 @@ Download and installation require your action. SHA256 and Sigstore build provena
 
 - An installed supported browser is required. Configured notifications need access to the system credential store.
 - Windows uses WebView2. The MSI installer installs it automatically when it is missing; for the portable ZIP on a system without it, install [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-- Linux packages are built on Ubuntu 22.04 and require a compatible graphical environment and system libraries. Under native Wayland, you may need to open the browser window manually.
+- Linux requirements: a graphical desktop, glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and newer), `fuse3` for the AppImage, the Mesa GL/EGL libraries, a Secret Service keyring (gnome-keyring or KWallet) for notification credentials, and a non-snap browser. Tested in containers on Ubuntu 22.04, Fedora 37, Kali and Arch; real GPU, Wayland, tray and notifications are not verified yet. Under native Wayland, you may need to open the browser window manually.
 - Website errors, HTTP 429 restrictions and reauthentication can occur. An appointment is not guaranteed.
 - [Diagnostics and privacy](docs/PRIVACY.md). Remove personal data before sharing reports.
 
