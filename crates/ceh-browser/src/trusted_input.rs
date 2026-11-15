@@ -234,7 +234,7 @@ fn activate(
     // contact step, the typed values) runs once more. A scroll handler that changed a value, or a different
     // element under the same selector, stops the click here.
     let again = resolve_target(connection, realm, &declaration, &payload);
-    if !still_the_same_target(&shared, again.as_deref()) {
+    if !still_the_same_target(connection, realm, &shared, again.as_deref()) {
         return Err(stale("target_changed_after_scroll"));
     }
     let mut permit = if submission {
@@ -358,8 +358,12 @@ fn resolve_target(connection: &mut BidiConnection, realm: &ceh_core::model::Docu
     let result = connection.call("script.callFunction", params).ok()?;
     (result["type"] == "success" && result["result"]["type"] == "node").then(|| result["result"]["sharedId"].as_str().map(str::to_owned)).flatten()
 }
-fn still_the_same_target(first: &str, again: Option<&str>) -> bool {
-    again == Some(first)
+fn still_the_same_target(connection: &mut BidiConnection, realm: &ceh_core::model::DocumentId, first: &str, again: Option<&str>) -> bool {
+    let Some(again) = again else { return false };
+    again == first
+        || connection
+            .call("script.callFunction", json!({"target":{"realm":realm.as_str()},"awaitPromise":false,"functionDeclaration":"(a,b)=>a===b","arguments":[{"sharedId":first},{"sharedId":again}]}))
+            .is_ok_and(|r| r["result"]["value"] == true)
 }
 thread_local! {
     static SCROLL_FALLBACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -614,6 +618,41 @@ mod tests {
         let runtime = tempfile::tempdir().unwrap();
         let lease = ProfileLease::temporary_kind(runtime.path(), ProfileKind::Chrome).unwrap();
         wheel_scrolls_to_a_button_below_the_screen(OwnedFirefox::start_chromium(&installation, lease, &std::sync::atomic::AtomicBool::new(false)).unwrap());
+    }
+    /// The same element resolved twice is the same target even when the browser hands out a new handle for it
+    /// (CDP object ids change on every evaluation); another element is not.
+    fn the_same_element_is_recognised_across_resolutions(mut browser: crate::firefox::OwnedFirefox) {
+        let context = browser.context().to_owned();
+        let page = "<!doctype html><title>t</title><body><button id='a'>a</button><button id='b'>b</button>";
+        let url = format!("data:text/html;base64,{}", base64_encode(page.as_bytes()));
+        browser.connection().call("browsingContext.navigate", json!({"context":context,"url":url,"wait":"complete"})).unwrap();
+        let node = browser.connection().call("script.evaluate", json!({"expression":"document.body","target":{"context":context},"awaitPromise":false,"resultOwnership":"root"})).unwrap();
+        let realm = ceh_core::model::DocumentId::new(node["realm"].as_str().unwrap()).unwrap();
+        let declaration = "p=>document.getElementById(JSON.parse(p).id)";
+        let mut resolve = |id: &str| resolve_target(browser.connection(), &realm, declaration, &json!({"id":id})).unwrap();
+        let (first, again, other) = (resolve("a"), resolve("a"), resolve("b"));
+        assert!(still_the_same_target(browser.connection(), &realm, &first, Some(&again)));
+        assert!(!still_the_same_target(browser.connection(), &realm, &first, Some(&other)));
+        assert!(!still_the_same_target(browser.connection(), &realm, &first, None));
+        let _ = browser.stop();
+    }
+    #[test]
+    #[ignore = "launches the installed Chrome"]
+    fn chrome_recognises_the_same_element_across_resolutions() {
+        use crate::firefox::{OwnedFirefox, ProfileKind, ProfileLease};
+        let Ok(installation) = crate::chromium::ChromiumInstallation::discover(ProfileKind::Chrome) else { return crate::skip_missing_browser("Chrome") };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary_kind(runtime.path(), ProfileKind::Chrome).unwrap();
+        the_same_element_is_recognised_across_resolutions(OwnedFirefox::start_chromium(&installation, lease, &std::sync::atomic::AtomicBool::new(false)).unwrap());
+    }
+    #[test]
+    #[ignore = "launches the installed Firefox"]
+    fn firefox_recognises_the_same_element_across_resolutions() {
+        use crate::firefox::{FirefoxInstallation, OwnedFirefox, ProfileLease};
+        let Ok(installation) = FirefoxInstallation::discover() else { return crate::skip_missing_browser("Firefox") };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary(runtime.path()).unwrap();
+        the_same_element_is_recognised_across_resolutions(OwnedFirefox::start(&installation, lease, false, &std::sync::atomic::AtomicBool::new(false)).unwrap());
     }
     #[test]
     fn a_key_is_held_between_down_and_up_only_when_a_hold_is_set() {
