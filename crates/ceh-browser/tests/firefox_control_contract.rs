@@ -45,3 +45,15 @@ fn modes_have_stable_diagnostic_names() {
     assert_eq!(Fallback::RestartFailed.name(), "restart_failed");
     assert_eq!(Fallback::Timeout.name(), "timeout");
 }
+
+#[test]
+fn only_a_rejected_command_means_the_browser_has_no_system_access() {
+    use ceh_browser::bidi::ProtocolError;
+    use ceh_browser::firefox_control::fallback_for_command_error;
+    // The browser answered "no": the first connection still works and the mask is installed on it.
+    assert_eq!(fallback_for_command_error(ProtocolError::Rejected), Fallback::NoSystemAccess);
+    // A timeout or a broken connection poisons the connection: Firefox is restarted with the mask instead.
+    for broken in [ProtocolError::Unavailable, ProtocolError::InvalidData, ProtocolError::PendingCommand, ProtocolError::EventOverflow, ProtocolError::InvalidEndpoint] {
+        assert_eq!(fallback_for_command_error(broken), Fallback::RestartFailed, "{broken:?}");
+    }
+}

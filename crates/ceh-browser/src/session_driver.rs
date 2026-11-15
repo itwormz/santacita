@@ -526,8 +526,20 @@ impl SessionDriver {
         for effect in effects {
             match effect {
                 FlowEffect::Prepare { guard, action } => {
+                    // Typing is paced like a person's, so its time is added to the navigation budget.
+                    let typing = match action {
+                        ActionKind::Applicant => crate::typed_field::typing_budget(
+                            self.profile.document_number.chars().count() + self.profile.full_name.chars().count(),
+                            2,
+                        ),
+                        ActionKind::Contact => crate::typed_field::typing_budget(
+                            self.profile.phone.chars().count() + 2 * self.profile.email.chars().count(),
+                            3,
+                        ),
+                        _ => Duration::ZERO,
+                    };
                     let deadline =
-                        Instant::now() + Duration::from_secs_f64(self.timings.navigation_seconds());
+                        Instant::now() + Duration::from_secs_f64(self.timings.navigation_seconds()) + typing;
                     let result = match action {
                         ActionKind::Province | ActionKind::Procedure | ActionKind::Office => {
                             let selection = self.selection(*action)?;

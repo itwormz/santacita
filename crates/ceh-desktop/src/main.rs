@@ -271,6 +271,20 @@ async fn update_install(window: WebviewWindow, runtime: State<'_, DesktopRuntime
             return Ok(());
         }
     }
+    // On Linux the downloaded AppImage is the next copy of the program: this one leaves so it can take the data folder.
+    #[cfg(target_os = "linux")]
+    {
+        if runtime.search.snapshot()?.active {
+            return Err("search_already_running");
+        }
+        tauri::async_runtime::spawn_blocking(move || ceh_desktop::notification_actions::open_installer(&path))
+            .await
+            .map_err(|_| "update_install_failed")?
+            .map_err(|_| "update_install_failed")?;
+        window.app_handle().exit(0);
+        return Ok(());
+    }
+    #[cfg(not(target_os = "linux"))]
     tauri::async_runtime::spawn_blocking(move || ceh_desktop::notification_actions::open_installer(&path))
         .await
         .map_err(|_| "update_install_failed")?

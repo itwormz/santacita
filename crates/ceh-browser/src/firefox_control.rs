@@ -39,6 +39,12 @@ impl Fallback {
         }
     }
 }
+/// What a failed command of the system-access probe means. The browser rejecting the command leaves the first
+/// connection usable (the mask goes on it); anything else (a timeout, a broken socket) has poisoned that
+/// connection, so Firefox is started again with the mask.
+pub fn fallback_for_command_error(error: crate::bidi::ProtocolError) -> Fallback {
+    if error == crate::bidi::ProtocolError::Rejected { Fallback::NoSystemAccess } else { Fallback::RestartFailed }
+}
 /// Parses `"<port> <isBrowserAutomationRunning>"` written by the restart script. Anything but a valid
 /// port with the automation flag off is a failed restart.
 pub fn parse_port_report(text: &str) -> Result<u16, Fallback> {

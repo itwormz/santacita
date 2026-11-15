@@ -539,7 +539,7 @@ impl OwnedFirefox {
             fallback: forced_mask,
             restart_ms: None,
         };
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut deadline = Instant::now() + Duration::from_secs(20);
         loop {
             if cancelled.load(Ordering::Acquire) {
                 return Err(StartFailure::Fail(FirefoxError::Cancelled));
@@ -588,6 +588,9 @@ impl OwnedFirefox {
                     owned.endpoint = next.1;
                     owned.webdriver_mode = crate::firefox_control::WebdriverMode::RemoteControl;
                     owned.restart_ms = Some(started.elapsed().as_millis() as u64);
+                    // The switch had its own 15 s: the rest of the setup gets a fresh budget instead of what
+                    // is left of the startup one (a slow launch would otherwise fail right after switching).
+                    deadline = Instant::now() + Duration::from_secs(20);
                 }
                 // The first agent still answers: continue on it, masked.
                 Ok(None) => {}
@@ -842,12 +845,12 @@ fn switch_to_remote_control(
     profile: &Path,
     cancelled: &AtomicBool,
 ) -> Result<Option<(BidiConnection, SocketAddr)>, crate::firefox_control::Fallback> {
-    use crate::firefox_control::{Fallback, parse_port_report, restart_script};
+    use crate::firefox_control::{Fallback, fallback_for_command_error, parse_port_report, restart_script};
     let deadline = Instant::now() + Duration::from_secs(15);
     let connection = slot.as_mut().ok_or(Fallback::NoSystemAccess)?;
     let tree = connection
         .call_before("browsingContext.getTree", json!({"moz:scope":"chrome"}), deadline)
-        .map_err(|_| Fallback::NoSystemAccess)?;
+        .map_err(fallback_for_command_error)?;
     let chrome = tree["contexts"][0]["context"].as_str().filter(|c| !c.is_empty() && c.len() <= 512).ok_or(Fallback::NoSystemAccess)?.to_owned();
     let report = profile.join("ceh-remote-port");
     if fs::symlink_metadata(&report).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -860,7 +863,7 @@ fn switch_to_remote_control(
             json!({"expression":restart_script(report.to_str().ok_or(Fallback::NoSystemAccess)?),"target":{"context":chrome},"awaitPromise":true}),
             deadline,
         )
-        .map_err(|_| Fallback::NoSystemAccess)?;
+        .map_err(fallback_for_command_error)?;
     match answer["result"]["value"].as_str() {
         // The agent waits for open connections before it stops: the old one must be closed now.
         Some("scheduled") => drop(slot.take()),
