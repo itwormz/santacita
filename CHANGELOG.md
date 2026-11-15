@@ -15,7 +15,7 @@
 - Run a single copy per data folder: starting SantaCita again shows the open window instead of a second instance.
 - Offer stable and optional beta updates, verifying checksums and Sigstore build provenance before installation. On Linux the update replaces the AppImage you started from; Windows portable updates preserve the adjacent data folder. Beta releases of later versions (0.5.0 and above) stay opt-in.
 - Provide optimized packages: macOS DMG, Windows MSI (installs the WebView2 runtime when it is missing) and portable ZIP, and Linux AppImage. Packages are not signed with a paid developer certificate.
-- Document Linux requirements: `libfuse2t64` (Ubuntu 24.04) or `libfuse2` (22.04) for AppImages and a non-snap browser.
+- Document Linux requirements: FUSE 3 (`fuse3`) or `--appimage-extract-and-run` for the AppImage, and a non-snap browser.
 
 ## 0.4.0-beta.2 — Search recovery and reliable migration
 

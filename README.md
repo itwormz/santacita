@@ -26,7 +26,7 @@ SantaCita supports macOS (Apple Silicon and Intel), Windows 10 and 11 (x64) and 
 | Windows x64 | `SantaCita-<version>-windows-x64.msi` or `-portable.zip` |
 | Linux x64 | `SantaCita-<version>-x86_64.AppImage` |
 
-macOS: drag SantaCita into Applications. The app is not notarized; if blocked, use System Settings → Privacy & Security → Open Anyway. The packages are not signed with a paid developer certificate; check them against `SHA256SUMS` and the Sigstore bundle published with each release. Windows: packages have no publisher signature; SmartScreen may require More info → Run anyway. Linux: make the AppImage executable (`chmod +x file.AppImage`). Ubuntu 24.04 also needs `sudo apt install libfuse2t64` to start an AppImage (Ubuntu 22.04: `libfuse2`). Ubuntu's own Firefox is a snap and is not supported: install Chrome from its `.deb` package or Firefox from Mozilla's APT repository.
+macOS: drag SantaCita into Applications. The app is not notarized; if blocked, use System Settings → Privacy & Security → Open Anyway. The packages are not signed with a paid developer certificate; check them against `SHA256SUMS` and the Sigstore bundle published with each release. Windows: packages have no publisher signature; SmartScreen may require More info → Run anyway. Linux: make the AppImage executable (`chmod +x file.AppImage`). An AppImage needs FUSE 3 (`fusermount3`, package `fuse3`): it is preinstalled on most desktops; otherwise install it (`sudo apt install fuse3`, `sudo dnf install fuse3`, `sudo pacman -S fuse3`) or start the file with `--appimage-extract-and-run`. Ubuntu's own Firefox is a snap and is not supported: install Chrome from its `.deb` package or Firefox from Mozilla's APT repository.
 
 ## 🔄 Search and controls
 
