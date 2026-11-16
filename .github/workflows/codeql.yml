@@ -1,9 +1,9 @@
 name: CodeQL
 on:
   push:
-    branches: [santacita-beta, main]
+    branches: [dev, santacita-beta, main]
   pull_request:
-    branches: [santacita-beta, main]
+    branches: [dev, santacita-beta, main]
   schedule:
     - cron: '23 6 * * 1'
   workflow_dispatch:

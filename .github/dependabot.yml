@@ -2,18 +2,18 @@ version: 2
 updates:
   - package-ecosystem: "cargo"
     directory: "/"
-    target-branch: "santacita-beta"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
   - package-ecosystem: "npm"
     directory: "/desktop-ui"
-    target-branch: "santacita-beta"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
   - package-ecosystem: "github-actions"
-    target-branch: "santacita-beta"
+    target-branch: "dev"
     directory: "/"
     schedule:
       interval: "weekly"
