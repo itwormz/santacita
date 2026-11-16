@@ -1,8 +1,9 @@
 name: Review gate
 
 # Requests CodeRabbit only after Greptile has reviewed the current commit, its findings are resolved and the
-# required CI checks pass (scripts/review_gate.py). Every run reconciles all open PRs, so the triggers are
-# only wake-ups: a delayed, skipped or replaced run loses nothing.
+# required CI checks pass. The logic is scripts/review-gate.mjs (tested with node --test), run by
+# actions/github-script. Every run reconciles all open PRs, so the triggers are only wake-ups: a delayed,
+# skipped or replaced run loses nothing.
 #
 # Trust: every trigger below runs the default-branch version of this file and of the script; no PR code is
 # checked out or executed, and no artifacts of the triggering runs are read.
@@ -42,7 +43,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      actions: read # gh pr checks reads checkSuite.workflowRun
       checks: read
       contents: read
       pull-requests: read
@@ -52,13 +52,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Report without writing
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr }}
-        run: |
-          set -euo pipefail
-          if [ -n "$PR_NUMBER" ]; then target=(--pr "$PR_NUMBER"); else target=(--sweep); fi
-          python3 scripts/review_gate.py --repo "$GITHUB_REPOSITORY" "${target[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+        with:
+          script: |
+            const { run } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/review-gate.mjs`)
+            await run({ github, context, core, pr: process.env.PR_NUMBER, write: false })
 
   gate:
     name: Request ready reviews
@@ -71,7 +71,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      actions: read # gh pr checks reads checkSuite.workflowRun
       checks: read
       contents: read
       pull-requests: write # the CodeRabbit opt-in label
@@ -82,10 +81,10 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - name: Reconcile open pull requests
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr }}
-        run: |
-          set -euo pipefail
-          if [ -n "${PR_NUMBER:-}" ]; then target=(--pr "$PR_NUMBER"); else target=(--sweep); fi
-          python3 scripts/review_gate.py --repo "$GITHUB_REPOSITORY" "${target[@]}" --write | tee -a "$GITHUB_STEP_SUMMARY"
+        with:
+          script: |
+            const { run } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/review-gate.mjs`)
+            await run({ github, context, core, pr: process.env.PR_NUMBER, write: true })
