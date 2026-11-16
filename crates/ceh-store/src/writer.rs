@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    hex::encode(Sha256::digest(value.as_bytes()))
 }
 fn at(value: i64) -> Result<String, StoreError> {
     let time = DateTime::<Utc>::from_timestamp_millis(value)

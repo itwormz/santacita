@@ -175,7 +175,7 @@ fn shape_hash(shape: &PageShape) -> String {
         "{{\"buttons\": {}, \"forms\": {}, \"inputs\": [{}], \"selects\": {}}}",
         shape.buttons, shape.forms, inputs, shape.selects
     );
-    format!("{:x}", Sha256::digest(raw.as_bytes()))
+    hex::encode(Sha256::digest(raw.as_bytes()))
 }
 
 pub fn recognize(snapshot: &PageSnapshot) -> Result<Recognition, InvalidSnapshot> {

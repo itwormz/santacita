@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.4.2 — Update block and library refresh
+
+- Show the update buttons in About in one row of equal-width buttons under the text; the download button is now labelled "Download".
+- Update the bundled libraries: the window's web view (wry 0.57.2), the built-in SQLite database (rusqlite 0.42), ZIP and compression handling (zip 9.4, flate2 1.1.11) and the SHA-256 hashing used to verify update packages (sha2 0.11). No behaviour changes are expected.
+
 ## 0.4.1 — Chrome input fix
 
 - Fix a regression in 0.4.0 that stopped searches in Chrome and other Chromium-based browsers at the province step and asked for your participation immediately. The check that the clicked element is unchanged after scrolling compared browser handles that Chromium renews on every read; it now compares the elements themselves. Firefox was not affected.

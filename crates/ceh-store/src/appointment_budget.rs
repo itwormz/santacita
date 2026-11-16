@@ -1,7 +1,7 @@
 //! Python 0.3.0-compatible local budget files, keyed by a private HMAC.
 use ceh_core::{appointment_budget::AppointmentBudget, model::ProfileId, profiles::ProfileDraft};
 use hmac::{Hmac, KeyInit, Mac};
-use sha2_budget::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 use std::{fs::{self, File, OpenOptions}, io::{self, Read, Write}, path::{Path, PathBuf}};
 
 pub struct BudgetStore {

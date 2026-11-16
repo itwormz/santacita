@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 
 fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    hex::encode(Sha256::digest(value.as_bytes()))
 }
 fn database() -> Connection {
     let db = Connection::open_in_memory().unwrap();
