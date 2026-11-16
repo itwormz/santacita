@@ -14,9 +14,9 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: review-activity-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+# No concurrency group: one reply raises two events (review and review comment) at once, and cancelling either
+# shows as a failed `signal` check on the PR. A run takes a second and duplicates are harmless; the gate itself
+# serializes its writes.
 
 jobs:
   signal:
