@@ -12,6 +12,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # svelte-check 4.x supports TypeScript 5 and 6 only; drop when it accepts 7.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+      # Node types follow the build's Node major (engines and node-version, now 26).
+      - dependency-name: "@types/node"
+        versions: [">=27"]
   - package-ecosystem: "github-actions"
     target-branch: "dev"
     directory: "/"

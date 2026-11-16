@@ -24,7 +24,7 @@ Rust browser adapter is connected. Node is a build/test tool, not a sidecar.
 
 ## Local macOS development
 
-Use the repository's Rust toolchain and Node 24 (`.nvmrc`). From the repository root:
+Use the repository's Rust toolchain and Node 26 (`.nvmrc`). From the repository root:
 
 ```sh
 node desktop-ui/scripts/prepare.mjs
