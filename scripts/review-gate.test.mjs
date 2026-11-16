@@ -92,8 +92,14 @@ describe('decisions', () => {
     const greptileOnOld = [review(gate.GREPTILE, 'COMMENTED', OLD)]
     assert.equal(decide({reviews: greptileOnOld, coderabbitSummary: true}).action, 'done')
     assert.equal(decide({reviews: greptileOnOld, coderabbitSummary: true}, false).action, 'request')
+  })
+
+  test("a passing CodeRabbit check is not this PR's review", () => {
+    // The check belongs to the commit: a PR with the same head into another base would see it too.
     const passed = new Map([...facts().checks, ['CodeRabbit', 'pass']])
-    assert.equal(decide({reviews: greptileOnOld, checks: passed}).action, 'done')
+    const decision = decide({reviews: [review(gate.GREPTILE, 'COMMENTED', OLD)], checks: passed})
+    assert.equal(decision.action, 'wait')
+    assert.ok(decision.reasons.includes('Greptile must review the current commit.'))
   })
 
   test('a skipped CodeRabbit run or a label is not a review', () => {

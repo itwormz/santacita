@@ -19,7 +19,6 @@ export const GREPTILE = 'greptile-apps'
 export const GREPTILE_CHECK = 'Greptile Review'
 export const GREPTILE_SUMMARY_MARKER = '<!-- greptile_summary -->'
 export const CODERABBIT = 'coderabbitai'
-export const CODERABBIT_CHECK = 'CodeRabbit'
 export const CODERABBIT_WALKTHROUGH_MARKER = '<!-- walkthrough_start -->'
 export const REVIEW_LABEL = 'coderabbit-ready'
 // Neither reviewer looks at these authors' PRs: Greptile does not review them and CodeRabbit ignores them
@@ -98,10 +97,10 @@ export function bucketOf(item) {
 export function evaluate(f, {automatic}) {
   if (f.state !== 'open' || f.draft) return {action: 'skip', reasons: ['The pull request must be open and ready for review.']}
   if (isExemptAuthor(f.author)) return {action: 'exempt', reasons: [EXEMPT]}
-  // Only a finished CodeRabbit review starts the second stage: a published review, its walkthrough comment
-  // (a clean run publishes nothing else) or its passing check. A label is a request, not a review.
+  // Only a finished CodeRabbit review of this PR starts the second stage: a published review or its walkthrough
+  // comment (a clean run publishes nothing else). Both belong to the PR. The CodeRabbit check does not count: it
+  // belongs to the commit, which another PR into another base may share. A label is a request, not a review.
   const started = published(f.reviews, CODERABBIT).length > 0 || Boolean(f.coderabbitSummary)
-    || f.checks.get(CODERABBIT_CHECK) === 'pass'
   if (automatic && started) return {action: 'done', reasons: [REVIEWED]}
   if (automatic && f.gateStatus === REQUESTED) return {action: 'done', reasons: [REQUESTED]}
 
