@@ -13,7 +13,7 @@ use std::{
 };
 
 fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    hex::encode(Sha256::digest(value.as_bytes()))
 }
 
 /// Python `_stamp`: ISO 8601 (a trailing `Z` or a missing offset means UTC) as `isoformat()` in UTC.

@@ -486,7 +486,7 @@ pub fn parse_document(bytes: &[u8]) -> Result<LegacyDocument, ReadError> {
     };
     Ok(LegacyDocument {
         root,
-        revision: format!("{:x}", Sha256::digest(bytes)),
+        revision: hex::encode(Sha256::digest(bytes)),
     })
 }
 pub fn read_document(path: &std::path::Path) -> Result<LegacyDocument, ReadError> {

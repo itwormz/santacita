@@ -11,6 +11,7 @@ ceh-core = { path = "../ceh-core" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+hex.workspace = true
 regex.workspace = true
 chrono.workspace = true
 yaml-rust2.workspace = true
@@ -21,4 +22,3 @@ tempfile = "=3.27.0"
 fs2 = "=0.4.3"
 uuid = { version = "=1.29.0", features = ["v4"] }
 hmac = "=0.13.0"
-sha2-budget = { package = "sha2", version = "=0.11.1" }

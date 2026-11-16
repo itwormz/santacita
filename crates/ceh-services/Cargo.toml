@@ -21,6 +21,7 @@ chrono-tz.workspace = true
 reqwest = { version = "=0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
 httpdate = "=1.0.3"
 sha2.workspace = true
+hex.workspace = true
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 fs2 = "=0.4.3"
 tempfile = "=3.27.0"

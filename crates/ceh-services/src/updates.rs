@@ -204,7 +204,7 @@ pub fn stream_verified(
             output.write_all(&buffer[..read]).map_err(|_| UpdateError::Invalid)?;
             progress((count * 100 / size).min(100) as u8);
         }
-        if count != size || format!("{:x}", hash.finalize()) != digest.to_ascii_lowercase() {
+        if count != size || hex::encode(hash.finalize()) != digest.to_ascii_lowercase() {
             return Err(UpdateError::Invalid);
         }
         output.flush().map_err(|_| UpdateError::Invalid)?;
@@ -251,8 +251,14 @@ fn release_commit(client:&reqwest::blocking::Client,repository:&str,version:&str
     }
     Err(UpdateError::Invalid)
 }
-pub fn verify_download(path:&std::path::Path,include_beta:bool)->Result<(),UpdateError>{
+/// Lower-case hex SHA-256 of a file, read in chunks (sha2 0.11 no longer implements `io::Write`).
+pub(crate) fn file_sha256(path:&std::path::Path)->Result<String,UpdateError>{
     use sha2::{Digest,Sha256};
+    let mut file=std::fs::File::open(path).map_err(|_|UpdateError::Invalid)?;let (mut hash,mut buffer)=(Sha256::new(),vec![0u8;64*1024]);
+    loop{let read=file.read(&mut buffer).map_err(|_|UpdateError::Invalid)?;if read==0{break;}hash.update(&buffer[..read]);}
+    Ok(hex::encode(hash.finalize()))
+}
+pub fn verify_download(path:&std::path::Path,include_beta:bool)->Result<(),UpdateError>{
     let name=path.file_name().and_then(|v|v.to_str()).ok_or(UpdateError::Invalid)?;
     let read=|suffix:&str,limit:u64|->Result<Vec<u8>,UpdateError>{let file=std::fs::File::open(path.with_file_name(format!("{name}{suffix}"))).map_err(|_|UpdateError::Invalid)?;let mut data=Vec::new();file.take(limit+1).read_to_end(&mut data).map_err(|_|UpdateError::Invalid)?;if data.len()as u64>limit{return Err(UpdateError::Invalid);}Ok(data)};
     let sums=read(".sha256",16384)?;let digest=checksum_for(std::str::from_utf8(&sums).map_err(|_|UpdateError::Invalid)?,name)?;
@@ -260,7 +266,6 @@ pub fn verify_download(path:&std::path::Path,include_beta:bool)->Result<(),Updat
     let value:Value=serde_json::from_slice(&receipt).map_err(|_|UpdateError::Invalid)?;
     let version=value["version"].as_str().ok_or(UpdateError::Invalid)?;
     if version_key(version).ok_or(UpdateError::Invalid)?.1==1&&!include_beta{return Err(UpdateError::Invalid);}
-    let mut source=std::fs::File::open(path).map_err(|_|UpdateError::Invalid)?;let mut hash=Sha256::new();std::io::copy(&mut source,&mut hash).map_err(|_|UpdateError::Invalid)?;
-    if format!("{:x}",hash.finalize())!=digest{return Err(UpdateError::Invalid);}
+    if file_sha256(path)?!=digest{return Err(UpdateError::Invalid);}
     crate::attestations::verify(value["bundle"].to_string().as_bytes(),name,&digest,version,value["repository"].as_str().ok_or(UpdateError::Invalid)?,value["commit"].as_str().ok_or(UpdateError::Invalid)?)
 }
