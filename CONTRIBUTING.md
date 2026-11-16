@@ -44,7 +44,7 @@ agreed. Small fixes and documentation improvements can be proposed directly.
 
 ## Development and checks
 
-SantaCita development targets `main`; beta releases (0.5.0 and above) go through `santacita-beta`, and Python maintenance stays on `ceh-python`. Use the pinned Rust toolchain and Node.js 24:
+SantaCita development targets `main`; beta releases (0.5.0 and above) go through `santacita-beta`, and Python maintenance stays on `ceh-python`. Use the pinned Rust toolchain and Node.js 26:
 
 ```sh
 cargo test --workspace --locked
