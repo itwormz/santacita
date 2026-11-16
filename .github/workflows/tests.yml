@@ -1,9 +1,9 @@
 name: Tests
 on:
   push:
-    branches: [santacita-beta, main]
+    branches: [dev, santacita-beta, main]
   pull_request:
-    branches: [santacita-beta, main]
+    branches: [dev, santacita-beta, main]
   workflow_dispatch:
 permissions:
   contents: read
