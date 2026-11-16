@@ -87,6 +87,22 @@ describe('decisions', () => {
     }
   })
 
+  test('a clean CodeRabbit run without a review object still starts the second stage', () => {
+    // A clean CodeRabbit run posts only its walkthrough comment: no pull-request review exists.
+    const greptileOnOld = [review(gate.GREPTILE, 'COMMENTED', OLD)]
+    assert.equal(decide({reviews: greptileOnOld, coderabbitSummary: true}).action, 'done')
+    assert.equal(decide({reviews: greptileOnOld, coderabbitSummary: true}, false).action, 'request')
+    const passed = new Map([...facts().checks, ['CodeRabbit', 'pass']])
+    assert.equal(decide({reviews: greptileOnOld, checks: passed}).action, 'done')
+  })
+
+  test('a skipped CodeRabbit run or a label is not a review', () => {
+    const skipped = new Map([...facts().checks, ['CodeRabbit', 'skipping']])
+    const stale = {reviews: [review(gate.GREPTILE, 'COMMENTED', OLD)], checks: skipped, labels: new Set([gate.REVIEW_LABEL])}
+    assert.equal(decide(stale).action, 'wait')
+    assert.ok(decide(stale).reasons.includes('Greptile must review the current commit.'))
+  })
+
   test('a person named like the bot is not the bot', () => {
     const impostor = {id: 3, user: {login: 'coderabbitai', type: 'User'}, state: 'COMMENTED', commit_id: HEAD}
     assert.equal(decide({reviews: [review(gate.GREPTILE), impostor]}).action, 'request')
@@ -154,6 +170,15 @@ describe('parsing', () => {
       + `Last reviewed commit: [fix](https://github.com/${REPO}/commit/${HEAD})`
     const older = `${gate.GREPTILE_SUMMARY_MARKER}\nLast reviewed commit: [x](https://github.com/${REPO}/commit/${OLD})`
     assert.equal(gate.greptileSummaryHead([comment(older, 1, '2026-11-14T10:00:00Z'), comment(footer, 2)], REPO), HEAD)
+  })
+
+  test('a CodeRabbit walkthrough counts as a finished review, a skip notice does not', () => {
+    const walkthrough = '<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- walkthrough_start -->\nx'
+    const skipped = '<!-- This is an auto-generated comment: skip review by coderabbit.ai -->\nReview skipped'
+    assert.equal(gate.coderabbitSummary([comment(walkthrough, 1, undefined, 'coderabbitai')]), true)
+    assert.equal(gate.coderabbitSummary([comment(skipped, 1, undefined, 'coderabbitai')]), false)
+    const impostor = {id: 2, user: {login: 'coderabbitai', type: 'User'}, body: walkthrough}
+    assert.equal(gate.coderabbitSummary([impostor, comment(walkthrough, 3, undefined, 'greptile-apps')]), false)
   })
 
   test('a summary from another author or repository is ignored', () => {

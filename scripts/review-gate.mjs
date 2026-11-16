@@ -19,6 +19,8 @@ export const GREPTILE = 'greptile-apps'
 export const GREPTILE_CHECK = 'Greptile Review'
 export const GREPTILE_SUMMARY_MARKER = '<!-- greptile_summary -->'
 export const CODERABBIT = 'coderabbitai'
+export const CODERABBIT_CHECK = 'CodeRabbit'
+export const CODERABBIT_WALKTHROUGH_MARKER = '<!-- walkthrough_start -->'
 export const REVIEW_LABEL = 'coderabbit-ready'
 // Neither reviewer looks at these authors' PRs: Greptile does not review them and CodeRabbit ignores them
 // (`ignore_usernames` in .coderabbit.yaml). Waiting for a review would leave the PR pending forever.
@@ -64,6 +66,14 @@ export function greptileSummaryHead(comments, repository) {
   return latest.body.match(footer)?.[1] ?? null
 }
 
+/**
+ * Whether CodeRabbit has finished a review of this PR. A clean run publishes no pull-request review, only its
+ * walkthrough comment; a skipped run (base not admitted, incremental review off) posts no walkthrough.
+ */
+export function coderabbitSummary(comments) {
+  return comments.some(c => isBot(CODERABBIT, c.user) && (c.body ?? '').includes(CODERABBIT_WALKTHROUGH_MARKER))
+}
+
 /** The `gh pr checks` bucket of a check run or a commit status. */
 export function bucketOf(item) {
   if ('conclusion' in item || 'status' in item && !('state' in item)) {
@@ -77,6 +87,7 @@ export function bucketOf(item) {
  * Facts of one pull request.
  * @typedef {{head: string, state: string, draft: boolean, author: string, labels: Set<string>, reviews: object[],
  *   threads: object[], checks: Map<string, string>, required: Set<string>, summaryHead?: string|null,
+ *   coderabbitSummary?: boolean,
  *   gateStatus?: string|null}} Facts
  */
 
@@ -87,8 +98,10 @@ export function bucketOf(item) {
 export function evaluate(f, {automatic}) {
   if (f.state !== 'open' || f.draft) return {action: 'skip', reasons: ['The pull request must be open and ready for review.']}
   if (isExemptAuthor(f.author)) return {action: 'exempt', reasons: [EXEMPT]}
-  // Only a published CodeRabbit review starts the second stage: a label is a request, not a review.
-  const started = published(f.reviews, CODERABBIT).length > 0
+  // Only a finished CodeRabbit review starts the second stage: a published review, its walkthrough comment
+  // (a clean run publishes nothing else) or its passing check. A label is a request, not a review.
+  const started = published(f.reviews, CODERABBIT).length > 0 || Boolean(f.coderabbitSummary)
+    || f.checks.get(CODERABBIT_CHECK) === 'pass'
   if (automatic && started) return {action: 'done', reasons: [REVIEWED]}
   if (automatic && f.gateStatus === REQUESTED) return {action: 'done', reasons: [REQUESTED]}
 
@@ -221,6 +234,7 @@ export function createClient(github, owner, repo) {
     async facts(number) {
       const pull = await client.pull(number)
       const head = pull.head.sha
+      const comments = await github.paginate(github.rest.issues.listComments, {...base, issue_number: number, per_page: 100})
       return {
         head, state: pull.state, draft: pull.draft, author: pull.user?.login ?? '',
         labels: new Set(pull.labels.map(label => label.name)),
@@ -228,8 +242,8 @@ export function createClient(github, owner, repo) {
         threads: await client.threads(number),
         checks: await client.checks(head),
         required: await client.required(pull.base.ref),
-        summaryHead: greptileSummaryHead(
-          await github.paginate(github.rest.issues.listComments, {...base, issue_number: number, per_page: 100}), repository),
+        summaryHead: greptileSummaryHead(comments, repository),
+        coderabbitSummary: coderabbitSummary(comments),
         gateStatus: await client.gateStatus(head, number),
       }
     },
