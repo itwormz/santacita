@@ -121,6 +121,31 @@ class Decisions(unittest.TestCase):
         self.assertEqual(len(text), gate.STATUS_LIMIT)
 
 
+class BotAuthors(unittest.TestCase):
+    def test_dependency_bot_pull_requests_are_not_gated(self):
+        for author in ('dependabot', 'app/dependabot', 'dependabot[bot]', 'renovate[bot]', 'github-actions[bot]'):
+            decision = gate.evaluate(facts(author=author, reviews=[]), automatic=True)
+            self.assertEqual(decision.action, 'exempt', author)
+
+    def test_people_and_other_apps_are_gated(self):
+        for author in ('itwormz', 'app/some-other-bot'):
+            self.assertEqual(gate.evaluate(facts(author=author, reviews=[]), automatic=True).action, 'wait')
+
+    def test_an_old_waiting_status_on_a_bot_pull_request_is_cleared_once(self):
+        stuck = facts(author='app/dependabot', reviews=[], gate_status='Waiting: Greptile has not reviewed this pull request yet.')
+        github = FakeGitHub(stuck, [])
+        gate.reconcile(github, 54, write=True, automatic=True)
+        self.assertEqual(github.calls, [('status', HEAD, 'success', gate.EXEMPT)])
+        stuck.gate_status = gate.EXEMPT
+        gate.reconcile(github, 54, write=True, automatic=True)
+        self.assertEqual(len(github.calls), 1)
+
+    def test_a_bot_pull_request_without_a_status_gets_none(self):
+        github = FakeGitHub(facts(author='app/dependabot', reviews=[]), [])
+        gate.reconcile(github, 55, write=True, automatic=True)
+        self.assertEqual(github.calls, [])
+
+
 class Parsing(unittest.TestCase):
     def comment(self, body, ident=1, updated='2026-11-15T10:00:00Z', login='greptile-apps'):
         return {'id': ident, 'updated_at': updated, 'user': user(login), 'body': body}

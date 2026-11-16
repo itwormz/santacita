@@ -30,6 +30,10 @@ REVIEW_LABEL = 'coderabbit-ready'
 # Commit statuses belong to the commit, not the PR: two PRs with the same head (e.g. into main and into
 # santacita-beta) must not see or overwrite each other's marker, so each PR has its own context.
 STATUS_CONTEXT = 'review-gate (#{number})'
+# Neither reviewer looks at these authors' PRs: Greptile does not review them and CodeRabbit ignores them
+# (`ignore_usernames` in .coderabbit.yaml). Waiting for a review would leave the PR pending forever.
+EXEMPT_AUTHORS = frozenset({'dependabot', 'renovate', 'github-actions'})
+EXEMPT = 'Not gated: dependency and automation PRs get no bot review'
 REQUESTED = 'CodeRabbit requested for this commit'
 REVIEWED = 'CodeRabbit has reviewed; request repeats manually'
 STATUS_LIMIT = 140  # GitHub truncates commit status descriptions.
@@ -73,11 +77,12 @@ class Facts:
     required: set[str]
     summary_head: str | None = None
     gate_status: str | None = None  # description of this gate's latest status on the head commit
+    author: str = ''                # `gh` reports apps as "app/<name>", the REST API as "<name>[bot]"
 
 
 @dataclass
 class Decision:
-    action: str                     # 'skip' | 'wait' | 'request' | 'done'
+    action: str                     # 'skip' | 'exempt' | 'wait' | 'request' | 'done'
     reasons: list[str] = field(default_factory=list)
 
 
@@ -85,6 +90,8 @@ def evaluate(f: Facts, *, automatic: bool) -> Decision:
     """Pure decision. `automatic` runs never repeat a CodeRabbit request; a manual run may."""
     if f.state != 'OPEN' or f.draft:
         return Decision('skip', ['The pull request must be open and ready for review.'])
+    if f.author.removeprefix('app/').removesuffix('[bot]') in EXEMPT_AUTHORS:
+        return Decision('exempt', [EXEMPT])
     # Only a published CodeRabbit review starts the second stage: a label is a request, not a review.
     started = bool(published(f.reviews, CODERABBIT))
     if automatic and started:
@@ -128,7 +135,7 @@ def evaluate(f: Facts, *, automatic: bool) -> Decision:
 def status_for(decision: Decision) -> tuple[str, str]:
     if decision.action == 'request':
         return 'success', REQUESTED
-    if decision.action == 'done':
+    if decision.action in {'done', 'exempt'}:
         return 'success', decision.reasons[0]
     text = 'Waiting: ' + decision.reasons[0]
     return 'pending', text if len(text) <= STATUS_LIMIT else text[:STATUS_LIMIT - 1] + '…'
@@ -172,7 +179,7 @@ class GitHub:
 
     def pull(self, number: int) -> dict:
         return gh_json(['pr', 'view', str(number), '--repo', self.repository,
-                        '--json', 'number,headRefOid,state,isDraft,baseRefName,labels'])
+                        '--json', 'number,headRefOid,state,isDraft,baseRefName,labels,author'])
 
     def open_pulls(self, base: str) -> list[int]:
         pulls = paged(f'repos/{self.repository}/pulls?state=open&base={quote(base, safe="")}&per_page=100')
@@ -240,7 +247,7 @@ class GitHub:
         pull = self.pull(number)
         return Facts(
             head=pull['headRefOid'], state=pull['state'], draft=pull['isDraft'],
-            labels={label['name'] for label in pull['labels']},
+            labels={label['name'] for label in pull['labels']}, author=(pull.get('author') or {}).get('login', ''),
             reviews=paged(f'repos/{self.repository}/pulls/{number}/reviews?per_page=100'),
             threads=self.threads(number), checks=self.checks(number), required=self.required(pull['baseRefName']),
             summary_head=greptile_summary_head(
@@ -259,7 +266,8 @@ def reconcile(github, number: int, *, write: bool, automatic: bool) -> Decision:
             return Decision('wait', ['The pull request changed while it was checked; the next run rechecks it.'])
         if write:
             github.relabel(number, REVIEW_LABEL in facts.labels)
-    if write and decision.action != 'skip':
+    # An exempt PR gets a status only to clear an older waiting one; it never needs a new one.
+    if write and decision.action != 'skip' and (decision.action != 'exempt' or facts.gate_status is not None):
         state, description = status_for(decision)
         if facts.gate_status != description:
             github.set_status(facts.head, number, state, description)
@@ -268,7 +276,7 @@ def reconcile(github, number: int, *, write: bool, automatic: bool) -> Decision:
 
 def report(number: int, decision: Decision, *, write: bool) -> str:
     verb = {'request': 'CodeRabbit requested' if write else 'ready for CodeRabbit',
-            'done': 'nothing to do', 'skip': 'skipped', 'wait': 'waiting'}[decision.action]
+            'done': 'nothing to do', 'exempt': 'not gated', 'skip': 'skipped', 'wait': 'waiting'}[decision.action]
     lines = [f'PR #{number}: {verb}'] + [f'  - {reason}' for reason in decision.reasons]
     return '\n'.join(lines)
 
