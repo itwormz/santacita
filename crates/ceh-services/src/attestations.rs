@@ -60,11 +60,11 @@ fn unique_json(raw:&[u8])->Result<Value,UpdateError>{
     serde_json::from_slice::<Unique>(raw).map(|v|v.0).map_err(|_|UpdateError::Invalid)
 }
 pub fn verify_file(path:&std::path::Path,version:&str,repository:&str,commit:&str)->Result<(),UpdateError>{
-    use sha2::{Digest,Sha256};use std::io::Read;
+    use std::io::Read;
     let name=path.file_name().and_then(|n|n.to_str()).ok_or(UpdateError::Invalid)?;
-    let mut file=std::fs::File::open(path).map_err(|_|UpdateError::Invalid)?;let mut hash=Sha256::new();std::io::copy(&mut file,&mut hash).map_err(|_|UpdateError::Invalid)?;
+    let digest=crate::updates::file_sha256(path)?;
     let mut proof=Vec::new();std::fs::File::open(path.with_file_name(format!("{name}.sigstore.json"))).map_err(|_|UpdateError::Invalid)?.take(MAX_BUNDLE+1).read_to_end(&mut proof).map_err(|_|UpdateError::Invalid)?;
-    verify(&proof,name,&format!("{:x}",hash.finalize()),version,repository,commit)
+    verify(&proof,name,&digest,version,repository,commit)
 }
 #[cfg(test)]
 mod tests{

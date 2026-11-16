@@ -74,10 +74,7 @@ fn session(v: &Value) -> &str {
 fn identity(session: &str, state: &str, when: Time) -> String {
     format!(
         "timeline-{}",
-        &format!(
-            "{:x}",
-            Sha256::digest(format!("{session}/{state}/{}", stamp(when)))
-        )[..24]
+        &hex::encode(Sha256::digest(format!("{session}/{state}/{}", stamp(when))))[..24]
     )
 }
 fn codes(v: &Value) -> Vec<&str> {

@@ -4,7 +4,7 @@
 //! app's missing entries are added, and the new file is backed up first);
 //! notification secrets stay in the system vault, which both apps use under the same names.
 use rusqlite::{OptionalExtension, params};
-use sha2_budget::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Write},

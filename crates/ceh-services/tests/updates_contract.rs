@@ -94,7 +94,7 @@ mod package {
     #[test]
     fn a_download_is_kept_only_when_its_size_and_checksum_match_and_progress_is_reported() {
         let data = vec![7u8; 3 * 1024 * 1024 + 11];
-        let digest = format!("{:x}", Sha256::digest(&data));
+        let digest = hex::encode(Sha256::digest(&data));
         let dir = tempfile::tempdir().unwrap();
         let mut seen = Vec::new();
         let path = stream_verified(&data[..], data.len() as u64, &digest, "p.dmg", dir.path(), &AtomicBool::new(false), |p| seen.push(p)).unwrap();

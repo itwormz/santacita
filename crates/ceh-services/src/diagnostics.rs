@@ -63,10 +63,7 @@ pub fn script_url(raw: &str) -> Option<String> {
     Some(format!("https://{HOST}{path}"))
 }
 pub fn script_reference(url: &str) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(url.split('#').next().unwrap_or("").as_bytes())
-    )
+    hex::encode(Sha256::digest(url.split('#').next().unwrap_or("").as_bytes()))
 }
 fn directory(path: &Path) -> Result<(), DiagnosticError> {
     if path
@@ -293,7 +290,7 @@ impl ScriptArchive {
         directory(session)?;
         let objects = self.root.join("resources");
         directory(&objects)?;
-        let digest = format!("{:x}", Sha256::digest(body));
+        let digest = hex::encode(Sha256::digest(body));
         let target = objects.join(format!("{digest}.js.gz"));
         if !target.exists() {
             let mut gzip = flate2::GzBuilder::new()

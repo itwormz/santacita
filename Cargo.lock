@@ -581,6 +581,7 @@ version = "0.4.1"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "hex",
  "regex",
  "serde",
  "serde_json",
@@ -630,6 +631,7 @@ dependencies = [
  "filetime",
  "flate2",
  "fs2",
+ "hex",
  "httpdate",
  "keyring-core",
  "libc",
@@ -655,6 +657,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "fs2",
+ "hex",
  "hmac",
  "num-bigint",
  "regex",
