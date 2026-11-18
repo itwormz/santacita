@@ -2,9 +2,9 @@
 //! NSS comes from the same installed Firefox; only a CEH-owned, leased profile is opened.
 use crate::firefox::{FirefoxError, FirefoxInstallation, ProfileLease};
 const INTERMEDIATE: &[u8] = include_bytes!("../assets/rapidssl-tls-rsa-ca-g1.der");
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 static NSS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[repr(C)]
 #[derive(Default)]
 struct CertTrust {
@@ -17,10 +17,7 @@ pub(crate) fn prepare(
     profile: &ProfileLease,
     installation: &FirefoxInstallation,
 ) -> Result<usize, FirefoxError> {
-    use std::{
-        ffi::{CString, c_char, c_int, c_ulong, c_void},
-        os::unix::ffi::OsStrExt,
-    };
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let _lock = NSS_LOCK.lock().map_err(|_| FirefoxError::Unavailable)?;
     let folder = installation
         .executable()
@@ -37,6 +34,60 @@ pub(crate) fn prepare(
         .map_err(|_| FirefoxError::Unavailable)?;
         let nss = libloading::Library::new(folder.join("libnss3.dylib"))
             .map_err(|_| FirefoxError::Unavailable)?;
+        let result = import_intermediate(&nss, &profile_name);
+        drop(nss);
+        drop(glue);
+        result
+    }
+}
+/// Windows Firefox does not fetch a missing intermediate either, and a new profile has no preloaded copy:
+/// without this the site opens on "Warning: Security Risk" and the search cannot start.
+#[cfg(target_os = "windows")]
+pub(crate) fn prepare(
+    profile: &ProfileLease,
+    installation: &FirefoxInstallation,
+) -> Result<usize, FirefoxError> {
+    use std::ffi::CString;
+    let _lock = NSS_LOCK.lock().map_err(|_| FirefoxError::Unavailable)?;
+    let folder = installation
+        .executable()
+        .parent()
+        .ok_or(FirefoxError::InvalidInstallation)?;
+    let profile_name = CString::new(format!("sql:{}", nss_profile_path(profile.path())?))
+        .map_err(|_| FirefoxError::InvalidProfile)?;
+    // nss3.dll needs mozglue.dll and its other neighbours: resolve them from the installation folder.
+    unsafe {
+        let nss = libloading::os::windows::Library::load_with_flags(
+            folder.join("nss3.dll"),
+            libloading::os::windows::LOAD_WITH_ALTERED_SEARCH_PATH,
+        )
+        .map_err(|_| FirefoxError::Unavailable)?;
+        let nss = libloading::Library::from(nss);
+        let result = import_intermediate(&nss, &profile_name);
+        drop(nss);
+        result
+    }
+}
+/// NSS takes a UTF-8 folder name without the `\\?\` prefix that canonical Windows paths carry.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn nss_profile_path(path: &std::path::Path) -> Result<String, FirefoxError> {
+    let text = path.to_str().ok_or(FirefoxError::InvalidProfile)?;
+    let text = match text.strip_prefix(r"\\?\") {
+        Some(rest) if rest.starts_with(r"UNC\") => format!(r"\\{}", &rest[4..]),
+        Some(rest) => rest.to_owned(),
+        None => text.to_owned(),
+    };
+    Ok(text)
+}
+/// Opens the leased profile's certificate database with the installation's NSS and adds the intermediate
+/// without trust bits. `Ok(1)` when it is in the database afterwards.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+unsafe fn import_intermediate(
+    nss: &libloading::Library,
+    profile_name: &std::ffi::CStr,
+) -> Result<usize, FirefoxError> {
+    use std::ffi::{c_char, c_int, c_ulong, c_void};
+    unsafe {
         let init: libloading::Symbol<unsafe extern "C" fn(*const c_char) -> c_int> = nss
             .get(b"NSS_InitReadWrite\0")
             .map_err(|_| FirefoxError::Unavailable)?;
@@ -55,6 +106,7 @@ pub(crate) fn prepare(
         let destroy: libloading::Symbol<unsafe extern "C" fn(*mut c_void)> = nss
             .get(b"CERT_DestroyCertificate\0")
             .map_err(|_| FirefoxError::Unavailable)?;
+        // CK_OBJECT_HANDLE is an `unsigned long`: 32 bits on Windows, 64 on macOS, as `c_ulong` is.
         let import: libloading::Symbol<
             unsafe extern "C" fn(*mut c_void, *mut c_void, c_ulong, *const c_char, c_int) -> c_int,
         > = nss
@@ -96,20 +148,50 @@ pub(crate) fn prepare(
             free_slot(slot);
             result
         };
-        let closed = shutdown();
-        drop(nss);
-        drop(glue);
-        if closed != 0 {
+        if shutdown() != 0 {
             return Err(FirefoxError::Unavailable);
         }
         result
     }
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(crate) fn prepare(
     _profile: &ProfileLease,
     _installation: &FirefoxInstallation,
 ) -> Result<usize, FirefoxError> {
     let _ = INTERMEDIATE;
     Ok(0)
+}
+#[cfg(test)]
+mod tests {
+    use super::nss_profile_path;
+    use std::path::Path;
+    #[test]
+    fn nss_gets_the_profile_folder_without_the_verbatim_prefix() {
+        assert_eq!(
+            nss_profile_path(Path::new(r"\\?\C:\Users\user\AppData\Local\SantaCita\browser-profiles\firefox-a")).unwrap(),
+            r"C:\Users\user\AppData\Local\SantaCita\browser-profiles\firefox-a"
+        );
+        assert_eq!(nss_profile_path(Path::new(r"\\?\UNC\server\share\p")).unwrap(), r"\\server\share\p");
+        assert_eq!(nss_profile_path(Path::new(r"C:\p")).unwrap(), r"C:\p");
+    }
+    /// The ICP site sends its certificate without the RapidSSL intermediate. Firefox does not fetch it, and a new
+    /// profile has no preloaded copy, so without this the first page is "Warning: Security Risk" (Windows, 0.4.2).
+    /// Starts the installed Firefox the way a search does and checks the intermediate went into its profile.
+    #[test]
+    #[ignore = "launches the installed Firefox"]
+    fn firefox_profile_gets_the_site_intermediate_before_the_first_page() {
+        use crate::firefox::{CertificateCache, FirefoxInstallation, OwnedFirefox, ProfileLease};
+        let Ok(installation) = FirefoxInstallation::discover() else { return crate::skip_missing_browser("Firefox") };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary(runtime.path()).unwrap();
+        let mut browser = OwnedFirefox::start(&installation, lease, true, &std::sync::atomic::AtomicBool::new(false)).unwrap();
+        let cache = browser.certificate_cache();
+        let _ = browser.stop();
+        if cfg!(any(target_os = "macos", target_os = "windows")) {
+            assert!(cache == CertificateCache::Ready(1), "the intermediate is in the new profile");
+        } else {
+            assert!(cache == CertificateCache::Ready(0), "Linux does not add the intermediate yet");
+        }
+    }
 }

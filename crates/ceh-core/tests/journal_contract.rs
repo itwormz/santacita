@@ -160,3 +160,25 @@ fn wall_clock_correction_does_not_disable_journal_updates() {
     assert_eq!(journal.rows()[0].ended_at, Some(800));
     assert_eq!(journal.rows()[1].time, 800);
 }
+
+#[test]
+fn a_search_that_ends_with_an_error_marks_the_open_step_failed_not_stopped_by_the_person() {
+    let open = |journal: &mut PageJournal| {
+        journal.event(JournalEvent::Start, None, None, false, 1000).unwrap();
+        journal.observe(DocumentId::new("r3:6:A").unwrap(), PageKind::Province, false, 2000).unwrap();
+    };
+    // The worker's error ending: FatalError, then Finish not requested by the person.
+    let mut failed = PageJournal::new();
+    open(&mut failed);
+    failed.event(JournalEvent::FatalError, None, None, false, 3000).unwrap();
+    failed.event(JournalEvent::Finish, None, None, false, 3000).unwrap();
+    let step = failed.rows().iter().find(|r| r.event == JournalEvent::Visit).unwrap();
+    assert_eq!(step.status, JournalStatus::Failed);
+    assert_eq!(step.ended_at, Some(3000));
+    // A stop the person asked for still reads as theirs.
+    let mut stopped = PageJournal::new();
+    open(&mut stopped);
+    stopped.event(JournalEvent::Finish, None, None, true, 3000).unwrap();
+    let step = stopped.rows().iter().find(|r| r.event == JournalEvent::Visit).unwrap();
+    assert_eq!(step.status, JournalStatus::Cancelled);
+}

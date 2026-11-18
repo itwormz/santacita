@@ -500,6 +500,13 @@ impl SessionDriver {
         let result = self.execute_inner(connection, step);
         if matches!(result, Err(BrowserError::Paused)) {
             self.cancelled_preactions.extend(candidates);
+        } else if matches!(result, Err(BrowserError::StaleDocument)) {
+            // A stale click is refused before the pointer is pressed: the cookie banner may be tried again.
+            for (guard, action) in &candidates {
+                if *action == ActionKind::Cookie {
+                    self.flow.cookie_click_not_sent(guard);
+                }
+            }
         }
         result
     }

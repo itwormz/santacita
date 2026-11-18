@@ -372,6 +372,32 @@ impl FlowEngine {
         }
         Ok(())
     }
+    /// The cookie click was refused before anything reached the page (the page changed under it): the next
+    /// observation of the same page may try it again, twice at most. Without this the banner stays and the
+    /// flow waits for it forever. `true` when another try is allowed.
+    pub fn cookie_click_not_sent(&mut self, guard: &DocumentGuard) -> bool {
+        const RETRIES: usize = 2;
+        let key = (guard.document.clone(), ActionKind::Cookie);
+        let Some(record) = self
+            .dispatches
+            .iter_mut()
+            .find(|r| r.guard == *guard && r.action == ActionKind::Cookie && r.outcome.is_none())
+        else {
+            return false;
+        };
+        let count = self.unsent_attempts.iter().find(|(k, _)| k == &key).map_or(0, |(_, n)| *n);
+        if count >= RETRIES || guard.session != self.session || self.authority.mode() != ControlMode::Automatic {
+            return false;
+        }
+        record.outcome = Some(DispatchOutcome::NotDispatched);
+        match self.unsent_attempts.iter_mut().find(|(k, _)| k == &key) {
+            Some((_, n)) => *n += 1,
+            None => self.unsent_attempts.push((key.clone(), 1)),
+        }
+        self.attempted.retain(|k| k != &key);
+        self.dispatches.retain(|r| !(r.guard == *guard && r.action == ActionKind::Cookie));
+        true
+    }
     fn clear_certificate_wait(&mut self) {
         self.certificate_pending = None;
         self.certificate_deadline = None;
@@ -857,9 +883,14 @@ impl FlowEngine {
                 self.attempted.push(key);
                 return Ok(vec![FlowEffect::AcceptCookies { guard }]);
             }
-            return Ok(vec![FlowEffect::ReobserveAt(
-                now.checked_add(500).ok_or(FlowError::ClockOverflow)?,
-            )]);
+            // A banner that could not be clicked (every try refused before it was sent) does not hold the form:
+            // the page's own step goes on under it.
+            let unsent = self.unsent_attempts.iter().find(|(k, _)| k == &key).map_or(0, |(_, n)| *n);
+            if unsent < 2 {
+                return Ok(vec![FlowEffect::ReobserveAt(
+                    now.checked_add(500).ok_or(FlowError::ClockOverflow)?,
+                )]);
+            }
         }
         if matches!(
             observed.kind,

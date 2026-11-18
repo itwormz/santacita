@@ -26,7 +26,9 @@ pub fn startup_preferences(os: crate::launch::TargetOs) -> serde_json::Value {
      "browser.startup.homepage_override.mstone":"ignore","startup.homepage_welcome_url":"",
      "datareporting.policy.dataSubmissionEnabled":false,"toolkit.telemetry.enabled":false,
      "remote.experimental.dynamicstart.enabled":true,"remote.experimental.dynamicstart.prompt.enabled":false,
-     "remote.prefs.recommended":false
+     "remote.prefs.recommended":false,
+     // Firefox's terms-of-use dialog covers the page of a new profile and takes the clicks meant for it.
+     "termsofuse.bypassNotification":true
     });
     if os == crate::launch::TargetOs::Windows {
         prefs["widget.windows.window_occlusion_tracking.enabled"] = json!(false);
