@@ -249,6 +249,35 @@ pub fn closed_window_stop<T>(
         other => other,
     }
 }
+/// A window the person has just closed is still listed for a moment while the browser shuts down, so the
+/// read that failed looks like a hiccup of a window that is there. Ask again (`looks` times, `pause` between
+/// the looks) before the error stays: a window that is really open stays open, one that closes is a stop.
+pub fn closed_window_stop_settled<T>(
+    result: Result<T, &'static str>,
+    finished: T,
+    looks: u32,
+    mut page_open: impl FnMut() -> bool,
+    mut pause: impl FnMut(),
+) -> Result<T, &'static str> {
+    let Err(code) = result else { return result };
+    if !code.starts_with("browser_") {
+        return Err(code);
+    }
+    for look in 0..looks.max(1) {
+        if !page_open() {
+            return Ok(finished);
+        }
+        if look + 1 < looks {
+            pause();
+        }
+    }
+    Err(code)
+}
+/// How long the app waits for a window that is closing: 12 looks, 250 ms apart (about three seconds).
+pub const CLOSING_WINDOW_LOOKS: u32 = 12;
+pub fn closing_window_pause() {
+    std::thread::sleep(std::time::Duration::from_millis(250));
+}
 /// The certificate window of the browser (a native dialog) blocks reading the page, so the core cannot tell
 /// the person in time: five seconds after the click the worker rings the reminder itself, once.
 pub fn certificate_reminder_due(clicked_at_ms: Option<u64>, already_rung: bool, now_ms: u64) -> bool {

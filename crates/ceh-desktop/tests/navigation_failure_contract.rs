@@ -51,3 +51,40 @@ fn only_the_availability_request_counts_as_a_check_not_reloads_of_the_waiting_pa
         assert!(!counts_as_check(action), "{action:?}");
     }
 }
+
+mod window_closing_settles {
+    use ceh_desktop::closed_window_stop_settled;
+    use std::cell::Cell;
+
+    #[test]
+    fn a_window_still_listed_while_it_shuts_down_is_a_stop_once_it_is_gone() {
+        // The read failed because the person closed the window; the browser needs a moment to disappear.
+        let probes = Cell::new(0);
+        let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 12, || {
+            probes.set(probes.get() + 1);
+            probes.get() < 4
+        }, || {});
+        assert_eq!(result, Ok("stop"));
+        assert_eq!(probes.get(), 4, "stops asking as soon as the window is gone");
+    }
+    #[test]
+    fn a_window_that_stays_open_keeps_the_error_after_the_wait() {
+        let probes = Cell::new(0);
+        let pauses = Cell::new(0);
+        let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 5, || {
+            probes.set(probes.get() + 1);
+            true
+        }, || pauses.set(pauses.get() + 1));
+        assert_eq!(result, Err("browser_observation_failed"));
+        assert_eq!(probes.get(), 5);
+        assert_eq!(pauses.get(), 4, "no pause after the last look");
+    }
+    #[test]
+    fn a_closed_window_needs_no_waiting_and_other_results_never_probe() {
+        let pauses = Cell::new(0);
+        assert_eq!(closed_window_stop_settled(Err("browser_action_failed"), "stop", 12, || false, || pauses.set(1)), Ok("stop"));
+        assert_eq!(pauses.get(), 0);
+        assert_eq!(closed_window_stop_settled(Err("statistics_unavailable"), "stop", 12, || panic!("must not probe"), || {}), Err("statistics_unavailable"));
+        assert_eq!(closed_window_stop_settled(Ok("done"), "stop", 12, || panic!("must not probe"), || {}), Ok("done"));
+    }
+}
