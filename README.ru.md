@@ -6,7 +6,7 @@
 
 <p align="center">
   Помощник для поиска <b>Toma de huellas / TIE</b> и <b>Autorización de regreso</b> на ICP Plus.<br>
-  <sub>Бесплатно · Открытый код · macOS, Windows, Linux</sub>
+  <sub>Бесплатно · Исходный код доступен · macOS, Windows, Linux</sub>
 </p>
 
 <p align="center">

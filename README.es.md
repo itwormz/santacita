@@ -6,7 +6,7 @@
 
 <p align="center">
   Asistente para citas de <b>Toma de huellas / TIE</b> y <b>Autorización de regreso</b> en ICP Plus.<br>
-  <sub>Gratis · Código abierto · macOS, Windows, Linux</sub>
+  <sub>Gratis · Código disponible · macOS, Windows, Linux</sub>
 </p>
 
 <p align="center">

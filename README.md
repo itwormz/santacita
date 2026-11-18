@@ -6,7 +6,7 @@
 
 <p align="center">
   An assistant for finding <b>Toma de huellas / TIE</b> and <b>Autorización de regreso</b> appointments on ICP Plus.<br>
-  <sub>Free · Open source · macOS, Windows, Linux</sub>
+  <sub>Free · Source available · macOS, Windows, Linux</sub>
 </p>
 
 <p align="center">
