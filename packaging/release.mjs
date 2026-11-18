@@ -98,13 +98,15 @@ export async function verifyPublishedRelease(release,directory,version){
 }
 export async function releaseNotes(root,version){
  versionKey(version);const notes=(await readFile(join(root,'CHANGELOG.md'),'utf8')).replace(/\r\n/g,'\n');
- const headings=[...notes.matchAll(/^## ([^\n]+)$/gm)];const heading=headings.find(h=>h[1].startsWith(`${version} — `));
+ const headings=[...notes.matchAll(/^## ([^\n]+)$/gm)];const heading=headings.find(h=>h[1]===version||h[1].startsWith(`${version} — `));
  if(!heading)throw new Error('Missing release notes');
  const end=headings.find(h=>h.index>heading.index)?.index??notes.length;
  const body=notes.slice(heading.index+heading[0].length,end).trim();
  if(!body)throw new Error('Empty release notes');
  return {title:heading[1].slice(version.length+3),body};
 }
+/** The release name: the version, and the title only when the notes have one. */
+export function releaseTitle(version,title){return title?`SantaCita ${version} — ${title}`:`SantaCita ${version}`;}
 export async function prepareVersion(root=ROOT){
  const requested=(await readFile(join(root,'.github/release-version'),'utf8')).trim();versionKey(requested);
  const current=(await readMetadata(root)).version;
@@ -115,8 +117,8 @@ export async function prepareVersion(root=ROOT){
  if(!marker)throw new Error('Add final notes under Unreleased');
  const start=marker.index+marker[0].length;const next=/^## /m.exec(notes.slice(start));const end=next?start+next.index:notes.length;
  const body=notes.slice(start,end).trim();if(!body)throw new Error('Empty unreleased notes');
- if(notes.split('\n').some(line=>line.startsWith(`## ${requested} — `)))throw new Error('Release notes already exist');
- notes=notes.slice(0,marker.index)+`## Unreleased\n\n## ${requested} — ${marker[1]??'Release'}\n\n${body}\n\n`+notes.slice(end);
+ if(notes.split('\n').some(line=>line===`## ${requested}`||line.startsWith(`## ${requested} — `)))throw new Error('Release notes already exist');
+ notes=notes.slice(0,marker.index)+`## Unreleased\n\n## ${requested}${marker[1]?` — ${marker[1]}`:''}\n\n${body}\n\n`+notes.slice(end);
  const cargoPath=join(root,'Cargo.toml');const cargo=(await readFile(cargoPath,'utf8')).replace(/(\[workspace.package\]\s*\nversion = ")[^"]+"/,`$1${requested}"`);
  const lockPath=join(root,'Cargo.lock');const lock=(await readFile(lockPath,'utf8')).replace(/\r\n/g,'\n').replace(/(^name = "ceh-[^"]+"\nversion = ")[^"]+"/gm,`$1${requested}"`);
  const packagePath=join(root,'desktop-ui/package.json');const pkg=JSON.parse(await readFile(packagePath,'utf8'));pkg.version=requested;

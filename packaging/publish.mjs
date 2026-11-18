@@ -2,7 +2,7 @@
 import {spawnSync} from 'node:child_process';
 import {join,resolve} from 'node:path';
 import {writeFile} from 'node:fs/promises';
-import {ROOT,readMetadata,releaseNotes,finalize,verifyPublishedRelease} from './release.mjs';
+import {ROOT,readMetadata,releaseNotes,releaseTitle,finalize,verifyPublishedRelease} from './release.mjs';
 function run(command,args,options={}){const r=spawnSync(command,args,{cwd:ROOT,stdio:'inherit',...options});if(r.error)throw r.error;if(r.status!==0)throw new Error(`${command} failed (${r.status})`);return r;}
 const repository=process.env.GITHUB_REPOSITORY;const commit=process.env.GITHUB_SHA;const tag=process.env.RELEASE_TAG;
 if(!['itwormz/extranjeria-cita-helper','itwormz/santacita'].includes(repository)||!/^[a-f0-9]{40}$/.test(commit??''))throw new Error('Unexpected release source');
@@ -16,7 +16,7 @@ if(existing.error)throw existing.error;
 if(existing.status===0)throw new Error('Release already exists; published packages must never be overwritten. Inspect any existing draft before rerunning.');
 if(!existing.stderr.includes('HTTP 404'))throw new Error('Cannot determine whether release exists');
 const notesFile=join(directory,'release-notes.md');await writeFile(notesFile,notes.body+'\n');
-run('gh',['release','create',tag,'--repo',repository,'--verify-tag','--target',commit,'--draft','--title',`SantaCita ${version} — ${notes.title}`,'--notes-file',notesFile,...(prerelease?['--prerelease']:[])]);
+run('gh',['release','create',tag,'--repo',repository,'--verify-tag','--target',commit,'--draft','--title',releaseTitle(version,notes.title),'--notes-file',notesFile,...(prerelease?['--prerelease']:[])]);
 const assets=names.flatMap(name=>[join(directory,name),join(directory,`${name}.sigstore.json`)]).concat(join(directory,'SHA256SUMS'));
 run('gh',['release','upload',tag,'--repo',repository,...assets]);
 run('gh',['release','edit',tag,'--repo',repository,'--draft=false',...(prerelease?['--prerelease','--latest=false']:['--latest'])]);

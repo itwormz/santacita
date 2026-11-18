@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,readFile,mkdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
-import {packageNames,versionKey,readMetadata,writeChecksums,validatePackages,prepareVersion,releaseNotes,assertNativeTarget,verifyPublishedRelease} from '../release.mjs';
+import {packageNames,versionKey,readMetadata,writeChecksums,validatePackages,prepareVersion,releaseNotes,releaseTitle,assertNativeTarget,verifyPublishedRelease} from '../release.mjs';
 
 async function fixture(t){const dir=await mkdtemp(join(tmpdir(),'santacita-release-'));t.after(()=>rm(dir,{recursive:true,force:true}));return dir;}
 test('package matrix has five exact public names including portable',()=>{
@@ -118,4 +118,21 @@ test('the MSI installs WebView2 with Microsoft\'s signed bootstrapper only when 
  assert.match(script,/Get-AuthenticodeSignature/);assert.match(script,/O=Microsoft Corporation/);
  assert.match(script,/CEH_REQUIRE_WEBVIEW2_SETUP/);
  assert.match(workflow,/CEH_REQUIRE_WEBVIEW2_SETUP=1/,'a release build cannot skip the embedded installer');
+});
+test('a release without a title is just its version in the notes and in the release name',async t=>{
+ const root=await fixture(t);await mkdir(join(root,'desktop-ui'));await mkdir(join(root,'.github'));
+ await writeFile(join(root,'.github/release-version'),'0.4.3\n');
+ await writeFile(join(root,'Cargo.toml'),'[workspace.package]\nversion = "0.4.2"\n');
+ await writeFile(join(root,'Cargo.lock'),'[[package]]\nname = "ceh-core"\nversion = "0.4.2"\n');
+ await writeFile(join(root,'desktop-ui/package.json'),JSON.stringify({version:'0.4.2'}));
+ await writeFile(join(root,'desktop-ui/package-lock.json'),JSON.stringify({version:'0.4.2',packages:{'':{version:'0.4.2'}}}));
+ await writeFile(join(root,'CHANGELOG.md'),'# Changelog\n\n## Unreleased\n\n- Something new.\n\n## 0.4.2 — Old title\n\n- Older.\n');
+ await prepareVersion(root);
+ const changelog=await readFile(join(root,'CHANGELOG.md'),'utf8');
+ assert.match(changelog,/^## 0\.4\.3\n/m);assert.doesNotMatch(changelog,/0\.4\.3 —/);
+ assert.deepEqual(await releaseNotes(root,'0.4.3'),{title:'',body:'- Something new.'});
+ assert.deepEqual(await releaseNotes(root,'0.4.2'),{title:'Old title',body:'- Older.'});
+ assert.equal(releaseTitle('0.4.3',''),'SantaCita 0.4.3');
+ assert.equal(releaseTitle('0.4.2','Old title'),'SantaCita 0.4.2 — Old title');
+ const before=changelog;await prepareVersion(root);assert.equal(await readFile(join(root,'CHANGELOG.md'),'utf8'),before);
 });
