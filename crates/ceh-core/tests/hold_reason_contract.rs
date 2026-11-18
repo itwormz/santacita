@@ -51,6 +51,32 @@ fn an_office_page_without_offices_is_held_with_its_reason() {
 }
 
 #[test]
+fn leaving_a_stop_clears_its_reason() {
+    let mut e = engine();
+    let held = e
+        .observe_with_facts(observation(PageKind::Office), PageFacts { office_count: 0, ..Default::default() }, 0)
+        .unwrap();
+    assert_eq!(held, vec![FlowEffect::Hold]);
+    assert_eq!(e.diagnostics().hold_reason, Some("office_count_zero"));
+    // The page moves on: the old reason must not be reported for the new situation.
+    let next = Observation { document: DocumentId::new("doc-2").unwrap(), ..observation(PageKind::Procedure) };
+    assert!(matches!(e.observe(next, 1).unwrap()[0], FlowEffect::Prepare { .. }));
+    assert_eq!(e.diagnostics().hold_reason, None);
+}
+
+#[test]
+fn a_planned_wait_does_not_record_the_hold_it_may_end_in() {
+    let mut e = engine();
+    let o = observation(PageKind::RequestNoSlotsRestart);
+    let effects = e.observe(o.clone(), 0).unwrap();
+    assert!(matches!(effects[0], FlowEffect::WaitUntil(_)), "{effects:?}");
+    assert_eq!(e.diagnostics().hold_reason, None, "still only waiting");
+    // The restart control is still missing when the wait is over: now it is a stop.
+    assert_eq!(e.observe(o, 10_000_000).unwrap(), vec![FlowEffect::Hold]);
+    assert_eq!(e.diagnostics().hold_reason, Some("no_slots_restart_without_control"));
+}
+
+#[test]
 fn a_page_with_no_handler_is_held_with_its_reason() {
     let mut e = engine();
     let effects = e.observe(observation(PageKind::Procedure), 0).unwrap();

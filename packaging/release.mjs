@@ -96,9 +96,20 @@ export async function verifyPublishedRelease(release,directory,version){
   if(found.length!==1||found[0].state!=='uploaded'||found[0].digest!==`sha256:${await sha256(join(directory,name))}`)throw new Error(`Published asset digest mismatch: ${name}`);
  }
 }
+/** The `## ` headings of the notes that are not inside a fenced code block (an example heading is not a release). */
+function releaseHeadings(notes){
+ const found=[];let fence=null;let offset=0;
+ for(const line of notes.split('\n')){
+  const mark=/^\s*(```+|~~~+)/.exec(line);
+  if(mark){const kind=mark[1][0];if(!fence)fence=kind;else if(fence===kind)fence=null;}
+  else if(!fence){const heading=/^## ([^\n]+)$/.exec(line);if(heading){const match=[line,heading[1]];match.index=offset;found.push(match);}}
+  offset+=line.length+1;
+ }
+ return found;
+}
 export async function releaseNotes(root,version){
  versionKey(version);const notes=(await readFile(join(root,'CHANGELOG.md'),'utf8')).replace(/\r\n/g,'\n');
- const headings=[...notes.matchAll(/^## ([^\n]+)$/gm)];const heading=headings.find(h=>h[1]===version||h[1].startsWith(`${version} — `));
+ const headings=releaseHeadings(notes);const heading=headings.find(h=>h[1]===version||h[1].startsWith(`${version} — `));
  if(!heading)throw new Error('Missing release notes');
  const end=headings.find(h=>h.index>heading.index)?.index??notes.length;
  const body=notes.slice(heading.index+heading[0].length,end).trim();
@@ -113,11 +124,12 @@ export async function prepareVersion(root=ROOT){
  if(versionKey(requested)<versionKey(current))throw new Error('Release version must not go backwards');
  let notes=(await readFile(join(root,'CHANGELOG.md'),'utf8')).replace(/\r\n/g,'\n');
  if(requested===current){try{await releaseNotes(root,requested);return;}catch{/* first release may already have the intended source version */}}
- const marker=/^## Unreleased(?: — ([^\n]+))?$/m.exec(notes);
+ const unreleased=releaseHeadings(notes).find(h=>h[1]==='Unreleased'||h[1].startsWith('Unreleased — '));
+ const marker=unreleased&&Object.assign([unreleased[0],unreleased[1].slice(13)||undefined],{index:unreleased.index});
  if(!marker)throw new Error('Add final notes under Unreleased');
- const start=marker.index+marker[0].length;const next=/^## /m.exec(notes.slice(start));const end=next?start+next.index:notes.length;
+ const start=marker.index+marker[0].length;const nextHeading=releaseHeadings(notes).find(h=>h.index>marker.index);const end=nextHeading?nextHeading.index:notes.length;
  const body=notes.slice(start,end).trim();if(!body)throw new Error('Empty unreleased notes');
- if(notes.split('\n').some(line=>line===`## ${requested}`||line.startsWith(`## ${requested} — `)))throw new Error('Release notes already exist');
+ if(releaseHeadings(notes).some(h=>h[1]===requested||h[1].startsWith(`${requested} — `)))throw new Error('Release notes already exist');
  notes=notes.slice(0,marker.index)+`## Unreleased\n\n## ${requested}${marker[1]?` — ${marker[1]}`:''}\n\n${body}\n\n`+notes.slice(end);
  const cargoPath=join(root,'Cargo.toml');const cargo=(await readFile(cargoPath,'utf8')).replace(/(\[workspace.package\]\s*\nversion = ")[^"]+"/,`$1${requested}"`);
  const lockPath=join(root,'Cargo.lock');const lock=(await readFile(lockPath,'utf8')).replace(/\r\n/g,'\n').replace(/(^name = "ceh-[^"]+"\nversion = ")[^"]+"/gm,`$1${requested}"`);

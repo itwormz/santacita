@@ -139,6 +139,9 @@ fn main() -> Result<()> {
     let lost_response = std::env::args().nth(2).as_deref() == Some("lost");
     let isolation = std::env::args().nth(2).as_deref() == Some("isolation");
     let guards = std::env::args().nth(2).as_deref() == Some("guards");
+    if std::env::args().nth(2).as_deref() == Some("refresh-tls") {
+        return Err("the refresh-tls mode was removed together with its TLS fixture".into());
+    }
     if guards && kind == "chrome" {
         return Err("guard experiment requires BiDi".into());
     }

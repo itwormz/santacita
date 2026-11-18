@@ -18,7 +18,7 @@ Share additional technical details only if available. There is no need to repeat
 risk an open appointment to reproduce a problem.
 
 For a startup failure or a search that stopped because it could not continue, the
-*Search stop report* card in About (**Copy**) provides technical information.
+*Diagnostic report* card in About (**Copy**) provides technical information.
 Review it before posting. Screenshots and timeline excerpts are
 optional. Do not publish NIE, DNI or passport numbers, names, phone/email,
 appointment confirmation numbers, credentials, cookies, certificates, browser

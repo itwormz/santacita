@@ -538,6 +538,77 @@ fn replace_bounded(value: &str, regex: &regex::Regex, word_boundary: bool) -> St
 }
 static REPORT_ID: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| regex::Regex::new(r"^[0-9]{8}T[0-9]{6}-[a-f0-9]{8}$").unwrap());
+/// What the `session` part of a report may contain: fixed names, flags and counts. Anything else, at any depth, is dropped
+/// when the report is saved and again when it is read, so a field added by mistake cannot carry identity data out.
+enum Shape {
+    Value,
+    List,
+    ValueOr(&'static Shape),
+    Object(&'static [(&'static str, Shape)]),
+    Each(&'static Shape),
+}
+const V: Shape = Shape::Value;
+const FLOW: Shape = Shape::Object(&[
+    ("phase", V), ("hold_reason", V), ("manual", V), ("attempted_actions", V), ("unsent_retries", V), ("recovery_attempts", V),
+]);
+const FACTS: Shape = Shape::Object(&[
+    ("office_count", V), ("appointment_scheduled", V), ("confirm_appointment_round", V), ("cookie_accept_available", V),
+    ("authentication", V), ("certificate_method_available", V), ("clave_method", V), ("clave_method_available", V),
+    ("clave_requires_attention", V), ("clave_input_started", V),
+    ("recovery", Shape::Object(&[
+        ("official_site", V), ("endpoint", V), ("last_action", V), ("pending_action", V), ("own_control", V),
+        ("certificate_validation_error", V), ("immediate_expiry_control", V),
+    ])),
+]);
+const PAGE: Shape = Shape::Object(&[
+    ("endpoint", V), ("official", V), ("applicant_editable", V), ("fill_mode", V), ("last_action", V), ("pending_action", V),
+    ("visible_selectors", Shape::List),
+    ("frames", Shape::Each(&Shape::Object(&[("status", V), ("response_matches", V), ("words", V)]))),
+    ("shape", Shape::Object(&[("forms", V), ("selects", V), ("buttons", V), ("inputs", Shape::List)])),
+]);
+const DETAIL: Shape = Shape::Object(&[("facts", FACTS), ("page", PAGE)]);
+const ROW: Shape = Shape::Object(&[
+    ("t", V), ("kind", V), ("page", V), ("method", V), ("doc", V), ("variant", V), ("operation_code", V), ("preparation", V),
+    ("effects", Shape::List), ("flow", FLOW), ("detail", Shape::ValueOr(&DETAIL)),
+    ("delay_ms", V), ("elapsed_ms", V), ("error", V), ("scroll_fallback", V), ("reason", V), ("streak", V),
+    ("receipts", Shape::Each(&Shape::Object(&[("action", V), ("outcome", V)]))),
+]);
+const SESSION: Shape = Shape::Object(&[
+    ("stop", Shape::Object(&[("reason", V), ("summary", V)])),
+    ("settings", Shape::Object(&[
+        ("province", V), ("procedure", V), ("subprocedure", V), ("access_mode", V), ("clave_method", V), ("fill_mode", V),
+        ("no_slots_mode", V), ("applicant_no_slots_mode", V), ("browser", V),
+    ])),
+    ("header", Shape::Object(&[
+        ("app", V), ("firefox", V), ("os", V), ("certificate_cache", V), ("webdriver_mode", V), ("webdriver_fallback", V),
+        ("profile", Shape::Object(&[("persistent", V), ("age_days", V)])),
+        ("timings", Shape::Object(&[("action_delay_ms", Shape::List), ("first_bootstrap_ms", V), ("typing_ms", V), ("contact_typing_ms", V)])),
+    ])),
+    ("recent", Shape::Each(&ROW)),
+]);
+fn is_scalar(value: &Value) -> bool {
+    matches!(value, Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_))
+}
+/// Keep only what `shape` names; `false` when the value has the wrong kind and must go.
+fn prune(value: &mut Value, shape: &Shape) -> bool {
+    match (shape, &mut *value) {
+        (Shape::Value, v) => is_scalar(v),
+        (Shape::List, Value::Array(items)) => {
+            items.retain(is_scalar);
+            true
+        }
+        (Shape::ValueOr(inner), v) => is_scalar(v) || prune(v, inner),
+        (Shape::Object(fields), Value::Object(map)) => {
+            map.retain(|key, child| fields.iter().find(|(name, _)| name == key).is_some_and(|(_, inner)| prune(child, inner)));
+            true
+        }
+        (Shape::Each(inner), Value::Array(items)) => {
+            items.retain_mut(|item| prune(item, inner));
+            true
+        }
+        _ => false,
+    }
+}
 pub struct StartupReports {
     root: PathBuf,
     sanitizer: Sanitizer,
@@ -573,6 +644,12 @@ impl StartupReports {
             .as_object_mut()
             .ok_or(DiagnosticError::Invalid)?
             .retain(|key, _| allowed.contains(&key.as_str()));
+        if let Some(object) = report.as_object_mut()
+            && let Some(session) = object.get_mut("session")
+            && !prune(session, &SESSION)
+        {
+            object.remove("session");
+        }
         self.sanitizer.scrub(report, &self.home);
         Ok(())
     }
@@ -587,29 +664,32 @@ impl StartupReports {
             return Err(DiagnosticError::TooLarge);
         }
         directory(&self.root)?;
-        let mut old = Vec::new();
+        // Ids sort in saving order: the time to the second, then a counter that grows within the second, then a few
+        // random characters. Retention and "newest" both follow that order, never the file system clock.
+        let stamp = when.format("%Y%m%dT%H%M%S").to_string();
+        let mut ids = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let entry = entry?;
             let path = entry.path();
             if entry.file_type()?.is_file()
                 && path.extension().is_some_and(|v| v == "json")
-                && path
-                    .file_stem()
-                    .and_then(|v| v.to_str())
-                    .is_some_and(|v| REPORT_ID.is_match(v))
+                && let Some(stem) = path.file_stem().and_then(|v| v.to_str())
+                && REPORT_ID.is_match(stem)
             {
-                old.push((entry.metadata()?.modified()?, path));
+                ids.push((stem.to_owned(), path));
             }
         }
-        old.sort_by_key(|a| std::cmp::Reverse(a.0));
-        for (_, path) in old.into_iter().skip(9) {
+        ids.sort_by(|a, b| b.0.cmp(&a.0));
+        let counter = ids
+            .iter()
+            .filter(|(stem, _)| stem.starts_with(&stamp))
+            .filter_map(|(stem, _)| u16::from_str_radix(&stem[16..20], 16).ok())
+            .max()
+            .map_or(0, |last| last.saturating_add(1));
+        for (_, path) in ids.into_iter().skip(9) {
             fs::remove_file(path)?;
         }
-        let id = format!(
-            "{}-{}",
-            when.format("%Y%m%dT%H%M%S"),
-            &uuid::Uuid::new_v4().simple().to_string()[..8]
-        );
+        let id = format!("{stamp}-{counter:04x}{}", &uuid::Uuid::new_v4().simple().to_string()[..4]);
         if !REPORT_ID.is_match(&id) {
             return Err(DiagnosticError::Invalid);
         }
@@ -620,8 +700,8 @@ impl StartupReports {
             .map_err(|_| DiagnosticError::Unavailable)?;
         Ok(id)
     }
-    /// The id of the report saved last. Ids carry the time to the second and a random suffix, so within one
-    /// second the order of saving (the file's modification time) decides, and the id only breaks a tie.
+    /// The id of the report saved last (ids sort in saving order). Only regular files count: a folder or a link
+    /// with a report's name cannot hide the real newest report.
     pub fn latest(&self) -> Option<String> {
         fs::read_dir(&self.root)
             .ok()?
@@ -629,13 +709,12 @@ impl StartupReports {
                 let entry = entry.ok()?;
                 let path = entry.path();
                 let stem = path.file_stem()?.to_str()?.to_owned();
-                if !(path.extension().is_some_and(|v| v == "json") && REPORT_ID.is_match(&stem)) {
-                    return None;
-                }
-                Some((entry.metadata().ok()?.modified().ok()?, stem))
+                (entry.file_type().ok()?.is_file()
+                    && path.extension().is_some_and(|v| v == "json")
+                    && REPORT_ID.is_match(&stem))
+                .then_some(stem)
             })
             .max()
-            .map(|(_, id)| id)
     }
     pub fn read(&self, id: &str) -> Result<Option<Value>, DiagnosticError> {
         if !REPORT_ID.is_match(id) {

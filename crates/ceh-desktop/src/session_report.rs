@@ -58,6 +58,11 @@ impl SessionRecorder {
         let page = crate::session_timeline::page_row(observation.kind, observation.method, &observation.document);
         let key = format!("{page}{effect_names:?}{}", report["flow"]["phase"]);
         if self.last_page_key.as_deref() == Some(key.as_str()) {
+            // The same stop seen again: keep the newest facts of that page, without a second signal.
+            if let Some(row) = self.rows.iter_mut().rev().find(|row| row["kind"] == "page") {
+                row["flow"] = report["flow"].clone();
+                row["detail"] = json!({"facts": report["facts"], "page": report["page"]});
+            }
             return false;
         }
         self.last_page_key = Some(key);
@@ -71,6 +76,14 @@ impl SessionRecorder {
     }
     /// A step the browser executed (`session_timeline::step_row` or `step_error_row`).
     pub fn step(&mut self, at: &str, row: Value) {
+        // A step that did nothing (only waits, no receipt, no error) says nothing: it must not push the page out.
+        let quiet = row["effects"].as_array().is_none_or(|effects| {
+            effects.iter().all(|effect| matches!(effect.as_str(), Some("wait_until" | "reobserve" | "silence")))
+        });
+        let no_receipts = row["receipts"].as_array().is_none_or(Vec::is_empty);
+        if quiet && no_receipts && row.get("error").is_none() {
+            return;
+        }
         let mut row = row;
         row["t"] = json!(at);
         row["kind"] = json!("step");
@@ -91,10 +104,12 @@ impl SessionRecorder {
     /// The report: environment, settings, why the search stopped and the newest events.
     pub fn report(&self, version: &str, now: &str, stop: Value) -> Value {
         let mut rows: Vec<Value> = self.rows.iter().cloned().collect();
-        let detailed = rows.iter().filter(|row| row.get("detail").is_some()).count();
+        // Only page rows carry a detail block; a step's `detail` is its own reason and stays.
+        let is_detailed = |row: &Value| row["kind"] == "page" && row.get("detail").is_some();
+        let detailed = rows.iter().filter(|row| is_detailed(row)).count();
         let mut strip = detailed.saturating_sub(DETAILED_ROWS);
         for row in &mut rows {
-            if strip > 0 && row.get("detail").is_some() {
+            if strip > 0 && is_detailed(row) {
                 row.as_object_mut().map(|object| object.remove("detail"));
                 strip -= 1;
             }
@@ -237,5 +252,53 @@ mod tests {
         for private in ["Maria", "X1234567L", "600123456", "example.com", "SECRET", "document-with-an-id"] {
             assert!(!text.contains(private), "{private} leaked into {text}");
         }
+    }
+
+    #[test]
+    fn step_reasons_keep_their_detail_when_old_pages_lose_theirs() {
+        let mut recorder = SessionRecorder::default();
+        for i in 0..6 {
+            recorder.page("t", &observation(PageKind::Province, &format!("doc-{i}")), &[FlowEffect::Silence], &detail());
+            if i == 1 {
+                recorder.stale("t", Some("target_changed_after_scroll"));
+                recorder.step("t", json!({"effects": ["activate:province"], "detail": "target_changed_after_scroll", "error": "stale_document"}));
+            }
+        }
+        let report = recorder.report("0.4.3", "now", json!({"reason": "r", "summary": "s"}));
+        let recent = report["session"]["recent"].as_array().unwrap();
+        let page_details = recent.iter().filter(|row| row["kind"] == "page" && row.get("detail").is_some()).count();
+        assert_eq!(page_details, DETAILED_ROWS);
+        let step = recent.iter().find(|row| row["kind"] == "step").unwrap();
+        assert_eq!(step["detail"], "target_changed_after_scroll", "a step's reason is not a page detail");
+    }
+
+    #[test]
+    fn quiet_steps_do_not_push_the_last_page_out() {
+        let mut recorder = SessionRecorder::default();
+        recorder.page("t", &observation(PageKind::Office, "doc-1"), &[FlowEffect::Hold], &detail());
+        for _ in 0..100 {
+            recorder.step("t", json!({"effects": [], "delay_ms": null, "elapsed_ms": 1, "receipts": []}));
+            recorder.step("t", json!({"effects": ["wait_until"], "elapsed_ms": 1, "receipts": []}));
+        }
+        recorder.step("t", json!({"effects": ["reload"], "elapsed_ms": 5, "receipts": []}));
+        let report = recorder.report("0.4.3", "now", json!({"reason": "r", "summary": "s"}));
+        let recent = report["session"]["recent"].as_array().unwrap();
+        assert!(recent.iter().any(|row| row["kind"] == "page"), "the page the search stopped on is kept");
+        assert!(recent.iter().any(|row| row["kind"] == "step" && row["effects"][0] == "reload"), "a real action is kept");
+        assert!(recent.len() < 5, "{recent:?}");
+    }
+
+    #[test]
+    fn the_same_stop_refreshes_its_page_facts_without_a_second_signal() {
+        let mut recorder = SessionRecorder::default();
+        let o = observation(PageKind::Office, "doc-1");
+        let first = json!({"flow": {"phase": "held"}, "facts": {"office_count": 0}, "page": {}});
+        let later = json!({"flow": {"phase": "held"}, "facts": {"office_count": 2}, "page": {}});
+        assert!(recorder.page("t1", &o, &[FlowEffect::Hold], &first));
+        assert!(!recorder.page("t2", &o, &[FlowEffect::Hold], &later));
+        let report = recorder.report("0.4.3", "now", json!({"reason": "r", "summary": "s"}));
+        let recent = report["session"]["recent"].as_array().unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0]["detail"]["facts"]["office_count"], 2);
     }
 }
