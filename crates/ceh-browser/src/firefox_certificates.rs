@@ -229,8 +229,9 @@ mod tests {
         let runtime = tempfile::tempdir().unwrap();
         let lease = ProfileLease::temporary(runtime.path()).unwrap();
         let mut browser = OwnedFirefox::start(&installation, lease, true, &std::sync::atomic::AtomicBool::new(false)).unwrap();
-        let cache = browser.certificate_cache();
+        let ready = browser.certificate_cache() == CertificateCache::Ready(1);
         let _ = browser.stop();
-        assert!(cache == CertificateCache::Ready(1), "the intermediate is in the new profile: {cache:?}");
+        // No state value in the message: it only says whether the profile has the intermediate.
+        assert!(ready, "the site's intermediate was not added to the new profile");
     }
 }
