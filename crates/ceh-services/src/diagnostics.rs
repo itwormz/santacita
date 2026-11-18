@@ -700,10 +700,10 @@ impl StartupReports {
             .map_err(|_| DiagnosticError::Unavailable)?;
         Ok(id)
     }
-    /// The id of the report saved last (ids sort in saving order). Only regular files count: a folder or a link
-    /// with a report's name cannot hide the real newest report.
+    /// The id of the report saved last (ids sort in saving order) that can actually be read back. Only regular
+    /// files count, and a newer file that Copy could not read (damaged, too large, a link) cannot hide the last good one.
     pub fn latest(&self) -> Option<String> {
-        fs::read_dir(&self.root)
+        let mut ids: Vec<String> = fs::read_dir(&self.root)
             .ok()?
             .filter_map(|entry| {
                 let entry = entry.ok()?;
@@ -714,7 +714,9 @@ impl StartupReports {
                     && REPORT_ID.is_match(&stem))
                 .then_some(stem)
             })
-            .max()
+            .collect();
+        ids.sort_unstable_by(|a, b| b.cmp(a));
+        ids.into_iter().find(|id| matches!(self.read(id), Ok(Some(_))))
     }
     pub fn read(&self, id: &str) -> Result<Option<Value>, DiagnosticError> {
         if !REPORT_ID.is_match(id) {

@@ -142,3 +142,14 @@ fn unknown_nested_fields_of_the_session_part_never_survive_saving_or_copying() {
     std::fs::write(&file, stored.to_string()).unwrap();
     assert!(!clipboard_text(root.path(), "/Users/Fictional", &id).unwrap().contains("600123456"));
 }
+
+#[test]
+fn a_newer_file_that_copy_cannot_read_does_not_hide_the_last_good_report() {
+    use ceh_desktop::startup_report::latest_id;
+    let root = tempfile::tempdir().unwrap();
+    let good = save_failure(root.path(), "/Users/Fictional", "browser_start_failed", true, at(1)).unwrap();
+    let dir = root.path().join("data/startup-errors");
+    std::fs::write(dir.join("20991231T235959-00000000.json"), "not json at all").unwrap();
+    std::fs::write(dir.join("20991231T235958-00000000.json"), vec![b' '; 200 * 1024]).unwrap();
+    assert_eq!(latest_id(root.path(), "/Users/Fictional").as_deref(), Some(good.as_str()));
+}
