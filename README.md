@@ -1,10 +1,27 @@
-# SantaCita
+<p align="center">
+  <img src="assets/santacita-icon.svg" width="144" height="144" alt="SantaCita logo">
+</p>
+
+<h1 align="center">SantaCita</h1>
+
+<p align="center">
+  An assistant for finding <b>Toma de huellas / TIE</b> and <b>Autorización de regreso</b> appointments on ICP Plus.<br>
+  <sub>Free · Open source · macOS, Windows, Linux</sub>
+</p>
+
+<p align="center">
 
 🇬🇧 **English** · 🇷🇺 [Русский](README.ru.md) · 🇪🇸 [Español](README.es.md)
 
+</p>
+
+<p align="center">
+
 [![Latest published release](https://img.shields.io/github/v/release/itwormz/santacita?sort=semver&label=release&color=626bdf&logo=github)](https://github.com/itwormz/santacita/releases)
 
-An assistant for **Toma de huellas / TIE** and **Autorización de regreso** appointments on ICP Plus. A new application built with Rust, Tauri and Svelte.
+</p>
+
+A new application built with Rust, Tauri and Svelte.
 
 SantaCita 0.4.0 is the first stable release of the new application. The 0.3.x line is the previous Python application; its code stays in the `ceh-python` branch.
 
