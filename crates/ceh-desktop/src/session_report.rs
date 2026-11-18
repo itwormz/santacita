@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn a_retried_report_is_the_one_built_at_the_stop_not_a_new_one() {
-        use std::time::{Duration, Instant};
+        use std::time::Instant;
         let mut recorder = SessionRecorder::default();
         recorder.set_context(json!({"firefox": "Chrome 157"}), settings_summary(&profile()));
         recorder.page("t1", &observation(PageKind::Office, "stopped-here"), &[FlowEffect::Hold], &detail());
