@@ -272,7 +272,6 @@ impl SearchController {
         std::thread::Builder::new()
             .name("ceh-firefox".into())
             .spawn(move || {
-                crate::session_report::begin();
                 let result = run(
                     &root,
                     profile,
@@ -432,6 +431,19 @@ fn save_stop_report(root: &Path, home: &str, reason: &str, summary: &str, now: c
     })?;
     crate::startup_report::save_session_stop(root, home, report, now)
 }
+/// Save the report a stop asked for. A failed save stays pending and is tried again on the next ticks, a few times.
+fn save_pending_report(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut Option<(String, &'static str, u8)>) {
+    let Some((reason, summary, attempts)) = pending.take() else { return };
+    let home = std::env::var("HOME").unwrap_or_default();
+    let saved = crate::current_time().ok().and_then(|now| save_stop_report(root, &home, &reason, summary, now));
+    match saved {
+        Some(id) => {
+            let _ = update(state, |s| s.report_id = Some(id));
+        }
+        None if attempts < 5 => *pending = Some((reason, summary, attempts + 1)),
+        None => {}
+    }
+}
 fn attention_state(
     previous: bool,
     page_changed: bool,
@@ -530,6 +542,9 @@ fn run(
     let mut log = crate::journal_log::JournalLog::open(root, &profile.id, started_ms);
     let mut carry = ceh_core::flow::RecoveryCarry::default();
     loop {
+        // What a search remembers belongs to one browser: a replacement browser starts with an empty memory, so a launch
+        // that fails cannot leave the previous browser's report.
+        crate::session_report::begin();
         let end = run_session(
             root, profile.clone(), &mut timings, &mut appointment_policy, receiver, live, notifications,
             shared_gate, cancelled, state, window, sound, close_browser, &mut journal, &mut log, &mut carry,
@@ -790,6 +805,7 @@ fn run_owned(
     }
     let result = (|| {
         let mut wait = false;
+        let mut pending_report: Option<(String, &'static str, u8)> = None;
         let mut manual = false;
         let mut operation = 0u64;
         let mut read_failures = 0u32;
@@ -1003,6 +1019,16 @@ fn run_owned(
                 let before = step.update();
                 diagnostics.observe(&step, browser.connection(), &mut driver);
                 let at = wall()?;
+                // Recorded before anything below that can fail, so the report of such a failure has the page.
+                if crate::session_report::with(|recorder| {
+                    recorder.page(&crate::session_timeline::madrid_text(Some(at)), &before.observation, &before.effects, &before.report)
+                }) {
+                    let reason = before.report["flow"]["hold_reason"].as_str().map(str::to_owned)
+                        .or_else(|| (before.report["preparation"] == "hold").then(|| "preparation_hold".to_owned()))
+                        .unwrap_or_else(|| "hold".to_owned());
+                    pending_report = Some((reason, "the search stopped and waits for a person", 0));
+                }
+                save_pending_report(root, state, &mut pending_report);
                 let now = mono();
                 if before.control.mode() == ControlMode::Manual {
                     browser.handoff();
@@ -1045,17 +1071,6 @@ fn run_owned(
                 }
                 effects = before.effects.clone();
                 let observed_kind = before.observation.kind;
-                if crate::session_report::with(|recorder| {
-                    recorder.page(&crate::session_timeline::madrid_text(Some(at)), &before.observation, &effects, &before.report)
-                }) && let Ok(now) = crate::current_time()
-                {
-                    let reason = before.report["flow"]["hold_reason"].as_str().map(str::to_owned)
-                        .or_else(|| (before.report["preparation"] == "hold").then(|| "preparation_hold".to_owned()))
-                        .unwrap_or_else(|| "hold".to_owned());
-                    let home = std::env::var("HOME").unwrap_or_default();
-                    let id = save_stop_report(root, &home, &reason, "the search stopped and waits for a person", now);
-                    let _ = update(state, |s| s.report_id = id);
-                }
                 let deadline = effects
                     .iter()
                     .filter_map(|e| match e {
@@ -1186,12 +1201,8 @@ fn run_owned(
                         }
                         let reason = row["detail"].as_str().map(str::to_owned);
                         diagnostics.step(row);
-                        if crate::session_report::with(|recorder| recorder.stale(&crate::session_timeline::madrid_text(None), reason.as_deref()))
-                            && let Ok(now) = crate::current_time()
-                        {
-                            let home = std::env::var("HOME").unwrap_or_default();
-                            let id = save_stop_report(root, &home, "stale_document_repeated", "the page kept changing under the planned action", now);
-                            let _ = update(state, |s| s.report_id = id);
+                        if crate::session_report::with(|recorder| recorder.stale(&crate::session_timeline::madrid_text(None), reason.as_deref())) {
+                            pending_report = Some(("stale_document_repeated".to_owned(), "the page kept changing under the planned action", 0));
                         }
                         if entering_auth {
                             return Err("browser_auth_entry_changed");

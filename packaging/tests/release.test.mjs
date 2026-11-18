@@ -136,3 +136,9 @@ test('a release without a title is just its version in the notes and in the rele
  assert.equal(releaseTitle('0.4.2','Old title'),'SantaCita 0.4.2 — Old title');
  const before=changelog;await prepareVersion(root);assert.equal(await readFile(join(root,'CHANGELOG.md'),'utf8'),before);
 });
+test('headings inside fenced code blocks are not release headings',async t=>{
+ const root=await fixture(t);
+ await writeFile(join(root,'CHANGELOG.md'),'# Changelog\n\n## Unreleased\n\n## 0.4.3\n\n- Real note.\n\n```md\n## 0.4.4 — Example\n\n- Not a release.\n```\n\n~~~\n## 0.4.3 — Fake\n~~~\n\n## 0.4.2 — Old\n\n- Older.\n');
+ assert.deepEqual(await releaseNotes(root,'0.4.3'),{title:'',body:'- Real note.\n\n```md\n## 0.4.4 — Example\n\n- Not a release.\n```\n\n~~~\n## 0.4.3 — Fake\n~~~'});
+ await assert.rejects(releaseNotes(root,'0.4.4'),/Missing/);
+});

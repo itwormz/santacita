@@ -633,7 +633,8 @@ impl FlowEngine {
             recovery_attempts: self.recovery_attempts.iter().map(|(_, n)| *n).sum(),
         }
     }
-    fn wait_action(&self, observed: &Observation, facts: &PageFacts) -> (ActionKind, FlowEffect) {
+    fn wait_action(&self, observed: &Observation, facts: &PageFacts) -> (ActionKind, FlowEffect, &'static str) {
+        // The third value names where a `Hold` stops; it is recorded only by the caller that actually returns the hold.
         let guard = self.guard(observed);
         match observed.kind {
             PageKind::ApplicantNoSlots => (
@@ -645,8 +646,9 @@ impl FlowEngine {
                         FlowEffect::Reload { guard }
                     }
                 } else {
-                    self.hold("applicant_refresh_unsafe")
+                    FlowEffect::Hold
                 },
+                "applicant_refresh_unsafe",
             ),
             PageKind::RequestNoSlotsRestart => (
                 ActionKind::NoSlotsRestart,
@@ -656,8 +658,9 @@ impl FlowEngine {
                         action: ActionKind::NoSlotsRestart,
                     }
                 } else {
-                    self.hold("no_slots_restart_without_control")
+                    FlowEffect::Hold
                 },
+                "no_slots_restart_without_control",
             ),
             PageKind::RequestNoSlots => {
                 let safe_reload = observed.method == RequestMethod::Get
@@ -666,6 +669,7 @@ impl FlowEngine {
                         && facts.recovery.endpoint == RecoveryEndpoint::Availability
                         && facts.recovery.pending_action.or(facts.recovery.last_action)
                             == Some(ActionKind::Request));
+                let mut reason = "";
                 let effect = if self.options.no_slots_mode == NoSlotsMode::Salir {
                     if facts.recovery.own_control {
                         FlowEffect::Activate {
@@ -675,14 +679,16 @@ impl FlowEngine {
                     } else if facts.appointment_ready_at.is_some() && facts.recovery.official_site {
                         FlowEffect::Recover { guard, action: RecoveryAction::GetEntry }
                     } else {
-                        self.hold("salir_without_control")
+                        reason = "salir_without_control";
+                        FlowEffect::Hold
                     }
                 } else if facts.appointment_ready_at.is_some() && facts.recovery.official_site {
                     FlowEffect::Recover { guard, action: RecoveryAction::GetEntry }
                 } else if safe_reload {
                     FlowEffect::Reload { guard }
                 } else {
-                    self.hold("no_slots_reload_unsafe")
+                    reason = "no_slots_reload_unsafe";
+                    FlowEffect::Hold
                 };
                 // The planning reservation must use the same key as its publication receipt.
                 // A proven-unsent Salir or entry GET can then release exactly its own reservation.
@@ -691,9 +697,9 @@ impl FlowEngine {
                     FlowEffect::Recover { .. } => ActionKind::Recovery,
                     _ => ActionKind::RequestReload,
                 };
-                (key, effect)
+                (key, effect, reason)
             }
-            _ => (ActionKind::RequestReload, self.hold("wait_action_unsupported_page")),
+            _ => (ActionKind::RequestReload, FlowEffect::Hold, "wait_action_unsupported_page"),
         }
     }
     pub fn observe(
@@ -828,6 +834,10 @@ impl FlowEngine {
             );
         if !same {
             self.phase = None;
+        }
+        // A stop stays reported while it lasts; once the flow has left it, its reason is gone.
+        if !matches!(self.phase, Some(Phase::Held)) {
+            self.hold_reason.set(None);
         }
         if self.fresh_pass_document.as_ref().is_some_and(|document| document != &observed.document) {
             self.fresh_pass_document = None;
@@ -1103,9 +1113,10 @@ impl FlowEngine {
                 if now < deadline {
                     return Ok(vec![]);
                 }
-                let (key, effect) = self.wait_action(&observed, &facts);
+                let (key, effect, reason) = self.wait_action(&observed, &facts);
                 self.attempted.push((observed.document.clone(), key));
                 self.phase = Some(if effect == FlowEffect::Hold {
+                    self.hold_reason.set(Some(reason));
                     Phase::Held
                 } else {
                     Phase::Dispatched
@@ -1213,7 +1224,7 @@ impl FlowEngine {
                     self.phase = Some(Phase::Held);
                     return Ok(vec![self.hold("applicant_refresh_unsafe")]);
                 }
-                let (key, _) = self.wait_action(&observed, &facts);
+                let (key, _, _) = self.wait_action(&observed, &facts);
                 if self.attempted.contains(&(observed.document.clone(), key)) {
                     self.phase = Some(Phase::Held);
                     return Ok(vec![self.hold("wait_action_already_attempted")]);

@@ -11,11 +11,19 @@ fn name<T: std::fmt::Debug>(value: T) -> String {
     token(&format!("{value:?}")).to_ascii_lowercase()
 }
 
+/// The last path segment of the page address is page content when the site is not the one we know (an identifier can
+/// sit there): only the exact names of the site's own steps are reported, everything else is `unknown`.
+fn endpoint_code(raw: &str) -> &'static str {
+    ["acCitar", "acEntrada", "acInfo", "acOpcDirect", "acValidarEntrada", "salirInicio", "index"]
+        .into_iter()
+        .find(|known| *known == raw)
+        .unwrap_or("unknown")
+}
 /// The page as the recognizer saw it: which probe selectors were visible, the shape counts, frame statuses.
 /// The probe list is fixed in the page script, so selector names are not page content.
 pub fn page_state(snapshot: &PageSnapshot) -> Value {
     json!({
-        "endpoint": token(&snapshot.endpoint),
+        "endpoint": endpoint_code(&snapshot.endpoint),
         "official": snapshot.official,
         "applicant_editable": snapshot.applicant_editable,
         "fill_mode": token(&snapshot.fill_mode),
@@ -101,13 +109,19 @@ mod tests {
     }
 
     #[test]
-    fn tokens_from_the_page_are_bounded_and_plain() {
-        let mut shot = snapshot();
-        shot.endpoint = "acInfo?nie=X1234567L&name=Juan Pérez".repeat(5);
-        let state = page_state(&shot);
-        let endpoint = state["endpoint"].as_str().unwrap();
-        assert!(endpoint.len() <= 40);
-        assert!(endpoint.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    fn an_endpoint_the_app_does_not_know_is_never_copied() {
+        for raw in ["acInfo?nie=X1234567L&name=Juan Pérez", "X1234567L", "acInfo/../X1234567L", "ACINFO", ""] {
+            let mut shot = snapshot();
+            shot.endpoint = raw.to_owned();
+            let state = page_state(&shot);
+            assert_eq!(state["endpoint"], "unknown", "{raw}");
+            assert!(!state.to_string().contains("X1234567L"));
+        }
+        for known in ["acCitar", "acEntrada", "acInfo", "acOpcDirect", "acValidarEntrada", "salirInicio", "index"] {
+            let mut shot = snapshot();
+            shot.endpoint = known.to_owned();
+            assert_eq!(page_state(&shot)["endpoint"], known);
+        }
     }
 
     #[test]

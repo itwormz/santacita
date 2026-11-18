@@ -450,7 +450,6 @@ impl SessionDriver {
             )?;
         }
         let mut effects = self.accept_observation(page.observation.clone(), facts, now)?;
-        let report = crate::report_state::driver_state(self.flow.diagnostics(), &facts, &page.page.snapshot);
         if self.fresh_pass_requested {
             self.fresh_pass_requested = false;
             if self.flow.control().mode() == ControlMode::Automatic
@@ -459,6 +458,8 @@ impl SessionDriver {
                 effects = self.flow.fresh_pass(now).map_err(|_| BrowserError::InvalidControl)?;
             }
         }
+        // After "Try now" may have replaced the plan: the report describes the plan that is executed.
+        let report = crate::report_state::driver_state(self.flow.diagnostics(), &facts, &page.page.snapshot);
         let update = DriverUpdate {
             preparing:false,
             observation: page.observation.clone(),
