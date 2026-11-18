@@ -15,6 +15,18 @@ const MAX_BYTES: usize = 100 * 1024;
 
 /// The profile settings that steer the flow. The province and the service are included on purpose: a change on
 /// the site that the app cannot handle shows up there first. Identity and contact fields never are.
+/// A stale reason as a plain code for the report. The browser adapter may append slices of the page text to it on error
+/// pages (`before=...`, `after=...`): everything from there on is cut, and only plain code characters stay.
+pub fn stale_code(reason: &str) -> String {
+    let structured = reason.split(" before=").next().unwrap_or_default();
+    structured
+        .chars()
+        .map(|c| if c == ' ' { ';' } else { c })
+        .filter(|c| c.is_ascii_alphanumeric() || "_=:.;>-".contains(*c))
+        .take(160)
+        .collect()
+}
+
 pub fn settings_summary(profile: &ProfileDraft) -> Value {
     let short = |text: &str| text.chars().take(160).collect::<String>();
     json!({
@@ -122,6 +134,9 @@ impl SessionRecorder {
             return;
         }
         let mut row = row;
+        if let Some(detail) = row["detail"].as_str().map(stale_code) {
+            row["detail"] = json!(detail);
+        }
         row["t"] = json!(at);
         row["kind"] = json!("step");
         self.push(row);
@@ -129,7 +144,7 @@ impl SessionRecorder {
     /// The browser could not act on the page it had planned for. Returns `true` on the third one in a row.
     pub fn stale(&mut self, at: &str, reason: Option<&str>) -> bool {
         self.stale_streak += 1;
-        self.push(json!({"t": at, "kind": "stale_document", "reason": reason, "streak": self.stale_streak}));
+        self.push(json!({"t": at, "kind": "stale_document", "reason": reason.map(stale_code), "streak": self.stale_streak}));
         self.stale_streak == 3
     }
     pub fn progressed(&mut self) {
@@ -401,5 +416,19 @@ mod tests {
         let text = saved_report.expect("the report was saved").to_string();
         assert!(text.contains("no_handler_for_page") && text.contains("\"page\":\"office\""), "the stop is still in it: {text}");
         assert!(!text.contains("\"page\":\"province\""), "later pages are not in it: {text}");
+    }
+
+    #[test]
+    fn page_text_in_a_stale_reason_never_reaches_the_report() {
+        let reason = "page changed: text_equal=false visible_equal=true endpoint_equal=true len=120->118 first_diff=40 before=\"Maria Garcia NIE X1234567L\" after=\"otro texto\"";
+        let mut recorder = SessionRecorder::default();
+        recorder.page("t0", &observation(PageKind::Expired, "doc-1"), &[FlowEffect::Silence], &detail());
+        recorder.stale("t1", Some(reason));
+        recorder.step("t2", json!({"effects": ["activate:province"], "error": "stale_document", "detail": reason}));
+        let text = recorder.report("0.4.3", "now", json!({"reason": "r", "summary": "s"})).to_string();
+        for private in ["Maria", "Garcia", "X1234567L", "otro texto", "before=", "after="] {
+            assert!(!text.contains(private), "{private} leaked into {text}");
+        }
+        assert!(text.contains("text_equal=false") && text.contains("first_diff=40"), "the structured part stays: {text}");
     }
 }

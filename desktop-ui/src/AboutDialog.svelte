@@ -7,8 +7,8 @@ async function download(){jobError=false;try{await updateDownload();await refres
 async function cancelDownload(){try{await updateCancel();}catch{/* nothing running */}}
 async function install(){jobError=false;try{await updateInstall();}catch{jobError=true;}}
 let reportId=$state<string|null>(null);let reportCopied=$state(false);let reportFailed=$state(false);
-async function loadReport(){try{reportId=await latestStartupReport();}catch{/* preview without the native side */}}
-async function copyReport(){if(!reportId)return;reportFailed=false;try{await copyStartupReport(reportId);reportCopied=true;setTimeout(()=>{reportCopied=false;},4000);}catch{reportFailed=true;}}
+async function loadReport(){try{const next=await latestStartupReport();if(next!==reportId){reportCopied=false;reportFailed=false;}reportId=next;}catch{/* preview without the native side */}}
+async function copyReport(){const id=reportId;if(!id)return;reportFailed=false;try{await copyStartupReport(id);if(id!==reportId)return;reportCopied=true;setTimeout(()=>{if(reportId===id)reportCopied=false;},4000);}catch{if(id===reportId)reportFailed=true;}}
 let dialog:HTMLDialogElement;let failed=$state(false);let clicks=0;let chase=$state(false);
 function versionClick(){clicks++;if(clicks===5){clicks=0;chase=true;}}
 let reportPoll:ReturnType<typeof setInterval>|undefined;
