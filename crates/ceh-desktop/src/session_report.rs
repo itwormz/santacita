@@ -49,8 +49,9 @@ impl SessionRecorder {
         }
         self.rows.push_back(row);
     }
-    /// One observation. Returns `true` when the flow stopped to wait for a person on a page it had not stopped on
-    /// yet, which is when a report should be saved.
+    /// One observation. Returns `true` when the flow stopped because it cannot continue on its own (`Hold`) on a
+    /// page it had not stopped on yet, which is when a report should be saved. Expected waits (CAPTCHA, a choice of
+    /// office, a free date) are `Alert` or `Handoff` and are not stops to report.
     pub fn page(&mut self, at: &str, observation: &Observation, effects: &[FlowEffect], report: &Value) -> bool {
         let held = effects.contains(&FlowEffect::Hold);
         let effect_names = effects.iter().map(effect_name).collect::<Vec<_>>();
