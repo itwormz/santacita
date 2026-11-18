@@ -15,6 +15,22 @@ pub enum FirefoxError {
     Cancelled,
     ManualOwnership,
 }
+impl FirefoxError {
+    /// A fixed name for the reason a browser start failed, for the diagnostic report: never page or user data.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NotInstalled => "not_installed",
+            Self::InvalidInstallation => "invalid_installation",
+            Self::InvalidProfile => "invalid_profile",
+            Self::ProfileBusy => "profile_busy",
+            Self::Unavailable => "unavailable",
+            Self::StartupTimeout => "startup_timeout",
+            Self::CertificateCache => "certificate_cache",
+            Self::Cancelled => "cancelled",
+            Self::ManualOwnership => "manual_ownership",
+        }
+    }
+}
 /// Preferences written to the app-owned Firefox profile. Windows occlusion tracking suspends a window that
 /// another window covers, and the search would then wait on input the browser no longer processes.
 pub fn startup_preferences(os: crate::launch::TargetOs) -> serde_json::Value {
@@ -978,5 +994,29 @@ mod page_verdict_tests {
         assert_eq!(judge_page(false, Err(()), false, true), (true, false), "a held-up command while the browser runs");
         assert_eq!(judge_page(false, Err(()), false, false), (false, false), "no connection and no process");
         assert_eq!(judge_page(false, Ok(true), true, true), (true, false));
+    }
+}
+
+#[cfg(test)]
+mod error_code_tests {
+    use super::FirefoxError::{self, *};
+
+    #[test]
+    fn every_start_error_has_a_fixed_code_that_names_the_reason() {
+        let all = [
+            (NotInstalled, "not_installed"),
+            (InvalidInstallation, "invalid_installation"),
+            (InvalidProfile, "invalid_profile"),
+            (ProfileBusy, "profile_busy"),
+            (Unavailable, "unavailable"),
+            (StartupTimeout, "startup_timeout"),
+            (CertificateCache, "certificate_cache"),
+            (Cancelled, "cancelled"),
+            (ManualOwnership, "manual_ownership"),
+        ];
+        for (error, code) in all {
+            assert_eq!(FirefoxError::code(&error), code);
+            assert!(code.chars().all(|c| c.is_ascii_lowercase() || c == '_'), "{code} is a plain name, never page or user data");
+        }
     }
 }
