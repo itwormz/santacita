@@ -1,10 +1,27 @@
-# SantaCita
+<p align="center">
+  <img src="assets/santacita-icon.svg" width="144" height="144" alt="SantaCita logo">
+</p>
+
+<h1 align="center">SantaCita</h1>
+
+<p align="center">
+  Asistente para citas de <b>Toma de huellas / TIE</b> y <b>Autorización de regreso</b> en ICP Plus.<br>
+  <sub>Gratis · Código disponible · macOS, Windows, Linux</sub>
+</p>
+
+<p align="center">
 
 🇪🇸 **Español** · 🇬🇧 [English](README.md) · 🇷🇺 [Русский](README.ru.md)
 
+</p>
+
+<p align="center">
+
 [![Última versión publicada](https://img.shields.io/github/v/release/itwormz/santacita?sort=semver&label=release&color=626bdf&logo=github)](https://github.com/itwormz/santacita/releases)
 
-Asistente para citas de **Toma de huellas / TIE** y **Autorización de regreso** en ICP Plus. Nueva aplicación en Rust, Tauri y Svelte.
+</p>
+
+Nueva aplicación en Rust, Tauri y Svelte.
 
 SantaCita 0.4.0 es la primera versión estable de la nueva aplicación. La línea 0.3.x corresponde a la aplicación anterior en Python; su código permanece en la rama `ceh-python`.
 
