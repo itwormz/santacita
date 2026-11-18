@@ -237,6 +237,29 @@ pub fn navigation_failure(page_open: bool, certificate_cache_deferred: bool) -> 
         (true, false) => Some("browser_navigation_failed"),
     }
 }
+/// A browser error after the person pressed Stop is their stop, not a failure: the wait for a closing window
+/// can end on the last look, with a Stop pressed while it slept, so the request is read again once the wait is
+/// over, before the statistics and the journal record how the search ended.
+pub fn requested_stop_is_a_stop<T>(result: Result<T, &'static str>, finished: T, stop_requested: bool) -> Result<T, &'static str> {
+    match result {
+        Err(code) if stop_requested && code.starts_with("browser_") => Ok(finished),
+        other => other,
+    }
+}
+/// The same as [`navigation_failure`] for a window that may be closing right now: the person who closes the
+/// browser while the first page loads leaves a window that is still listed for a moment, so the window is
+/// looked at again (see [`closed_window_stop_settled`]) before the failure counts. `None` is a stop.
+pub fn navigation_failure_settled(
+    certificate_cache_deferred: bool,
+    looks: u32,
+    page_open: impl FnMut() -> bool,
+    pause: impl FnMut() -> bool,
+) -> Option<&'static str> {
+    match closed_window_stop_settled(Err("browser_navigation_failed"), (), looks, page_open, pause) {
+        Ok(()) => None,
+        Err(_) => navigation_failure(true, certificate_cache_deferred),
+    }
+}
 /// A browser error after the person closed the window is a stop (`finished`), not an error: nothing to report,
 /// Start returns. `page_open` is asked only for browser errors.
 pub fn closed_window_stop<T>(
@@ -248,6 +271,44 @@ pub fn closed_window_stop<T>(
         Err(code) if code.starts_with("browser_") && !page_open() => Ok(finished),
         other => other,
     }
+}
+/// A window the person has just closed is still listed for a moment while the browser shuts down, so the
+/// read that failed looks like a hiccup of a window that is there. Ask again (`looks` times, `pause` between
+/// the looks) before the error stays: a window that is really open stays open, one that closes is a stop.
+/// `pause` returns `false` when the wait must end because the person pressed Stop: the search is then their
+/// stop, not a failure, and is recorded as such.
+pub fn closed_window_stop_settled<T>(
+    result: Result<T, &'static str>,
+    finished: T,
+    looks: u32,
+    mut page_open: impl FnMut() -> bool,
+    mut pause: impl FnMut() -> bool,
+) -> Result<T, &'static str> {
+    let Err(code) = result else { return result };
+    if !code.starts_with("browser_") {
+        return Err(code);
+    }
+    for look in 0..looks.max(1) {
+        if !page_open() {
+            return Ok(finished);
+        }
+        if look + 1 < looks && !pause() {
+            return Ok(finished);
+        }
+    }
+    Err(code)
+}
+/// How long the app waits for a window that is closing: 80 looks, 250 ms apart (about twenty seconds). Firefox
+/// takes from three to over ten seconds to quit after its window closed, and an error recorded before it
+/// is gone would stay in the journal as a failed step.
+pub const CLOSING_WINDOW_LOOKS: u32 = 80;
+/// One pause between two looks; `false` once a stop was requested, so Stop ends the wait.
+pub fn closing_window_pause(stop_requested: &std::sync::atomic::AtomicBool) -> bool {
+    if stop_requested.load(std::sync::atomic::Ordering::Acquire) {
+        return false;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    true
 }
 /// The certificate window of the browser (a native dialog) blocks reading the page, so the core cannot tell
 /// the person in time: five seconds after the click the worker rings the reminder itself, once.

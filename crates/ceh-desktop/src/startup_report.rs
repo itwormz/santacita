@@ -17,8 +17,32 @@ pub fn phase_of(code: &str) -> &'static str {
         _ => "worker",
     }
 }
+/// What is known about the browser of a failed start: its family, whether it was found, and why it did not start.
+pub struct StartFacts {
+    pub family: &'static str,
+    pub found: bool,
+    pub reason: Option<&'static str>,
+}
+thread_local! {
+    static START_FAILURE: std::cell::Cell<Option<(&'static str, &'static str)>> = const { std::cell::Cell::new(None) };
+}
+/// The worker notes which browser failed to start and why; the report written after the worker returns reads it.
+pub fn note_start_failure(family: &'static str, reason: &'static str) {
+    START_FAILURE.with(|cell| cell.set(Some((family, reason))));
+}
+/// What the current thread noted, once.
+pub fn take_start_failure() -> Option<(&'static str, &'static str)> {
+    START_FAILURE.with(|cell| cell.take())
+}
 /// Save a report for a failed search start and return its id; `None` when nothing could be written.
 pub fn save_failure(root: &Path, home: &str, code: &str, firefox_found: bool, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
+    save_failure_with(root, home, code, &StartFacts { family: "firefox", found: firefox_found, reason: None }, now)
+}
+pub fn save_failure_with(root: &Path, home: &str, code: &str, facts: &StartFacts, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
+    let mut browser = json!({"family": facts.family, "exists": facts.found});
+    if let Some(reason) = facts.reason {
+        browser["start_failure"] = json!(reason);
+    }
     let report = json!({
         "version": env!("CARGO_PKG_VERSION"),
         "time": now.to_rfc3339(),
@@ -27,7 +51,7 @@ pub fn save_failure(root: &Path, home: &str, code: &str, firefox_found: bool, no
         "frozen": false,
         "executable": std::env::current_exe().ok().map(|p| p.display().to_string()).unwrap_or_default(),
         "phase": phase_of(code),
-        "browser": {"family": "firefox", "exists": firefox_found},
+        "browser": browser,
         "bundle_checks": {},
         "error_type": code,
         "message": code,

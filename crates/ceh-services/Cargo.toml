@@ -26,7 +26,7 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 fs2 = "=0.4.3"
 tempfile = "=3.27.0"
 filetime = "0.2"
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 zeroize = "=1.8.2"
 uuid = { version = "1", features = ["v4", "v5"] }
 keyring-core = { version = "=1.0.1", optional = true }

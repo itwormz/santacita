@@ -27,7 +27,7 @@ ceh-store = { path = "../ceh-store" }
 ceh-services = { path = "../ceh-services" }
 regex.workspace = true
 zeroize = "=1.8.2"
-uuid = { version = "=1.29.0", features = ["v4"] }
+uuid = { version = "=1.29.2", features = ["v4"] }
 serde.workspace = true
 serde_json.workspace = true
 chrono-tz.workspace = true
@@ -65,4 +65,4 @@ required-features = ["shell", "custom-protocol"]
 version = "=0.10.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-x11rb = "=0.13.2"
+x11rb = "=0.14.0"

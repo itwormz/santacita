@@ -51,3 +51,82 @@ fn only_the_availability_request_counts_as_a_check_not_reloads_of_the_waiting_pa
         assert!(!counts_as_check(action), "{action:?}");
     }
 }
+
+mod window_closing_settles {
+    use ceh_desktop::closed_window_stop_settled;
+    use std::cell::Cell;
+
+    #[test]
+    fn a_window_still_listed_while_it_shuts_down_is_a_stop_once_it_is_gone() {
+        // The read failed because the person closed the window; the browser needs a moment to disappear.
+        let probes = Cell::new(0);
+        let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 12, || {
+            probes.set(probes.get() + 1);
+            probes.get() < 4
+        }, || true);
+        assert_eq!(result, Ok("stop"));
+        assert_eq!(probes.get(), 4, "stops asking as soon as the window is gone");
+    }
+    #[test]
+    fn a_window_that_stays_open_keeps_the_error_after_the_wait() {
+        let probes = Cell::new(0);
+        let pauses = Cell::new(0);
+        let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 5, || {
+            probes.set(probes.get() + 1);
+            true
+        }, || { pauses.set(pauses.get() + 1); true });
+        assert_eq!(result, Err("browser_observation_failed"));
+        assert_eq!(probes.get(), 5);
+        assert_eq!(pauses.get(), 4, "no pause after the last look");
+    }
+    #[test]
+    fn a_closed_window_needs_no_waiting_and_other_results_never_probe() {
+        let pauses = Cell::new(0);
+        assert_eq!(closed_window_stop_settled(Err("browser_action_failed"), "stop", 12, || false, || { pauses.set(1); true }), Ok("stop"));
+        assert_eq!(pauses.get(), 0);
+        assert_eq!(closed_window_stop_settled(Err("statistics_unavailable"), "stop", 12, || panic!("must not probe"), || true), Err("statistics_unavailable"));
+        assert_eq!(closed_window_stop_settled(Ok("done"), "stop", 12, || panic!("must not probe"), || true), Ok("done"));
+    }
+    #[test]
+    fn pressing_stop_ends_the_wait_and_is_a_stop_not_an_error() {
+        let probes = Cell::new(0);
+        let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 80, || {
+            probes.set(probes.get() + 1);
+            true
+        }, || probes.get() < 3);
+        assert_eq!(result, Ok("stop"), "the person ended the search: it is theirs, not a failure");
+        assert_eq!(probes.get(), 3, "the third pause was refused: no more looks");
+    }
+    #[test]
+    fn a_first_navigation_that_fails_while_the_window_closes_is_a_stop() {
+        use ceh_desktop::navigation_failure_settled;
+        let probes = Cell::new(0);
+        assert_eq!(navigation_failure_settled(false, 12, || { probes.set(probes.get() + 1); probes.get() < 4 }, || true), None);
+        assert_eq!(probes.get(), 4);
+        // The window stays: the error keeps its kind, told apart by the certificate cache as before.
+        assert_eq!(navigation_failure_settled(false, 3, || true, || true), Some("browser_navigation_failed"));
+        assert_eq!(navigation_failure_settled(true, 3, || true, || true), Some("browser_certificate_cache_failed"));
+        // Stop ends the wait, and the search with it.
+        let looks = Cell::new(0);
+        assert_eq!(navigation_failure_settled(false, 80, || { looks.set(looks.get() + 1); true }, || looks.get() < 2), None);
+        assert_eq!(looks.get(), 2);
+    }
+    #[test]
+    fn a_stop_pressed_during_the_last_pause_is_still_a_stop() {
+        use ceh_desktop::requested_stop_is_a_stop;
+        let stop = Cell::new(false);
+        // The pause that returns `true` is the last one: Stop is pressed while it sleeps, the last look still
+        // finds the window open, and the wait ends with the browser error.
+        let looks = Cell::new(0);
+        let settled = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 3, || { looks.set(looks.get() + 1); true }, || {
+            if looks.get() == 2 { stop.set(true); }
+            true
+        });
+        assert_eq!(settled, Err("browser_observation_failed"));
+        assert_eq!(requested_stop_is_a_stop(settled, "stop", stop.get()), Ok("stop"));
+        // Without a Stop the error stays; only a browser error becomes a stop; a result that is fine stays.
+        assert_eq!(requested_stop_is_a_stop(Err("browser_observation_failed"), "stop", false), Err("browser_observation_failed"));
+        assert_eq!(requested_stop_is_a_stop(Err("statistics_unavailable"), "stop", true), Err("statistics_unavailable"));
+        assert_eq!(requested_stop_is_a_stop(Ok("done"), "stop", true), Ok("done"));
+    }
+}

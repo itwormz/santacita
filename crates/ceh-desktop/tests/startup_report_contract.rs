@@ -186,3 +186,42 @@ fn a_reason_that_is_not_a_plain_code_is_dropped_from_the_report() {
         assert!(!text.contains(private), "{private} leaked into {text}");
     }
 }
+
+mod start_failure_reason {
+    use ceh_desktop::startup_report::{StartFacts, clipboard_text, note_start_failure, save_failure, save_failure_with, take_start_failure};
+
+    fn at(minute: u32) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(&format!("2026-11-10T10:{minute:02}:00Z")).unwrap().to_utc()
+    }
+    fn stored(root: &std::path::Path, id: &str) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(root.join(format!("data/startup-errors/{id}.json"))).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn a_start_failure_report_names_the_browser_and_the_reason() {
+        let root = tempfile::tempdir().unwrap();
+        let facts = StartFacts { family: "chromium", found: true, reason: Some("startup_timeout") };
+        let id = save_failure_with(root.path(), "/Users/Fictional", "browser_start_failed", &facts, at(0)).unwrap();
+        let report = stored(root.path(), &id);
+        assert_eq!(report["browser"], serde_json::json!({"family": "chromium", "exists": true, "start_failure": "startup_timeout"}));
+        let copied = clipboard_text(root.path(), "/Users/Fictional", &id).unwrap();
+        assert!(copied.contains("\"start_failure\": \"startup_timeout\"") && copied.contains("\"family\": \"chromium\""), "{copied}");
+    }
+    #[test]
+    fn a_failure_without_a_known_reason_leaves_the_field_out_and_the_old_call_still_means_firefox() {
+        let root = tempfile::tempdir().unwrap();
+        let facts = StartFacts { family: "edge", found: false, reason: None };
+        let id = save_failure_with(root.path(), "/Users/Fictional", "browser_not_installed", &facts, at(1)).unwrap();
+        assert_eq!(stored(root.path(), &id)["browser"], serde_json::json!({"family": "edge", "exists": false}));
+        let old = save_failure(root.path(), "/Users/Fictional", "firefox_not_installed", false, at(2)).unwrap();
+        assert_eq!(stored(root.path(), &old)["browser"], serde_json::json!({"family": "firefox", "exists": false}));
+    }
+    #[test]
+    fn a_noted_start_failure_is_taken_once_and_only_by_the_thread_that_noted_it() {
+        assert_eq!(take_start_failure(), None);
+        note_start_failure("firefox", "unavailable");
+        std::thread::spawn(|| assert_eq!(take_start_failure(), None, "another worker has its own")).join().unwrap();
+        assert_eq!(take_start_failure(), Some(("firefox", "unavailable")));
+        assert_eq!(take_start_failure(), None, "taken once");
+    }
+}

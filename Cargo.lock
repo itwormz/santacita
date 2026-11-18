@@ -86,7 +86,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "windows-sys 0.61.2",
- "x11rb",
+ "x11rb 0.13.2",
 ]
 
 [[package]]
@@ -290,12 +290,6 @@ name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -557,11 +551,11 @@ dependencies = [
 
 [[package]]
 name = "ceh-browser"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "ceh-core",
- "libloading",
+ "libloading 0.9.1",
  "regex",
  "serde_json",
  "tempfile",
@@ -572,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-cli"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "ceh-browser",
  "ceh-core",
@@ -592,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-core"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -605,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-desktop"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "arboard",
  "ceh-browser",
@@ -629,17 +623,17 @@ dependencies = [
  "tempfile",
  "url",
  "uuid",
- "x11rb",
+ "x11rb 0.14.0",
  "zeroize",
  "zip",
 ]
 
 [[package]]
 name = "ceh-services"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "apple-native-keyring-store",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ceh-core",
  "chrono",
  "chrono-tz",
@@ -666,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-store"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "ceh-core",
  "chrono",
@@ -1216,7 +1210,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
- "libloading",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -2606,6 +2600,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libloading"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1832accd5a4ca2795ace4d05d15c4039be15b62d3b950eff99746a990e3cc10"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3799,9 +3803,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4edff0039f148731aee2fd80f76dbfeb12d204ab3d1c544838d34e02151049b"
+checksum = "f172c4812a19b26d1c23cdb0070e69db335503dfa378b910eb857386e5b8beba"
 dependencies = [
  "bitflags 2.13.2",
  "fallible-iterator",
@@ -5459,9 +5463,9 @@ checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
 
 [[package]]
 name = "uuid"
-version = "1.29.0"
+version = "1.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+checksum = "bed99139f7dac9b5cfe5f17be4d66dc7079a34dee1d74bcc77217119240e267c"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -6247,7 +6251,18 @@ checksum = "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
 dependencies = [
  "gethostname",
  "rustix",
- "x11rb-protocol",
+ "x11rb-protocol 0.13.2",
+]
+
+[[package]]
+name = "x11rb"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a8885a854a8bfdf87a301e53e41b17c5f8f33639903131338b997b1eb614f44"
+dependencies = [
+ "gethostname",
+ "rustix",
+ "x11rb-protocol 0.14.0",
 ]
 
 [[package]]
@@ -6255,6 +6270,12 @@ name = "x11rb-protocol"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+
+[[package]]
+name = "x11rb-protocol"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acf4d1bc32aa46eec18caa634ec3cf4c05bfa151f12b93b510b15190f69a1ca8"
 
 [[package]]
 name = "x509-cert"

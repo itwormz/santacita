@@ -15,6 +15,22 @@ pub enum FirefoxError {
     Cancelled,
     ManualOwnership,
 }
+impl FirefoxError {
+    /// A fixed name for the reason a browser start failed, for the diagnostic report: never page or user data.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NotInstalled => "not_installed",
+            Self::InvalidInstallation => "invalid_installation",
+            Self::InvalidProfile => "invalid_profile",
+            Self::ProfileBusy => "profile_busy",
+            Self::Unavailable => "unavailable",
+            Self::StartupTimeout => "startup_timeout",
+            Self::CertificateCache => "certificate_cache",
+            Self::Cancelled => "cancelled",
+            Self::ManualOwnership => "manual_ownership",
+        }
+    }
+}
 /// Preferences written to the app-owned Firefox profile. Windows occlusion tracking suspends a window that
 /// another window covers, and the search would then wait on input the browser no longer processes.
 pub fn startup_preferences(os: crate::launch::TargetOs) -> serde_json::Value {
@@ -35,6 +51,21 @@ pub fn startup_preferences(os: crate::launch::TargetOs) -> serde_json::Value {
         prefs["widget.windows.window_occlusion_tracking_peek.enabled"] = json!(false);
     }
     prefs
+}
+/// Whether the page this app opened is still there, and whether it has been seen gone for good.
+/// A tree that no longer lists the page is the answer: it stays the answer, because Firefox needs a few
+/// seconds to quit after its window closed, and the tree call fails during that time while the process still
+/// runs. A call that failed before that is a hiccup, not a closed page: a connection that broke while the
+/// browser process still runs (a native dialog held a command past its timeout) is not a closed window
+/// either, the person may be typing in that browser right now and it must never be taken down.
+pub(crate) fn judge_page(already_gone: bool, tree: Result<bool, ()>, connection_available: bool, process_alive: bool) -> (bool, bool) {
+    if already_gone {
+        return (false, true);
+    }
+    match tree {
+        Ok(listed) => (listed, !listed),
+        Err(()) => (connection_available || process_alive, false),
+    }
 }
 /// Whether `context` (or any child frame of a listed context) is in a `browsingContext.getTree` result.
 pub fn context_is_listed(tree: &serde_json::Value, context: &str) -> bool {
@@ -416,6 +447,8 @@ pub struct OwnedFirefox {
     webdriver_mode: crate::firefox_control::WebdriverMode,
     fallback: Option<crate::firefox_control::Fallback>,
     restart_ms: Option<u64>,
+    /// The page this app opened was seen missing from the tree: it never comes back.
+    page_gone: bool,
 }
 impl OwnedFirefox {
     /// Starts Firefox in its remote control mode (`navigator.webdriver` natively `false`). When this Firefox
@@ -540,6 +573,7 @@ impl OwnedFirefox {
             webdriver_mode: crate::firefox_control::WebdriverMode::Mask,
             fallback: forced_mask,
             restart_ms: None,
+            page_gone: false,
         };
         let mut deadline = Instant::now() + Duration::from_secs(20);
         loop {
@@ -675,6 +709,7 @@ impl OwnedFirefox {
             webdriver_mode: crate::firefox_control::WebdriverMode::NotNeeded,
             fallback: None,
             restart_ms: None,
+            page_gone: false,
         };
         let deadline = Instant::now() + Duration::from_secs(20);
         let (port, path) = loop {
@@ -717,19 +752,19 @@ impl OwnedFirefox {
         if let Some(child) = self.child.as_mut()
             && !matches!(child.try_wait(), Ok(None))
         {
+            self.page_gone = true;
+            return false;
+        }
+        if self.page_gone {
             return false;
         }
         let context = self.context.clone();
         let process_alive = self.child.is_some();
         let Some(connection) = self.connection.as_mut() else { return false };
-        match connection.call("browsingContext.getTree", json!({})) {
-            Ok(tree) => context_is_listed(&tree, &context),
-            // A hiccup is not a closed page. A connection that broke while the browser process still runs
-            // (a native dialog such as the certificate or keychain prompt held a command past its timeout)
-            // is not a closed window either: the person may be typing in that browser right now, and it
-            // must never be taken down. A page the person closes ends the process or empties the target list.
-            Err(_) => connection.available() || process_alive,
-        }
+        let tree = connection.call("browsingContext.getTree", json!({})).map(|tree| context_is_listed(&tree, &context)).map_err(|_| ());
+        let (open, gone) = judge_page(self.page_gone, tree, connection.available(), process_alive);
+        self.page_gone = gone;
+        open
     }
     /// When the page this app opened is gone (the person closed it) there is nothing to preserve: quit the
     /// browser even after a handoff, so its profile is free for the next search. `true` when it was quit.
@@ -932,6 +967,56 @@ mod endpoint_tests {
             "ws://127.0.0.1:52525?x=1",
         ] {
             assert!(parse_endpoint(&format!("WebDriver BiDi listening on {url}")).is_none());
+        }
+    }
+}
+
+#[cfg(test)]
+mod page_verdict_tests {
+    use super::judge_page;
+
+    #[test]
+    fn a_tree_without_the_page_is_closed_even_while_the_process_still_runs() {
+        assert_eq!(judge_page(false, Ok(false), true, true), (false, true));
+    }
+    #[test]
+    fn a_closed_page_stays_closed_when_the_dying_connection_cannot_answer() {
+        // Firefox needs a few seconds to quit after its window closed: the tree call fails then, and the
+        // process still runs. That is no reason to call the page open again.
+        let (open, gone) = judge_page(false, Ok(false), true, true);
+        assert!(!open && gone);
+        assert_eq!(judge_page(gone, Err(()), false, true), (false, true));
+        assert_eq!(judge_page(gone, Ok(true), true, true), (false, true), "a context that is gone does not return");
+    }
+    #[test]
+    fn a_hiccup_before_the_page_was_seen_gone_keeps_it_open() {
+        assert_eq!(judge_page(false, Err(()), true, false), (true, false), "connection fine, one call failed");
+        assert_eq!(judge_page(false, Err(()), false, true), (true, false), "a held-up command while the browser runs");
+        assert_eq!(judge_page(false, Err(()), false, false), (false, false), "no connection and no process");
+        assert_eq!(judge_page(false, Ok(true), true, true), (true, false));
+    }
+}
+
+#[cfg(test)]
+mod error_code_tests {
+    use super::FirefoxError::{self, *};
+
+    #[test]
+    fn every_start_error_has_a_fixed_code_that_names_the_reason() {
+        let all = [
+            (NotInstalled, "not_installed"),
+            (InvalidInstallation, "invalid_installation"),
+            (InvalidProfile, "invalid_profile"),
+            (ProfileBusy, "profile_busy"),
+            (Unavailable, "unavailable"),
+            (StartupTimeout, "startup_timeout"),
+            (CertificateCache, "certificate_cache"),
+            (Cancelled, "cancelled"),
+            (ManualOwnership, "manual_ownership"),
+        ];
+        for (error, code) in all {
+            assert_eq!(FirefoxError::code(&error), code);
+            assert!(code.chars().all(|c| c.is_ascii_lowercase() || c == '_'), "{code} is a plain name, never page or user data");
         }
     }
 }

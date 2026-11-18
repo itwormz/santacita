@@ -265,6 +265,7 @@ impl SearchController {
         };
         let state = self.state.clone();
         let root = root.to_owned();
+        let browser_name = profile.browser.clone();
         let worker_gate = gate.clone();
         let stop = cancelled.clone();
         self.close_browser.store(false, Ordering::Release);
@@ -294,11 +295,19 @@ impl SearchController {
                     && !busy
                 {
                     let home = std::env::var("HOME").unwrap_or_default();
-                    let found = FirefoxInstallation::discover().is_ok();
+                    // The worker noted which browser failed to start and why; without a note the profile's browser stands.
+                    let facts = match crate::startup_report::take_start_failure() {
+                        Some((family, reason)) => crate::startup_report::StartFacts { family, found: reason != "not_installed", reason: Some(reason) },
+                        None => {
+                            let engine = Engine::of(&browser_name);
+                            let found = if engine.is_none_or(|e| e == Engine::Firefox) { FirefoxInstallation::discover().is_ok() } else { true };
+                            crate::startup_report::StartFacts { family: engine.map_or("firefox", Engine::family), found, reason: None }
+                        }
+                    };
                     let id = crate::current_time().ok().and_then(|now| {
                         // A search that got as far as a page leaves what it saw; one that never started leaves the start report.
                         save_stop_report(&root, &home, code, "the search stopped with an error", now)
-                            .or_else(|| crate::startup_report::save_failure(&root, &home, code, found, now))
+                            .or_else(|| crate::startup_report::save_failure_with(&root, &home, code, &facts, now))
                     });
                     let _ = update(&state, |s| s.report_id = id);
                 }
@@ -521,6 +530,17 @@ impl Engine {
             Self::Chromium(kind) => kind,
         }
     }
+    /// The browser's name in a diagnostic report.
+    pub fn family(self) -> &'static str {
+        use ceh_browser::firefox::ProfileKind;
+        match self.kind() {
+            ProfileKind::Firefox => "firefox",
+            ProfileKind::Chrome => "chrome",
+            ProfileKind::Brave => "brave",
+            ProfileKind::Chromium => "chromium",
+            ProfileKind::Edge => "edge",
+        }
+    }
 }
 /// How one browser session ended: for good, or with a restart the core asked for (`Recover{Restart}`).
 enum SessionEnd {
@@ -586,6 +606,8 @@ fn clear_closed_browser(s: &mut SearchSnapshot) {
     s.attention = false;
     s.manual = false;
     s.browser_pid = None;
+    // There is no page to show for a window that is gone.
+    s.page = None;
 }
 #[allow(clippy::too_many_arguments)]
 fn run_session(
@@ -609,25 +631,33 @@ fn run_session(
     let engine = Engine::of(&profile.browser).ok_or("browser_unsupported")?;
     // One persistent browser profile per search profile, as in Python: cookies survive between runs and
     // "reset session" deletes it.
+    let family = engine.family();
+    // A reason noted by an earlier start must not leak into the report of this one.
+    let _ = crate::startup_report::take_start_failure();
+    // The report written after a failed start names the browser and the reason (a fixed code, never user data).
+    let failed = |error: ceh_browser::firefox::FirefoxError, code: &'static str| {
+        crate::startup_report::note_start_failure(family, error.code());
+        code
+    };
     let lease = ProfileLease::persistent_kind(root, &profile.id, engine.kind()).map_err(|error| match error {
         // The previous search's browser is still open (kept for the person, or its window just closed).
-        ceh_browser::firefox::FirefoxError::ProfileBusy => "browser_profile_busy",
-        _ => "browser_profile_unavailable",
+        ceh_browser::firefox::FirefoxError::ProfileBusy => failed(error, "browser_profile_busy"),
+        _ => failed(error, "browser_profile_unavailable"),
     })?;
     let mut browser = match engine {
         Engine::Firefox => {
-            let installation = FirefoxInstallation::discover().map_err(|_| "firefox_not_installed")?;
+            let installation = FirefoxInstallation::discover().map_err(|error| failed(error, "firefox_not_installed"))?;
             OwnedFirefox::start(&installation, lease, false, cancelled).map_err(|error| {
                 if error == ceh_browser::firefox::FirefoxError::CertificateCache {
-                    "browser_certificate_cache_failed"
+                    failed(error, "browser_certificate_cache_failed")
                 } else {
-                    "browser_start_failed"
+                    failed(error, "browser_start_failed")
                 }
             })?
         }
         Engine::Chromium(kind) => {
-            let installation = ceh_browser::chromium::ChromiumInstallation::discover(kind).map_err(|_| "browser_not_installed")?;
-            OwnedFirefox::start_chromium(&installation, lease, cancelled).map_err(|_| "browser_start_failed")?
+            let installation = ceh_browser::chromium::ChromiumInstallation::discover(kind).map_err(|error| failed(error, "browser_not_installed"))?;
+            OwnedFirefox::start_chromium(&installation, lease, cancelled).map_err(|error| failed(error, "browser_start_failed"))?
         }
     };
     update(state, |s| {
@@ -806,7 +836,7 @@ fn run_owned(
     let navigated = browser.connection().call("browsingContext.navigate",json!({"context":context,"url":"https://icp.administracionelectronica.gob.es/icpplus/index.html","wait":"none"}));
     if navigated.is_err() {
         let deferred = browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred;
-        return match crate::navigation_failure(browser.page_open(), deferred) {
+        return match crate::navigation_failure_settled(deferred, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)).filter(|_| !cancelled.load(Ordering::Acquire)) {
             // The window was closed while the page loaded: a stop, as when it closes later.
             None => stats
                 .finish(&mut db, wall()?, mono(), "stopped")
@@ -1478,7 +1508,8 @@ fn run_owned(
     diagnostics.finish(&mut driver);
     // A browser error after the person closed the window is their stop: decide it before the statistics and
     // the journal record how the search ended.
-    let result = crate::closed_window_stop(result, SessionEnd::Finished, || browser.page_open());
+    let result = crate::closed_window_stop_settled(result, SessionEnd::Finished, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled));
+    let result = crate::requested_stop_is_a_stop(result, SessionEnd::Finished, cancelled.load(Ordering::Acquire));
     let at = wall()?;
     let reason = if result.is_err() { "error" } else { "stopped" };
     stats
@@ -1518,10 +1549,17 @@ mod tests {
         assert!(Engine::of("netscape").is_none());
     }
     #[test]
+    fn a_browser_is_named_in_the_report_by_the_id_the_profile_uses() {
+        for id in ["firefox", "chrome", "brave", "chromium"] {
+            assert_eq!(Engine::of(id).unwrap().family(), id);
+        }
+    }
+    #[test]
     fn a_browser_the_person_closed_leaves_no_attention_manual_mode_or_process_behind() {
-        let mut state = SearchSnapshot { attention: true, manual: true, browser_pid: Some(4242), active: true, ..Default::default() };
+        let mut state = SearchSnapshot { attention: true, manual: true, browser_pid: Some(4242), active: true, page: Some(PageKind::Auth), ..Default::default() };
         clear_closed_browser(&mut state);
         assert!(!state.attention && !state.manual && state.browser_pid.is_none());
+        assert!(state.page.is_none(), "the page of a window that is gone is not shown any more");
         assert!(state.active, "ending the search itself is another step");
     }
     #[test]
