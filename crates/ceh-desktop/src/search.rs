@@ -434,9 +434,12 @@ fn save_stop_report(root: &Path, home: &str, reason: &str, summary: &str, now: c
 /// Save the report a stop asked for, when one is due. A failed save stays pending and is tried again after a delay,
 /// for as long as the search runs.
 fn save_pending_report(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut crate::session_report::PendingReport) {
+    save_pending_report_at(root, state, pending, Instant::now());
+}
+fn save_pending_report_at(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut crate::session_report::PendingReport, now: Instant) {
     let home = std::env::var("HOME").unwrap_or_default();
-    let saved = pending.try_save(Instant::now(), |reason, summary| {
-        crate::current_time().ok().and_then(|now| save_stop_report(root, &home, reason, summary, now))
+    let saved = pending.try_save(now, |reason, summary| {
+        crate::current_time().ok().and_then(|at| save_stop_report(root, &home, reason, summary, at))
     });
     if let Some(id) = saved {
         let _ = update(state, |s| s.report_id = Some(id));
@@ -1723,5 +1726,51 @@ mod close_plan_tests {
     fn shutting_down_an_idle_controller_needs_no_wait() {
         let controller = SearchController::default();
         assert_eq!(controller.shutdown(), ClosePlan::CloseNow);
+    }
+}
+
+#[cfg(test)]
+mod report_saving_tests {
+    use super::*;
+    use crate::session_report::{PendingReport, RETRY_DELAY};
+
+    /// What the top of the worker loop does on every pass, whatever mode the search is in (running, paused, or
+    /// unable to observe the page): it calls `save_pending_report`. Here the storage is away for a while and then back.
+    #[test]
+    fn a_pending_report_is_saved_and_published_when_the_storage_comes_back() {
+        crate::session_report::begin();
+        crate::session_report::with(|recorder| {
+            let observation = ceh_core::model::Observation {
+                document: ceh_core::model::DocumentId::new("doc").unwrap(),
+                kind: PageKind::Office,
+                method: ceh_core::model::RequestMethod::Get,
+                operation_code: false,
+                variant: String::new(),
+            };
+            recorder.page("t", &observation, &[FlowEffect::Hold], &serde_json::json!({"flow": {"phase": "held"}}));
+        });
+        let state = Mutex::new(SearchSnapshot::default());
+        let folder = tempfile::tempdir().unwrap();
+        // The data folder cannot be created while a plain file sits where it should be.
+        let root = folder.path().join("data-root");
+        std::fs::write(&root, "not a folder").unwrap();
+        let mut pending = PendingReport::default();
+        pending.request("no_handler_for_page".into(), "the search stopped");
+        let start = Instant::now();
+
+        save_pending_report_at(&root, &state, &mut pending, start);
+        assert_eq!(state.lock().unwrap().report_id, None, "the save failed, nothing is published");
+        save_pending_report_at(&root, &state, &mut pending, start + RETRY_DELAY);
+        assert_eq!(state.lock().unwrap().report_id, None, "still failing, still pending");
+
+        // The storage is back: the next due pass saves the same report and publishes its id.
+        std::fs::remove_file(&root).unwrap();
+        save_pending_report_at(&root, &state, &mut pending, start + RETRY_DELAY * 3);
+        let id = state.lock().unwrap().report_id.clone().expect("the report is published after the save");
+        assert!(crate::startup_report::clipboard_text(&root, "", &id).unwrap().contains("no_handler_for_page"));
+        // Done: a later pass does nothing.
+        save_pending_report_at(&root, &state, &mut pending, start + RETRY_DELAY * 4);
+        assert_eq!(state.lock().unwrap().report_id.as_deref(), Some(id.as_str()));
+        crate::session_report::begin();
     }
 }
