@@ -684,7 +684,7 @@ fn run_session(
         log,
         carry,
     );
-    let result = crate::closed_window_stop_settled(result, SessionEnd::Finished, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), crate::closing_window_pause);
+    let result = crate::closed_window_stop(result, SessionEnd::Finished, || browser.page_open());
     // Window closing during an automatic search closes the app's own browser; anything else (a stop, an
     // error, a booking handed over) keeps it open for the person.
     // A page the person closed leaves nothing to preserve: quit the browser so its profile is free again.
@@ -1508,7 +1508,7 @@ fn run_owned(
     diagnostics.finish(&mut driver);
     // A browser error after the person closed the window is their stop: decide it before the statistics and
     // the journal record how the search ended.
-    let result = crate::closed_window_stop_settled(result, SessionEnd::Finished, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), crate::closing_window_pause);
+    let result = crate::closed_window_stop_settled(result, SessionEnd::Finished, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled));
     let at = wall()?;
     let reason = if result.is_err() { "error" } else { "stopped" };
     stats

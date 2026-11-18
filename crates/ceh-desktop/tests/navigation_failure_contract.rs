@@ -63,7 +63,7 @@ mod window_closing_settles {
         let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 12, || {
             probes.set(probes.get() + 1);
             probes.get() < 4
-        }, || {});
+        }, || true);
         assert_eq!(result, Ok("stop"));
         assert_eq!(probes.get(), 4, "stops asking as soon as the window is gone");
     }
@@ -74,7 +74,7 @@ mod window_closing_settles {
         let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 5, || {
             probes.set(probes.get() + 1);
             true
-        }, || pauses.set(pauses.get() + 1));
+        }, || { pauses.set(pauses.get() + 1); true });
         assert_eq!(result, Err("browser_observation_failed"));
         assert_eq!(probes.get(), 5);
         assert_eq!(pauses.get(), 4, "no pause after the last look");
@@ -82,9 +82,19 @@ mod window_closing_settles {
     #[test]
     fn a_closed_window_needs_no_waiting_and_other_results_never_probe() {
         let pauses = Cell::new(0);
-        assert_eq!(closed_window_stop_settled(Err("browser_action_failed"), "stop", 12, || false, || pauses.set(1)), Ok("stop"));
+        assert_eq!(closed_window_stop_settled(Err("browser_action_failed"), "stop", 12, || false, || { pauses.set(1); true }), Ok("stop"));
         assert_eq!(pauses.get(), 0);
-        assert_eq!(closed_window_stop_settled(Err("statistics_unavailable"), "stop", 12, || panic!("must not probe"), || {}), Err("statistics_unavailable"));
-        assert_eq!(closed_window_stop_settled(Ok("done"), "stop", 12, || panic!("must not probe"), || {}), Ok("done"));
+        assert_eq!(closed_window_stop_settled(Err("statistics_unavailable"), "stop", 12, || panic!("must not probe"), || true), Err("statistics_unavailable"));
+        assert_eq!(closed_window_stop_settled(Ok("done"), "stop", 12, || panic!("must not probe"), || true), Ok("done"));
+    }
+    #[test]
+    fn pressing_stop_ends_the_wait_and_keeps_the_error() {
+        let probes = Cell::new(0);
+        let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 80, || {
+            probes.set(probes.get() + 1);
+            true
+        }, || probes.get() < 3);
+        assert_eq!(result, Err("browser_observation_failed"));
+        assert_eq!(probes.get(), 3, "the third pause was refused: no more looks");
     }
 }

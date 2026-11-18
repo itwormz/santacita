@@ -252,12 +252,13 @@ pub fn closed_window_stop<T>(
 /// A window the person has just closed is still listed for a moment while the browser shuts down, so the
 /// read that failed looks like a hiccup of a window that is there. Ask again (`looks` times, `pause` between
 /// the looks) before the error stays: a window that is really open stays open, one that closes is a stop.
+/// `pause` returns `false` when the wait must end (the person pressed Stop): the error then stays as it is.
 pub fn closed_window_stop_settled<T>(
     result: Result<T, &'static str>,
     finished: T,
     looks: u32,
     mut page_open: impl FnMut() -> bool,
-    mut pause: impl FnMut(),
+    mut pause: impl FnMut() -> bool,
 ) -> Result<T, &'static str> {
     let Err(code) = result else { return result };
     if !code.starts_with("browser_") {
@@ -267,8 +268,8 @@ pub fn closed_window_stop_settled<T>(
         if !page_open() {
             return Ok(finished);
         }
-        if look + 1 < looks {
-            pause();
+        if look + 1 < looks && !pause() {
+            break;
         }
     }
     Err(code)
@@ -277,8 +278,13 @@ pub fn closed_window_stop_settled<T>(
 /// takes from three to over ten seconds to quit after its window closed, and an error recorded before it
 /// is gone would stay in the journal as a failed step.
 pub const CLOSING_WINDOW_LOOKS: u32 = 80;
-pub fn closing_window_pause() {
+/// One pause between two looks; `false` once a stop was requested, so Stop ends the wait.
+pub fn closing_window_pause(stop_requested: &std::sync::atomic::AtomicBool) -> bool {
+    if stop_requested.load(std::sync::atomic::Ordering::Acquire) {
+        return false;
+    }
     std::thread::sleep(std::time::Duration::from_millis(250));
+    true
 }
 /// The certificate window of the browser (a native dialog) blocks reading the page, so the core cannot tell
 /// the person in time: five seconds after the click the worker rings the reminder itself, once.
