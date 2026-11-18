@@ -2,9 +2,9 @@
 //! NSS comes from the same installed Firefox; only a CEH-owned, leased profile is opened.
 use crate::firefox::{FirefoxError, FirefoxInstallation, ProfileLease};
 const INTERMEDIATE: &[u8] = include_bytes!("../assets/rapidssl-tls-rsa-ca-g1.der");
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 static NSS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 #[repr(C)]
 #[derive(Default)]
 struct CertTrust {
@@ -81,7 +81,7 @@ pub(crate) fn nss_profile_path(path: &std::path::Path) -> Result<String, Firefox
 }
 /// Opens the leased profile's certificate database with the installation's NSS and adds the intermediate
 /// without trust bits. `Ok(1)` when it is in the database afterwards.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 unsafe fn import_intermediate(
     nss: &libloading::Library,
     profile_name: &std::ffi::CStr,
@@ -154,7 +154,50 @@ unsafe fn import_intermediate(
         result
     }
 }
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+/// Linux Firefox does not fetch the missing intermediate either. Mozilla's own build carries NSS next to the
+/// executable; a distribution's package uses the system NSS, which opens the same `cert9.db` profile format.
+#[cfg(target_os = "linux")]
+pub(crate) fn prepare(
+    profile: &ProfileLease,
+    installation: &FirefoxInstallation,
+) -> Result<usize, FirefoxError> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let _lock = NSS_LOCK.lock().map_err(|_| FirefoxError::Unavailable)?;
+    let folder = installation
+        .executable()
+        .parent()
+        .ok_or(FirefoxError::InvalidInstallation)?;
+    let profile_name = CString::new([b"sql:", profile.path().as_os_str().as_bytes()].concat())
+        .map_err(|_| FirefoxError::InvalidProfile)?;
+    unsafe {
+        // Mozilla's own build has one combined libnss3 that needs its mozglue loaded first, as on macOS.
+        let glue = if folder.join("libmozglue.so").is_file() {
+            Some(
+                libloading::os::unix::Library::open(
+                    Some(folder.join("libmozglue.so")),
+                    libloading::os::unix::RTLD_NOW | libloading::os::unix::RTLD_GLOBAL,
+                )
+                .map_err(|_| FirefoxError::Unavailable)?,
+            )
+        } else {
+            None
+        };
+        // A distribution splits NSS into several libraries, and `CERT_DecodeCertFromPackage` lives in libsmime3,
+        // which brings libnss3 with it: one handle then reaches every function used here. Debian keeps that set
+        // next to Firefox; Arch and Fedora use the system's.
+        let nss = [folder.join("libnss3.so"), folder.join("libsmime3.so"), "libsmime3.so".into()]
+            .into_iter()
+            .filter(|path| path.is_file() || path.as_os_str() == "libsmime3.so")
+            .filter_map(|path| libloading::Library::new(&path).ok())
+            .find(|library| library.get::<unsafe extern "C" fn()>(b"CERT_DecodeCertFromPackage\0").is_ok())
+            .ok_or(FirefoxError::Unavailable)?;
+        let result = import_intermediate(&nss, &profile_name);
+        drop(nss);
+        drop(glue);
+        result
+    }
+}
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub(crate) fn prepare(
     _profile: &ProfileLease,
     _installation: &FirefoxInstallation,
@@ -188,10 +231,6 @@ mod tests {
         let mut browser = OwnedFirefox::start(&installation, lease, true, &std::sync::atomic::AtomicBool::new(false)).unwrap();
         let cache = browser.certificate_cache();
         let _ = browser.stop();
-        if cfg!(any(target_os = "macos", target_os = "windows")) {
-            assert!(cache == CertificateCache::Ready(1), "the intermediate is in the new profile");
-        } else {
-            assert!(cache == CertificateCache::Ready(0), "Linux does not add the intermediate yet");
-        }
+        assert!(cache == CertificateCache::Ready(1), "the intermediate is in the new profile: {cache:?}");
     }
 }
