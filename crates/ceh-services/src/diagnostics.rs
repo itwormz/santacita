@@ -475,22 +475,8 @@ impl Sanitizer {
         } else {
             value.replace(home, "~")
         };
-        for (pattern, replacement) in [
-            (r"/Users/[^/\s]+", "/Users/[user]"),
-            (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "[email]"),
-            (
-                r"(?im)\b(?:cookie|set-cookie|authorization)\s*:[^\r\n]*",
-                "[private header]",
-            ),
-            (
-                r"(?i)\b(?:access_token|refresh_token|password|pin|sessionid|csrf)\s*[=:]\s*[^\s;]+",
-                "[private value]",
-            ),
-        ] {
-            value = regex::Regex::new(pattern)
-                .expect("fixed scrub pattern")
-                .replace_all(&value, replacement)
-                .into_owned();
+        for (pattern, replacement) in CLEAN_STARTUP_PATTERNS.iter() {
+            value = pattern.replace_all(&value, *replacement).into_owned();
         }
         self.sanitize(&value).chars().take(16000).collect()
     }
@@ -536,14 +522,32 @@ fn replace_bounded(value: &str, regex: &regex::Regex, word_boundary: bool) -> St
     output.push_str(&value[end..]);
     output
 }
+/// The scrub patterns of `clean_startup`, compiled once: About reads the newest report every few seconds.
+static CLEAN_STARTUP_PATTERNS: std::sync::LazyLock<Vec<(regex::Regex, &'static str)>> = std::sync::LazyLock::new(|| {
+    [
+        (r"/Users/[^/\s]+", "/Users/[user]"),
+        (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "[email]"),
+        (r"(?im)\b(?:cookie|set-cookie|authorization)\s*:[^\r\n]*", "[private header]"),
+        (
+            r"(?i)\b(?:access_token|refresh_token|password|pin|sessionid|csrf)\s*[=:]\s*[^\s;]+",
+            "[private value]",
+        ),
+    ]
+    .into_iter()
+    .map(|(pattern, replacement)| (regex::Regex::new(pattern).expect("fixed scrub pattern"), replacement))
+    .collect()
+});
 static REPORT_ID: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| regex::Regex::new(r"^[0-9]{8}T[0-9]{6}-[a-f0-9]{8}$").unwrap());
 /// What the `session` part of a report may contain: fixed names, flags and counts. Anything else, at any depth, is dropped
 /// when the report is saved and again when it is read, so a field added by mistake cannot carry identity data out.
 enum Shape {
     Value,
+    /// A plain code: letters, digits and `_=:.;>-` only, short. Free text, quotes and spaces are dropped.
+    Code,
+    /// A plain code, or an object of this shape.
+    CodeOr(&'static Shape),
     List,
-    ValueOr(&'static Shape),
     Object(&'static [(&'static str, Shape)]),
     Each(&'static Shape),
 }
@@ -569,8 +573,8 @@ const PAGE: Shape = Shape::Object(&[
 const DETAIL: Shape = Shape::Object(&[("facts", FACTS), ("page", PAGE)]);
 const ROW: Shape = Shape::Object(&[
     ("t", V), ("kind", V), ("page", V), ("method", V), ("doc", V), ("variant", V), ("operation_code", V), ("preparation", V),
-    ("effects", Shape::List), ("flow", FLOW), ("detail", Shape::ValueOr(&DETAIL)),
-    ("delay_ms", V), ("elapsed_ms", V), ("error", V), ("scroll_fallback", V), ("reason", V), ("streak", V),
+    ("effects", Shape::List), ("flow", FLOW), ("detail", Shape::CodeOr(&DETAIL)),
+    ("delay_ms", V), ("elapsed_ms", V), ("error", V), ("scroll_fallback", V), ("reason", Shape::Code), ("streak", V),
     ("receipts", Shape::Each(&Shape::Object(&[("action", V), ("outcome", V)]))),
 ]);
 const SESSION: Shape = Shape::Object(&[
@@ -589,15 +593,23 @@ const SESSION: Shape = Shape::Object(&[
 fn is_scalar(value: &Value) -> bool {
     matches!(value, Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_))
 }
+fn is_code(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => true,
+        Value::String(text) => text.len() <= 160 && text.chars().all(|c| c.is_ascii_alphanumeric() || "_=:.;>-".contains(c)),
+        _ => false,
+    }
+}
 /// Keep only what `shape` names; `false` when the value has the wrong kind and must go.
 fn prune(value: &mut Value, shape: &Shape) -> bool {
     match (shape, &mut *value) {
         (Shape::Value, v) => is_scalar(v),
+        (Shape::Code, v) => is_code(v),
+        (Shape::CodeOr(inner), v) => is_code(v) || prune(v, inner),
         (Shape::List, Value::Array(items)) => {
             items.retain(is_scalar);
             true
         }
-        (Shape::ValueOr(inner), v) => is_scalar(v) || prune(v, inner),
         (Shape::Object(fields), Value::Object(map)) => {
             map.retain(|key, child| fields.iter().find(|(name, _)| name == key).is_some_and(|(_, inner)| prune(child, inner)));
             true

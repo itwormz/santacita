@@ -166,3 +166,23 @@ fn the_saving_order_survives_a_clock_that_goes_backwards() {
     }
     assert!(clipboard_text(root.path(), "/Users/Fictional", &last).is_ok());
 }
+
+#[test]
+fn a_reason_that_is_not_a_plain_code_is_dropped_from_the_report() {
+    use ceh_desktop::startup_report::save_session_stop;
+    let root = tempfile::tempdir().unwrap();
+    let report = serde_json::json!({
+        "version": "0.4.3", "phase": "session_stop", "error_type": "x", "message": "m",
+        "session": {"recent": [
+            {"kind": "stale_document", "reason": "target_changed_after_scroll", "streak": 1},
+            {"kind": "stale_document", "reason": "Hola Maria Garcia, su NIE X1234567L", "streak": 2},
+            {"kind": "step", "effects": ["hold"], "detail": "before=\"Maria Garcia\" after=\"x\""},
+        ]},
+    });
+    let id = save_session_stop(root.path(), "/Users/Fictional", report, at(0)).unwrap();
+    let text = clipboard_text(root.path(), "/Users/Fictional", &id).unwrap();
+    assert!(text.contains("target_changed_after_scroll"), "{text}");
+    for private in ["Maria", "Garcia", "X1234567L", "Hola"] {
+        assert!(!text.contains(private), "{private} leaked into {text}");
+    }
+}

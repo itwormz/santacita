@@ -100,7 +100,7 @@ export async function verifyPublishedRelease(release,directory,version){
 function releaseHeadings(notes){
  const found=[];let fence=null;let offset=0;
  for(const line of notes.split('\n')){
-  const mark=/^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+  const mark=/^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
   if(mark&&!fence)fence={kind:mark[1][0],length:mark[1].length};
   else if(mark&&fence&&mark[1][0]===fence.kind&&mark[1].length>=fence.length&&mark[2].trim()==='')fence=null;
   else if(!fence){const heading=/^## ([^\n]+)$/.exec(line);if(heading){const match=[line,heading[1]];match.index=offset;found.push(match);}}

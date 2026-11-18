@@ -150,3 +150,10 @@ test('a fence closes only with a fence of the same kind that is at least as long
  assert.equal((await releaseNotes(root,'0.4.2')).title,'Old');
  assert.match((await releaseNotes(root,'0.4.3')).body,/Real note/);
 });
+test('a marker indented by four spaces is not a fence, one indented by up to three is',async t=>{
+ const root=await fixture(t);
+ await writeFile(join(root,'CHANGELOG.md'),'# Changelog\n\n## 0.4.3\n\n- Real note.\n\n    ```\n    literal text in an indented code block\n\n## 0.4.2 — Old\n\n- Older.\n\n   ```md\n## 0.4.1 — Inside\n   ```\n');
+ assert.equal((await releaseNotes(root,'0.4.2')).title,'Old');
+ await assert.rejects(releaseNotes(root,'0.4.1'),/Missing/);
+ assert.match((await releaseNotes(root,'0.4.3')).body,/literal text/);
+});
