@@ -4,7 +4,7 @@
 
 ## 0.4.3
 
-- Add a stop report. When a search stops because it cannot continue on its own, or fails after a page has opened, SantaCita saves a short report. Open About and press Copy on the "Search stop report" card to copy it for a bug report. It holds the app and browser versions, the province and service of the profile, the sign-in and no-slots settings, the place where the search stopped and the latest steps; it never holds the document number, name, phone, e-mail, office, cookies or page text.
+- Add a stop report. When a search stops because it cannot continue on its own, or fails after a page has opened, SantaCita saves a short report. Open About and press Copy on the "Diagnostic report" card to copy it for a bug report. It holds the app and browser versions, the province and service of the profile, the sign-in and no-slots settings, the place where the search stopped and the latest steps; it never holds the document number, name, phone, e-mail, office, cookies or page text.
 - Correct the hint in Settings: the timeline file is written only while "Diagnostics recording" is on; the report you can copy is always collected.
 - Build the application with Node 26 and TypeScript 6. No behaviour changes are expected.
 - Fix a search that stopped on the first page and waited for a person: the site's cookie banner is now clicked where it is, without scrolling the page under it (#70).
