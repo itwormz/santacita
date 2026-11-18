@@ -33,27 +33,29 @@ pub fn settings_summary(profile: &ProfileDraft) -> Value {
 /// Time between two tries to save a report that could not be saved.
 pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// A report that is due to be saved. It stays here until a save has succeeded (the disk may be away for a while, the
-/// search may be paused meanwhile); a failed try only moves the next try by `RETRY_DELAY`.
+/// A report that is due to be saved. It is the finished report of the stop, built when the stop happened: the memory of
+/// the search moves on, so a retry saves this same report and not a new one. It stays here until a save has succeeded
+/// (the disk may be away for a while, the search may be paused meanwhile); a failed try only moves the next try by
+/// `RETRY_DELAY`.
 #[derive(Default)]
 pub struct PendingReport {
-    request: Option<(String, &'static str)>,
+    report: Option<Value>,
     next_try: Option<std::time::Instant>,
 }
 impl PendingReport {
-    /// A stop wants a report; a newer request replaces one that is still waiting.
-    pub fn request(&mut self, reason: String, summary: &'static str) {
-        self.request = Some((reason, summary));
+    /// A stop wants this report saved; a newer one replaces a report that is still waiting.
+    pub fn request(&mut self, report: Value) {
+        self.report = Some(report);
     }
     /// Try the save when one is due and its delay is over. Returns the id of the saved report; a failure keeps it pending.
-    pub fn try_save(&mut self, now: std::time::Instant, save: impl FnOnce(&str, &str) -> Option<String>) -> Option<String> {
-        let (reason, summary) = self.request.as_ref()?;
+    pub fn try_save(&mut self, now: std::time::Instant, save: impl FnOnce(&Value) -> Option<String>) -> Option<String> {
+        let report = self.report.as_ref()?;
         if self.next_try.is_some_and(|due| now < due) {
             return None;
         }
-        match save(reason, summary) {
+        match save(report) {
             Some(id) => {
-                self.request = None;
+                self.report = None;
                 self.next_try = None;
                 Some(id)
             }
@@ -342,22 +344,22 @@ mod tests {
         use std::time::{Duration, Instant};
         let start = Instant::now();
         let mut pending = PendingReport::default();
-        assert!(pending.try_save(start, |_, _| panic!("nothing is pending")).is_none());
-        pending.request("no_handler_for_page".into(), "stopped");
+        assert!(pending.try_save(start, |_| panic!("nothing is pending")).is_none());
+        pending.request(json!({"stop": "no_handler_for_page"}));
         let mut tries = 0;
         // The disk is gone for a long time (many more tries than any fixed limit): the report is never dropped.
         for second in 0..600u64 {
             let now = start + Duration::from_secs(second);
-            assert!(pending.try_save(now, |_, _| { tries += 1; None }).is_none());
+            assert!(pending.try_save(now, |_| { tries += 1; None }).is_none());
         }
         assert!((100..=130).contains(&tries), "a bounded delay between tries, got {tries}");
         // The disk is back (also while the search is paused): the same report is saved once.
-        let saved = pending.try_save(start + Duration::from_secs(700), |reason, summary| {
-            assert_eq!((reason, summary), ("no_handler_for_page", "stopped"));
+        let saved = pending.try_save(start + Duration::from_secs(700), |report| {
+            assert_eq!(report["stop"], "no_handler_for_page");
             Some("20261118T100000-00000000".into())
         });
         assert_eq!(saved.as_deref(), Some("20261118T100000-00000000"));
-        assert!(pending.try_save(start + Duration::from_secs(800), |_, _| panic!("saved already")).is_none());
+        assert!(pending.try_save(start + Duration::from_secs(800), |_| panic!("saved already")).is_none());
     }
 
     #[test]
@@ -365,14 +367,39 @@ mod tests {
         use std::time::{Duration, Instant};
         let start = Instant::now();
         let mut pending = PendingReport::default();
-        pending.request("first".into(), "a");
-        assert!(pending.try_save(start, |_, _| None).is_none());
-        assert!(pending.try_save(start + Duration::from_millis(500), |_, _| panic!("too early")).is_none());
-        pending.request("second".into(), "b");
-        let saved = pending.try_save(start + RETRY_DELAY, |reason, _| {
-            assert_eq!(reason, "second");
+        pending.request(json!({"n": "first"}));
+        assert!(pending.try_save(start, |_| None).is_none());
+        assert!(pending.try_save(start + Duration::from_millis(500), |_| panic!("too early")).is_none());
+        pending.request(json!({"n": "second"}));
+        let saved = pending.try_save(start + RETRY_DELAY, |report| {
+            assert_eq!(report["n"], "second");
             Some("id".into())
         });
         assert_eq!(saved.as_deref(), Some("id"));
+    }
+
+    #[test]
+    fn a_retried_report_is_the_one_built_at_the_stop_not_a_new_one() {
+        use std::time::Instant;
+        let mut recorder = SessionRecorder::default();
+        recorder.set_context(json!({"firefox": "Chrome 157"}), settings_summary(&profile()));
+        recorder.page("t1", &observation(PageKind::Office, "stopped-here"), &[FlowEffect::Hold], &detail());
+        // The report is built when the stop happens and kept as it is.
+        let mut pending = PendingReport::default();
+        pending.request(recorder.report("0.4.3", "now", json!({"reason": "no_handler_for_page", "summary": "s"})));
+        let start = Instant::now();
+        assert!(pending.try_save(start, |_| None).is_none());
+        // The person moves on and the memory fills with later pages, so that the stop falls out of it.
+        for i in 0..100 {
+            recorder.page("t2", &observation(PageKind::Province, &format!("later-{i}")), &[FlowEffect::Silence], &detail());
+        }
+        let mut saved_report = None;
+        pending.try_save(start + RETRY_DELAY, |report| {
+            saved_report = Some(report.clone());
+            Some("id".into())
+        });
+        let text = saved_report.expect("the report was saved").to_string();
+        assert!(text.contains("no_handler_for_page") && text.contains("\"page\":\"office\""), "the stop is still in it: {text}");
+        assert!(!text.contains("\"page\":\"province\""), "later pages are not in it: {text}");
     }
 }
