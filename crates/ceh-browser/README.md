@@ -49,6 +49,13 @@ are explicitly ignored by default and must be opted into on an isolated profile:
 - `firefox_contract` and the trusted-input unit fixture: owned launch, close, handoff,
   continuation and keyboard input.
 - `firefox_background_live`: a separate native background-window probe.
+- `firefox_profile_gets_the_site_intermediate_before_the_first_page`: a new Firefox profile gets the site's
+  intermediate certificate (macOS, Windows, Linux).
+- `firefox_` and `chrome_does_not_scroll_the_page_under_a_pinned_banner`: a target pinned to the window,
+  like the site's cookie banner, is clicked without scrolling the page under it.
+
+CI runs the certificate and pinned-banner tests on Windows (`Windows tests`, required) and on Ubuntu
+(`Browser tests`; the Firefox step there is advisory because of slow cold starts).
 
 Passing protocol tests does not establish native minimize, lock, macOS Spaces, RDP,
 certificate dialogs or end-to-end booking behavior. Those require target-OS acceptance.

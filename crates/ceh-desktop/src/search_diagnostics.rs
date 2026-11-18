@@ -112,6 +112,8 @@ impl SearchDiagnostics {
     }
     /// One executed step: effects, the pause before it, receipts and how long the browser took.
     pub(crate) fn step(&self, row: serde_json::Value) {
+        // The report memory is kept whether or not the diagnostics file is on.
+        crate::session_report::with(|recorder| recorder.step(&session_timeline::madrid_text(None), row.clone()));
         self.timeline.append("step", row);
     }
     /// Commands sent to the browser and header/cookie-name rows of the site's traffic since the last call.

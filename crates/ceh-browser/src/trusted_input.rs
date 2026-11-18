@@ -393,6 +393,12 @@ fn scroll_with_wheel(connection: &mut BidiConnection, context: &str, realm: &ceh
     if needed == 0 {
         return false;
     }
+    // A target pinned to the window (the site's cookie banner at the bottom edge) does not move with the page:
+    // the wheel only scrolls the page under it, the site's header changes, and the click is then refused as a
+    // changed page. It is already where a person would click it.
+    if (0.0..=geometry.viewport_height).contains(&cy) && pinned_to_window(connection, realm, shared) {
+        return false;
+    }
     let (x, y) = connection.cursor().unwrap_or((cx, geometry.viewport_height / 2.0));
     let (x, y) = (x.round().max(1.0) as i64, y.round().clamp(1.0, (geometry.viewport_height - 1.0).max(1.0)) as i64);
     // Chunks of 20 notches: one command must finish well inside the 5 s command timeout, which a timed-out
@@ -429,6 +435,16 @@ fn scroll_with_wheel(connection: &mut BidiConnection, context: &str, realm: &ceh
         let _ = connection.call("script.callFunction", params);
     }
     true
+}
+/// Whether the element or one of its ancestors is `position: fixed`. Unknown (no answer) counts as not pinned.
+fn pinned_to_window(connection: &mut BidiConnection, realm: &ceh_core::model::DocumentId, shared: &str) -> bool {
+    let params = json!({"target":{"realm":realm.as_str()},"awaitPromise":false,"arguments":[{"sharedId":shared}],
+        "functionDeclaration":"el=>{for(let n=el;n&&n.nodeType===1;n=n.parentElement){if(getComputedStyle(n).position==='fixed')return true;}return false;}"});
+    connection
+        .call("script.callFunction", params)
+        .ok()
+        .and_then(|result| result["result"]["value"].as_bool())
+        .unwrap_or(false)
 }
 fn pointer_seed() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)
@@ -618,6 +634,51 @@ mod tests {
         let runtime = tempfile::tempdir().unwrap();
         let lease = ProfileLease::temporary_kind(runtime.path(), ProfileKind::Chrome).unwrap();
         wheel_scrolls_to_a_button_below_the_screen(OwnedFirefox::start_chromium(&installation, lease, &std::sync::atomic::AtomicBool::new(false)).unwrap());
+    }
+    /// The site's cookie banner: pinned to the bottom edge of a page longer than the window, under a header that
+    /// changes once the page scrolls. The wheel cannot bring a pinned element anywhere, and scrolling the page
+    /// under it changed the header text, so the click was refused as a changed page and the search waited for a
+    /// person (issue #70, Windows laptops). The page must stay where it is and the banner be clickable.
+    const PINNED_BANNER_PAGE: &str = "<!doctype html><title>t</title><body style='margin:0'><header id='h' style='position:sticky;top:0;background:#fff'>Sede electronica</header><div style='height:3000px'>content</div><div id='bar' style='position:fixed;bottom:0;left:0;right:0;height:36px;background:#eee'>Utilizamos cookies <a id='ok' href='#' onclick='this.parentNode.remove();return false'>Acepto</a></div><script>addEventListener('scroll',()=>{document.getElementById('h').textContent=scrollY>40?'Sede electronica INICIO PROCEDIMIENTOS':'Sede electronica';},{passive:true});</script>";
+    fn a_pinned_banner_is_clicked_where_it_is(mut browser: crate::firefox::OwnedFirefox) {
+        let context = browser.context().to_owned();
+        let url = format!("data:text/html;base64,{}", base64_encode(PINNED_BANNER_PAGE.as_bytes()));
+        browser.connection().call("browsingContext.navigate", json!({"context":context,"url":url,"wait":"complete"})).unwrap();
+        let node = browser.connection().call("script.evaluate", json!({"expression":"document.getElementById('ok')","target":{"context":context},"awaitPromise":false,"resultOwnership":"root"})).unwrap();
+        let shared = node["result"]["sharedId"].as_str().unwrap().to_owned();
+        let realm = ceh_core::model::DocumentId::new(node["realm"].as_str().unwrap()).unwrap();
+        let geometry = element_geometry(browser.connection(), &realm, &shared);
+        let (_, cy) = geometry.centre.unwrap();
+        assert_ne!(
+            ceh_core::input::scroll_needed(1, cy, geometry.size.height, geometry.viewport_height),
+            0,
+            "the banner sits in the edge zone where a plain target would be scrolled: {cy} of {}",
+            geometry.viewport_height
+        );
+        let _ = take_scroll_fallback();
+        assert!(!scroll_with_wheel(browser.connection(), &context, &realm, &shared, &geometry), "a pinned target is not scrolled to");
+        assert!(!take_scroll_fallback());
+        let state = browser.connection().call("script.evaluate", json!({"expression":"JSON.stringify([scrollY, document.getElementById('h').textContent])","target":{"context":context},"awaitPromise":false})).unwrap();
+        assert_eq!(state["result"]["value"], json!("[0,\"Sede electronica\"]"), "the page and its header did not move");
+        let _ = browser.stop();
+    }
+    #[test]
+    #[ignore = "launches the installed Firefox"]
+    fn firefox_does_not_scroll_the_page_under_a_pinned_banner() {
+        use crate::firefox::{FirefoxInstallation, OwnedFirefox, ProfileLease};
+        let Ok(installation) = FirefoxInstallation::discover() else { return crate::skip_missing_browser("Firefox") };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary(runtime.path()).unwrap();
+        a_pinned_banner_is_clicked_where_it_is(OwnedFirefox::start(&installation, lease, false, &std::sync::atomic::AtomicBool::new(false)).unwrap());
+    }
+    #[test]
+    #[ignore = "launches the installed Chrome"]
+    fn chrome_does_not_scroll_the_page_under_a_pinned_banner() {
+        use crate::firefox::{OwnedFirefox, ProfileKind, ProfileLease};
+        let Ok(installation) = crate::chromium::ChromiumInstallation::discover(ProfileKind::Chrome) else { return crate::skip_missing_browser("Chrome") };
+        let runtime = tempfile::tempdir().unwrap();
+        let lease = ProfileLease::temporary_kind(runtime.path(), ProfileKind::Chrome).unwrap();
+        a_pinned_banner_is_clicked_where_it_is(OwnedFirefox::start_chromium(&installation, lease, &std::sync::atomic::AtomicBool::new(false)).unwrap());
     }
     /// The same element resolved twice is the same target even when the browser hands out a new handle for it
     /// (CDP object ids change on every evaluation); another element is not.

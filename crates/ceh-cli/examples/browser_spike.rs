@@ -22,13 +22,9 @@ mod public_details_fixture;
 mod recovery_facts_fixture;
 #[path = "support/refresh_fixture.rs"]
 mod refresh_fixture;
-#[path = "support/refresh_tls_fixture.rs"]
-mod refresh_tls_fixture;
 #[path = "support/session_flow_fixture.rs"]
 mod session_flow_fixture;
 mod support;
-#[path = "support/tls_fixture.rs"]
-mod tls_fixture;
 #[path = "support/trusted_input_fixture.rs"]
 mod trusted_input_fixture;
 use support::Server;
@@ -143,6 +139,9 @@ fn main() -> Result<()> {
     let lost_response = std::env::args().nth(2).as_deref() == Some("lost");
     let isolation = std::env::args().nth(2).as_deref() == Some("isolation");
     let guards = std::env::args().nth(2).as_deref() == Some("guards");
+    if std::env::args().nth(2).as_deref() == Some("refresh-tls") {
+        return Err("the refresh-tls mode was removed together with its TLS fixture".into());
+    }
     if guards && kind == "chrome" {
         return Err("guard experiment requires BiDi".into());
     }
@@ -158,16 +157,7 @@ fn main() -> Result<()> {
     let root = std::path::Path::new(".local/builds/work/browser-spikes");
     std::fs::create_dir_all(root)?;
     let profile = tempfile::tempdir_in(root)?;
-    let tls_mode = std::env::args().nth(2).as_deref() == Some("refresh-tls");
-    if tls_mode && kind != "camoufox" {
-        return Err("TLS fixture requires its verified Camoufox binary".into());
-    }
-    let tls = if tls_mode {
-        Some(tls_fixture::TlsFixture::new(profile.path(), binary)?)
-    } else {
-        None
-    };
-    let proxy_port = tls.as_ref().map_or(9, |fixture| fixture.port);
+    let proxy_port = 9;
     let server = Server::new()?;
     let listener = TcpListener::bind(("127.0.0.1", 0))?;
     let port = listener.local_addr()?.port();
@@ -267,13 +257,6 @@ fn main() -> Result<()> {
                 .to_string(),
         )
     };
-    if let Some(fixture) = tls.as_ref() {
-        return refresh_tls_fixture::run(
-            &mut client,
-            context.as_deref().ok_or("missing context")?,
-            fixture,
-        );
-    }
     if std::env::args().nth(2).as_deref() == Some("session-flow") {
         return session_flow_fixture::run(
             &mut client,

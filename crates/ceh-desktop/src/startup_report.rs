@@ -35,6 +35,14 @@ pub fn save_failure(root: &Path, home: &str, code: &str, firefox_found: bool, no
     });
     reports(root, home).save(report, now).ok()
 }
+/// The newest saved report, for the About window; `None` when nothing was ever saved.
+pub fn latest_id(root: &Path, home: &str) -> Option<String> {
+    reports(root, home).latest()
+}
+/// Save the report of a stop that waits for a person (`session_report`); the store keeps its fixed fields only.
+pub fn save_session_stop(root: &Path, home: &str, report: Value, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
+    reports(root, home).save(report, now).ok()
+}
 /// The text copied to the clipboard for report `id`, scrubbed again; `Err` when it is gone or invalid.
 pub fn clipboard_text(root: &Path, home: &str, id: &str) -> Result<String, &'static str> {
     let store = reports(root, home);

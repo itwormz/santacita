@@ -22,6 +22,10 @@ fn snake<T: serde::Serialize>(value: &T) -> String {
 fn action_name(action: ActionKind) -> String {
     snake(&action)
 }
+/// The name an effect has in the timeline and in reports.
+pub fn effect_label(effect: &FlowEffect) -> String {
+    effect_name(effect)
+}
 fn effect_name(effect: &FlowEffect) -> String {
     match effect {
         FlowEffect::Prepare { action, .. } => format!("prepare:{}", action_name(*action)),

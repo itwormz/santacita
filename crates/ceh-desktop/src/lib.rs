@@ -59,6 +59,7 @@ static CATALOG: LazyLock<ProfileCatalog> = LazyLock::new(|| {
 });
 pub mod instance_lock;
 pub mod restart;
+pub mod session_report;
 pub mod session_timeline;
 pub mod startup_report;
 /// Where the Python application kept its data folders on this system.

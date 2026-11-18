@@ -69,6 +69,16 @@ pub enum FlowError {
     /// No page has been observed yet.
     NoCurrent,
 }
+/// A snapshot of the flow for reports: fixed names, flags and counts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FlowDiagnostics {
+    pub phase: &'static str,
+    pub hold_reason: Option<&'static str>,
+    pub manual: bool,
+    pub attempted_actions: usize,
+    pub unsent_retries: usize,
+    pub recovery_attempts: usize,
+}
 #[derive(Clone)]
 enum Phase {
     Preparing(ActionKind),
@@ -95,6 +105,23 @@ enum Phase {
     ActionCooldown { deadline: u64 },
     Dispatched,
     Held,
+}
+impl Phase {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Preparing(_) => "preparing",
+            Self::Prepared(_) => "prepared",
+            Self::Waiting(_) => "waiting",
+            Self::UnknownReread { .. } => "unknown_reread",
+            Self::Loading { .. } => "loading",
+            Self::LoadingCooldown { .. } => "loading_cooldown",
+            Self::Recovering { .. } => "recovering",
+            Self::ActionWait { .. } => "action_wait",
+            Self::ActionCooldown { .. } => "action_cooldown",
+            Self::Dispatched => "dispatched",
+            Self::Held => "held",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +198,8 @@ pub struct FlowEngine {
     recovery_jitter: f64,
     timings: AssistTimings,
     recovery_attempts: Vec<((PageKind, bool), usize)>,
+    /// Where the flow last stopped to wait for a person (a fixed code, see `hold`).
+    hold_reason: std::cell::Cell<Option<&'static str>>,
 }
 impl FlowEngine {
     pub fn new(session: SessionId, options: SearchOptions) -> Self {
@@ -200,6 +229,7 @@ impl FlowEngine {
             timings: AssistTimings::default(),
             recovery_jitter: AssistTimings::default().recovery_jitter_seconds()[0],
             recovery_attempts: vec![],
+            hold_reason: std::cell::Cell::new(None),
         }
     }
     pub fn with_timings(
@@ -342,6 +372,32 @@ impl FlowEngine {
         }
         Ok(())
     }
+    /// The cookie click was refused before anything reached the page (the page changed under it): the next
+    /// observation of the same page may try it again, twice at most. Without this the banner stays and the
+    /// flow waits for it forever. `true` when another try is allowed.
+    pub fn cookie_click_not_sent(&mut self, guard: &DocumentGuard) -> bool {
+        const RETRIES: usize = 2;
+        let key = (guard.document.clone(), ActionKind::Cookie);
+        let Some(record) = self
+            .dispatches
+            .iter_mut()
+            .find(|r| r.guard == *guard && r.action == ActionKind::Cookie && r.outcome.is_none())
+        else {
+            return false;
+        };
+        let count = self.unsent_attempts.iter().find(|(k, _)| k == &key).map_or(0, |(_, n)| *n);
+        if count >= RETRIES || guard.session != self.session || self.authority.mode() != ControlMode::Automatic {
+            return false;
+        }
+        record.outcome = Some(DispatchOutcome::NotDispatched);
+        match self.unsent_attempts.iter_mut().find(|(k, _)| k == &key) {
+            Some((_, n)) => *n += 1,
+            None => self.unsent_attempts.push((key.clone(), 1)),
+        }
+        self.attempted.retain(|k| k != &key);
+        self.dispatches.retain(|r| !(r.guard == *guard && r.action == ActionKind::Cookie));
+        true
+    }
     fn clear_certificate_wait(&mut self) {
         self.certificate_pending = None;
         self.certificate_deadline = None;
@@ -393,6 +449,7 @@ impl FlowEngine {
         }
         self.fresh_pass_document = Some(current.document.clone());
         self.round_saw_banner = false;
+        self.hold_reason.set(None);
         self.phase = Some(Phase::Dispatched);
         let guard = self.guard(&current);
         // The worker reports the navigation back like any other recovery: the command must be on record.
@@ -561,7 +618,24 @@ impl FlowEngine {
                     )
                 ))
     }
-    fn wait_action(&self, observed: &Observation, facts: &PageFacts) -> (ActionKind, FlowEffect) {
+    /// A stop that waits for a person: the effect, and the place in the flow where it happened.
+    fn hold(&self, why: &'static str) -> FlowEffect {
+        self.hold_reason.set(Some(why));
+        FlowEffect::Hold
+    }
+    /// What the flow knows about itself, as names, flags and counts only (never page content).
+    pub fn diagnostics(&self) -> FlowDiagnostics {
+        FlowDiagnostics {
+            phase: self.phase.as_ref().map_or("none", Phase::name),
+            hold_reason: self.hold_reason.get(),
+            manual: self.manual,
+            attempted_actions: self.attempted.len(),
+            unsent_retries: self.unsent_attempts.iter().map(|(_, n)| *n).sum(),
+            recovery_attempts: self.recovery_attempts.iter().map(|(_, n)| *n).sum(),
+        }
+    }
+    fn wait_action(&self, observed: &Observation, facts: &PageFacts) -> (ActionKind, FlowEffect, &'static str) {
+        // The third value names where a `Hold` stops; it is recorded only by the caller that actually returns the hold.
         let guard = self.guard(observed);
         match observed.kind {
             PageKind::ApplicantNoSlots => (
@@ -575,6 +649,7 @@ impl FlowEngine {
                 } else {
                     FlowEffect::Hold
                 },
+                "applicant_refresh_unsafe",
             ),
             PageKind::RequestNoSlotsRestart => (
                 ActionKind::NoSlotsRestart,
@@ -586,6 +661,7 @@ impl FlowEngine {
                 } else {
                     FlowEffect::Hold
                 },
+                "no_slots_restart_without_control",
             ),
             PageKind::RequestNoSlots => {
                 let safe_reload = observed.method == RequestMethod::Get
@@ -594,6 +670,7 @@ impl FlowEngine {
                         && facts.recovery.endpoint == RecoveryEndpoint::Availability
                         && facts.recovery.pending_action.or(facts.recovery.last_action)
                             == Some(ActionKind::Request));
+                let mut reason = "";
                 let effect = if self.options.no_slots_mode == NoSlotsMode::Salir {
                     if facts.recovery.own_control {
                         FlowEffect::Activate {
@@ -603,6 +680,7 @@ impl FlowEngine {
                     } else if facts.appointment_ready_at.is_some() && facts.recovery.official_site {
                         FlowEffect::Recover { guard, action: RecoveryAction::GetEntry }
                     } else {
+                        reason = "salir_without_control";
                         FlowEffect::Hold
                     }
                 } else if facts.appointment_ready_at.is_some() && facts.recovery.official_site {
@@ -610,6 +688,7 @@ impl FlowEngine {
                 } else if safe_reload {
                     FlowEffect::Reload { guard }
                 } else {
+                    reason = "no_slots_reload_unsafe";
                     FlowEffect::Hold
                 };
                 // The planning reservation must use the same key as its publication receipt.
@@ -619,9 +698,9 @@ impl FlowEngine {
                     FlowEffect::Recover { .. } => ActionKind::Recovery,
                     _ => ActionKind::RequestReload,
                 };
-                (key, effect)
+                (key, effect, reason)
             }
-            _ => (ActionKind::RequestReload, FlowEffect::Hold),
+            _ => (ActionKind::RequestReload, FlowEffect::Hold, "wait_action_unsupported_page"),
         }
     }
     pub fn observe(
@@ -717,6 +796,7 @@ impl FlowEngine {
             return Ok(vec![]);
         }
         if observed.kind == PageKind::Booking {
+            self.hold_reason.set(None);
             self.authority
                 .handoff()
                 .map_err(|_| FlowError::ControlDenied)?;
@@ -756,6 +836,10 @@ impl FlowEngine {
             );
         if !same {
             self.phase = None;
+        }
+        // A stop stays reported while it lasts; once the flow has left it, its reason is gone.
+        if !matches!(self.phase, Some(Phase::Held)) {
+            self.hold_reason.set(None);
         }
         if self.fresh_pass_document.as_ref().is_some_and(|document| document != &observed.document) {
             self.fresh_pass_document = None;
@@ -811,9 +895,14 @@ impl FlowEngine {
                 self.attempted.push(key);
                 return Ok(vec![FlowEffect::AcceptCookies { guard }]);
             }
-            return Ok(vec![FlowEffect::ReobserveAt(
-                now.checked_add(500).ok_or(FlowError::ClockOverflow)?,
-            )]);
+            // A banner that could not be clicked (every try refused before it was sent) does not hold the form:
+            // the page's own step goes on under it.
+            let unsent = self.unsent_attempts.iter().find(|(k, _)| k == &key).map_or(0, |(_, n)| *n);
+            if unsent < 2 {
+                return Ok(vec![FlowEffect::ReobserveAt(
+                    now.checked_add(500).ok_or(FlowError::ClockOverflow)?,
+                )]);
+            }
         }
         if matches!(
             observed.kind,
@@ -845,7 +934,7 @@ impl FlowEngine {
             {
                 if fresh.after != plan.after || attempt != scheduled_attempt {
                     self.phase = Some(Phase::Held);
-                    return Ok(vec![FlowEffect::Hold]);
+                    return Ok(vec![self.hold("recovery_plan_changed")]);
                 }
                 let changed = fresh.delay_seconds != plan.delay_seconds;
                 let deadline = if changed { deadline_millis(started, fresh.delay_seconds).map_err(|_|FlowError::ClockOverflow)? } else { deadline };
@@ -870,7 +959,7 @@ impl FlowEngine {
                     },
                 );
                 return Ok(if action == RecoveryAction::Hold {
-                    vec![FlowEffect::Hold]
+                    vec![self.hold("recovery_plan_is_hold")]
                 } else {
                     vec![FlowEffect::Recover { guard, action }]
                 });
@@ -954,7 +1043,7 @@ impl FlowEngine {
             return Ok(vec![if facts.office_count > 1 {
                 FlowEffect::Alert
             } else {
-                FlowEffect::Hold
+                self.hold("office_count_zero")
             }]);
         }
         if matches!(observed.kind, PageKind::Applicant | PageKind::RequestMenu)
@@ -977,7 +1066,7 @@ impl FlowEngine {
                     return Ok(vec![]);
                 }
                 self.phase = Some(Phase::Held);
-                return Ok(vec![FlowEffect::Hold]);
+                return Ok(vec![self.hold("unknown_page_persisted")]);
             }
             Some(Phase::Loading { deadline }) => {
                 if now < deadline {
@@ -1021,14 +1110,15 @@ impl FlowEngine {
                     && !self.applicant_refresh_safe(&observed, &facts)
                 {
                     self.phase = Some(Phase::Held);
-                    return Ok(vec![FlowEffect::Hold]);
+                    return Ok(vec![self.hold("applicant_refresh_unsafe")]);
                 }
                 if now < deadline {
                     return Ok(vec![]);
                 }
-                let (key, effect) = self.wait_action(&observed, &facts);
+                let (key, effect, reason) = self.wait_action(&observed, &facts);
                 self.attempted.push((observed.document.clone(), key));
                 self.phase = Some(if effect == FlowEffect::Hold {
+                    self.hold_reason.set(Some(reason));
                     Phase::Held
                 } else {
                     Phase::Dispatched
@@ -1055,7 +1145,7 @@ impl FlowEngine {
                 // Never repeat an uncertain POST. Give late navigation time, then return through a fixed GET.
                 if !facts.recovery.official_site || action == ActionKind::Contact {
                     self.phase = Some(Phase::Held);
-                    return Ok(vec![FlowEffect::Hold, FlowEffect::Alert]);
+                    return Ok(vec![self.hold("action_not_confirmed"), FlowEffect::Alert]);
                 }
                 let deadline = deadline_millis(now, self.timings.restart_seconds()).map_err(|_|FlowError::ClockOverflow)?;
                 self.phase = Some(Phase::ActionCooldown { deadline });
@@ -1068,7 +1158,7 @@ impl FlowEngine {
             }
             Some(Phase::Dispatched) => {
                 self.phase = Some(Phase::Held);
-                return Ok(vec![FlowEffect::Hold]);
+                return Ok(vec![self.hold("dispatched_page_unchanged")]);
             }
             Some(Phase::Held) => return Ok(vec![]),
             None => {}
@@ -1098,7 +1188,7 @@ impl FlowEngine {
                 .contains(&(observed.document.clone(), action))
             {
                 self.phase = Some(Phase::Held);
-                return Ok(vec![FlowEffect::Hold]);
+                return Ok(vec![self.hold("action_already_attempted")]);
             }
             self.phase = Some(Phase::Preparing(action));
             return Ok(vec![FlowEffect::Prepare { guard, action }]);
@@ -1117,7 +1207,7 @@ impl FlowEngine {
                     .contains(&(observed.document.clone(), ActionKind::Request))
                 {
                     self.phase = Some(Phase::Held);
-                    return Ok(vec![FlowEffect::Hold]);
+                    return Ok(vec![self.hold("request_already_attempted")]);
                 }
                 self.attempted
                     .push((observed.document.clone(), ActionKind::Request));
@@ -1134,12 +1224,12 @@ impl FlowEngine {
                     && !self.applicant_refresh_safe(&observed, &facts)
                 {
                     self.phase = Some(Phase::Held);
-                    return Ok(vec![FlowEffect::Hold]);
+                    return Ok(vec![self.hold("applicant_refresh_unsafe")]);
                 }
-                let (key, _) = self.wait_action(&observed, &facts);
+                let (key, _, _) = self.wait_action(&observed, &facts);
                 if self.attempted.contains(&(observed.document.clone(), key)) {
                     self.phase = Some(Phase::Held);
-                    return Ok(vec![FlowEffect::Hold]);
+                    return Ok(vec![self.hold("wait_action_already_attempted")]);
                 }
                 let delay = match observed.kind {
                     PageKind::RequestNoSlotsRestart => self.timings.no_slots_restart_seconds(),
@@ -1156,7 +1246,7 @@ impl FlowEngine {
                 let key = (observed.document.clone(), ActionKind::PostContactRestart);
                 if !facts.recovery.own_control || self.attempted.contains(&key) {
                     self.phase = Some(Phase::Held);
-                    return Ok(vec![FlowEffect::Hold]);
+                    return Ok(vec![self.hold("post_contact_without_control_or_repeated")]);
                 }
                 self.attempted.push(key);
                 self.phase = Some(Phase::Dispatched);
@@ -1190,7 +1280,7 @@ impl FlowEngine {
             )]),
             _ => {
                 self.phase = Some(Phase::Held);
-                Ok(vec![FlowEffect::Hold])
+                Ok(vec![self.hold("no_handler_for_page")])
             }
         }
     }

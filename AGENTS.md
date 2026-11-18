@@ -28,7 +28,7 @@ Read README.md, CHANGELOG.md and relevant modules before changing behavior.
 
 ## Checks and release preparation
 
-Use `rust-toolchain.toml`, Node 24, locked Cargo/npm dependencies. Run checks appropriate to the changed behavior, once per meaningful completed block:
+Use `rust-toolchain.toml`, Node 26, locked Cargo/npm dependencies. Run checks appropriate to the changed behavior, once per meaningful completed block:
 
 ```sh
 cargo test --workspace --locked

@@ -81,6 +81,7 @@ export async function legacyCandidates():Promise<string[]>{return invoke('legacy
 export async function legacyImport(name:string):Promise<{copied:number;kept:number}>{return invoke('legacy_import',{name});}
 export async function resetSession(id:string):Promise<'reset'|'restarted'>{return invoke('reset_session',{id});}
 export async function copyStartupReport(id:string):Promise<void>{return invoke('startup_report_copy',{id});}
+export async function latestStartupReport():Promise<string|null>{return invoke('startup_report_latest');}
 export async function loadBrowsers():Promise<InstalledBrowser[]>{return invoke('installed_browsers');}
 export async function loadJournalHistory(id:string):Promise<SearchRow[]>{return invoke('journal_history',{id});}
 export async function loadBudget(id:string):Promise<BudgetSummary|null>{return invoke('appointment_budget',{id});}

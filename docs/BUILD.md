@@ -4,7 +4,7 @@ Native builds use Rust, Tauri and Svelte.
 
 ## Toolchain and source checks
 
-Use the Rust version in `rust-toolchain.toml` and Node.js **24**. Cargo and npm dependencies are locked by `Cargo.lock` and `desktop-ui/package-lock.json`.
+Use the Rust version in `rust-toolchain.toml` and Node.js **26**. Cargo and npm dependencies are locked by `Cargo.lock` and `desktop-ui/package-lock.json`.
 
 ```sh
 node packaging/release.mjs metadata

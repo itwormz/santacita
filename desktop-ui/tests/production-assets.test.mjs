@@ -6,3 +6,10 @@ test('a primary button keeps an accent background and white caption on hover',as
  const css=(await readFile(new URL('../src/theme.css',import.meta.url),'utf8'));
  assert.match(css,/button\.primary:hover:not\(:disabled\)\{background:var\(--accent\);color:#FFF/);
 });
+
+test('an error box sets its own text colour for each theme, so the message stays readable in the light theme',async()=>{
+ const css=(await readFile(new URL('../src/theme.css',import.meta.url),'utf8'));
+ assert.match(css,/\.error\{background:var\(--error-bg\);color:var\(--error-text\)/);
+ assert.match(css,/\.app-shell\{[^}]*--error-bg:#3A2422;--error-text:#F2C9C5/);
+ assert.match(css,/\.app-shell\.light\{[^}]*--error-bg:#FDECEA;--error-text:#8C2A21/);
+});
