@@ -620,16 +620,22 @@ impl StartupReports {
             .map_err(|_| DiagnosticError::Unavailable)?;
         Ok(id)
     }
-    /// The id of the newest saved report (ids start with their time), if any.
+    /// The id of the report saved last. Ids carry the time to the second and a random suffix, so within one
+    /// second the order of saving (the file's modification time) decides, and the id only breaks a tie.
     pub fn latest(&self) -> Option<String> {
         fs::read_dir(&self.root)
             .ok()?
             .filter_map(|entry| {
-                let path = entry.ok()?.path();
+                let entry = entry.ok()?;
+                let path = entry.path();
                 let stem = path.file_stem()?.to_str()?.to_owned();
-                (path.extension().is_some_and(|v| v == "json") && REPORT_ID.is_match(&stem)).then_some(stem)
+                if !(path.extension().is_some_and(|v| v == "json") && REPORT_ID.is_match(&stem)) {
+                    return None;
+                }
+                Some((entry.metadata().ok()?.modified().ok()?, stem))
             })
             .max()
+            .map(|(_, id)| id)
     }
     pub fn read(&self, id: &str) -> Result<Option<Value>, DiagnosticError> {
         if !REPORT_ID.is_match(id) {

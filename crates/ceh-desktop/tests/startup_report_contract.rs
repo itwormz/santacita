@@ -80,3 +80,17 @@ fn the_newest_saved_report_can_be_found_for_the_about_window() {
     std::fs::write(root.path().join("data/startup-errors/notes.json"), "{}").unwrap();
     assert_eq!(latest_id(root.path(), "/Users/Fictional").as_deref(), Some(second.as_str()));
 }
+
+#[test]
+fn the_newest_report_is_the_last_one_saved_even_within_the_same_second() {
+    use ceh_desktop::startup_report::latest_id;
+    let root = tempfile::tempdir().unwrap();
+    let mut last = String::new();
+    // Same second, random suffixes: the order of saving decides, not the order of the suffixes.
+    for _ in 0..12 {
+        last = save_failure(root.path(), "/Users/Fictional", "browser_start_failed", true, at(3)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        assert_eq!(latest_id(root.path(), "/Users/Fictional").as_deref(), Some(last.as_str()));
+    }
+    assert_eq!(latest_id(root.path(), "/Users/Fictional").as_deref(), Some(last.as_str()));
+}
