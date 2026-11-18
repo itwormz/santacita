@@ -836,7 +836,7 @@ fn run_owned(
     let navigated = browser.connection().call("browsingContext.navigate",json!({"context":context,"url":"https://icp.administracionelectronica.gob.es/icpplus/index.html","wait":"none"}));
     if navigated.is_err() {
         let deferred = browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred;
-        return match crate::navigation_failure_settled(deferred, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)) {
+        return match crate::navigation_failure_settled(deferred, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)).filter(|_| !cancelled.load(Ordering::Acquire)) {
             // The window was closed while the page loaded: a stop, as when it closes later.
             None => stats
                 .finish(&mut db, wall()?, mono(), "stopped")
@@ -1509,6 +1509,7 @@ fn run_owned(
     // A browser error after the person closed the window is their stop: decide it before the statistics and
     // the journal record how the search ended.
     let result = crate::closed_window_stop_settled(result, SessionEnd::Finished, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled));
+    let result = crate::requested_stop_is_a_stop(result, SessionEnd::Finished, cancelled.load(Ordering::Acquire));
     let at = wall()?;
     let reason = if result.is_err() { "error" } else { "stopped" };
     stats
