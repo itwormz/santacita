@@ -9,6 +9,7 @@
 - Build the application with Node 26 and TypeScript 6. No behaviour changes are expected.
 - Fix a search that stopped on the first page and waited for a person: the site's cookie banner is now clicked where it is, without scrolling the page under it (#70).
 - Fix the first start with Firefox on Windows: the site's missing intermediate certificate was added on macOS only, so the site opened on "Warning: Security Risk"; Firefox's terms-of-use dialog no longer covers the first page.
+- Fix the first start with Firefox on Linux in the same way: the site's intermediate certificate is now added to the profile there too (Mozilla's build and distribution packages such as Debian, Kali and Arch).
 - Show the error message readably in the light theme; after an error the timeline shows the step as failed instead of stopped by the user.
 
 ## 0.4.2 — Update block and library refresh
