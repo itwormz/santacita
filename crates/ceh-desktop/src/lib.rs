@@ -266,7 +266,8 @@ pub fn closed_window_stop<T>(
 /// A window the person has just closed is still listed for a moment while the browser shuts down, so the
 /// read that failed looks like a hiccup of a window that is there. Ask again (`looks` times, `pause` between
 /// the looks) before the error stays: a window that is really open stays open, one that closes is a stop.
-/// `pause` returns `false` when the wait must end (the person pressed Stop): the error then stays as it is.
+/// `pause` returns `false` when the wait must end because the person pressed Stop: the search is then their
+/// stop, not a failure, and is recorded as such.
 pub fn closed_window_stop_settled<T>(
     result: Result<T, &'static str>,
     finished: T,
@@ -283,7 +284,7 @@ pub fn closed_window_stop_settled<T>(
             return Ok(finished);
         }
         if look + 1 < looks && !pause() {
-            break;
+            return Ok(finished);
         }
     }
     Err(code)
