@@ -18,6 +18,7 @@
     "allow-update-cancel",
     "allow-update-install",
     "allow-startup-report-copy",
+    "allow-startup-report-latest",
     "allow-reset-session",
     "allow-legacy-candidates",
     "allow-legacy-import",

@@ -20,6 +20,7 @@ fn main() {
             "search_show",
             "copy_text",
             "startup_report_copy",
+            "startup_report_latest",
             "reset_session",
             "legacy_candidates",
             "legacy_import",
