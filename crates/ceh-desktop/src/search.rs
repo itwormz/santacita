@@ -1452,6 +1452,9 @@ fn run_owned(
     diagnostics.flush_timeline(browser.connection(), &mut driver);
     diagnostics.stop_collector(browser.connection(), &mut driver);
     diagnostics.finish(&mut driver);
+    // A browser error after the person closed the window is their stop: decide it before the statistics and
+    // the journal record how the search ended.
+    let result = crate::closed_window_stop(result, SessionEnd::Finished, || browser.page_open());
     let at = wall()?;
     let reason = if result.is_err() { "error" } else { "stopped" };
     stats
@@ -1459,8 +1462,14 @@ fn run_owned(
         .map_err(|_| "statistics_unavailable")?;
     // The search goes on in a new browser session: its journal ends only with the whole search.
     if !matches!(result, Ok(SessionEnd::NewSession(_))) {
+        // An error ends the open step as failed; only a stop is the person's.
+        if result.is_err() {
+            journal
+                .event(JournalEvent::FatalError, None, None, false, at)
+                .map_err(|_| "search_unavailable")?;
+        }
         journal
-            .event(JournalEvent::Finish, None, None, true, at)
+            .event(JournalEvent::Finish, None, None, result.is_ok(), at)
             .map_err(|_| "search_unavailable")?;
     }
     if let Some(log) = log.as_mut() {

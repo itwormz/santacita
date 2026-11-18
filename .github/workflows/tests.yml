@@ -75,11 +75,38 @@ jobs:
       - name: Chrome (required)
         env:
           CEH_REQUIRE_BROWSERS: '1'
-        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored chrome_recognises_the_same_element
+        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored chrome_recognises_the_same_element chrome_does_not_scroll_the_page_under_a_pinned_banner
       - name: Firefox (run when installed, advisory)
         # Firefox on a cold hosted runner sometimes misses the 20 s start deadline; Chrome above is the required check.
         continue-on-error: true
-        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored firefox_recognises_the_same_element
+        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored firefox_recognises_the_same_element firefox_does_not_scroll_the_page_under_a_pinned_banner
+  windows:
+    name: Windows tests
+    needs: scope
+    if: needs.scope.outputs.mode != 'docs'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: |
+          toolchain=$(node -e "process.stdout.write(require('fs').readFileSync('rust-toolchain.toml','utf8').match(/^channel = \"([^\"]+)\"/m)[1])")
+          rustup toolchain install "$toolchain" --profile minimal
+      - name: Core and browser crates
+        run: cargo test -p ceh-core -p ceh-browser --features ceh-browser/bidi --locked --no-fail-fast
+      - name: Firefox and Chrome on Windows (required)
+        # A new Firefox profile on Windows must get the site's missing intermediate, and a banner pinned to the
+        # window must be clicked without scrolling the page under it (issue #70). One retry for a cold browser start.
+        env:
+          CEH_REQUIRE_BROWSERS: '1'
+        run: |
+          run() { cargo test -p ceh-browser --features bidi --locked --lib -- --ignored --test-threads 1 firefox_profile_gets_the_site_intermediate_before_the_first_page firefox_does_not_scroll_the_page_under_a_pinned_banner chrome_does_not_scroll_the_page_under_a_pinned_banner; }
+          run || run
   audit:
     name: Dependency audit
     needs: scope

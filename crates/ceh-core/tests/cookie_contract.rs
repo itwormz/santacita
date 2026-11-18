@@ -147,3 +147,33 @@ fn proven_unsent_pre_action_can_resume_but_unknown_delivery_cannot() {
         }
     }
 }
+#[test]
+fn a_cookie_click_refused_before_it_was_sent_is_tried_again_twice_at_most() {
+    // On a small window the page changed under the banner click (stale page): nothing was pressed, and the
+    // banner stayed. The flow used to re-read the page forever; now it may try the same page again twice.
+    let mut e = engine();
+    let mut now = 0;
+    for attempt in 0..3 {
+        let effects = e.observe_with_facts(page(PageKind::Province), banner(), now).unwrap();
+        let [FlowEffect::AcceptCookies { guard }] = effects.as_slice() else {
+            panic!("attempt {attempt}: the banner click is planned again, got {effects:?}")
+        };
+        let allowed = e.cookie_click_not_sent(&guard.clone());
+        assert_eq!(allowed, attempt < 2, "attempt {attempt}");
+        now += 1;
+    }
+    // After the second retry the click is not planned again: the province step goes on under the banner.
+    assert!(matches!(
+        e.observe_with_facts(page(PageKind::Province), banner(), now).unwrap().as_slice(),
+        [FlowEffect::Prepare { action: ActionKind::Province, .. }]
+    ));
+}
+#[test]
+fn a_cookie_click_that_reached_the_page_is_not_tried_again() {
+    let mut e = engine();
+    let effects = e.observe_with_facts(page(PageKind::Province), banner(), 0).unwrap();
+    let [FlowEffect::AcceptCookies { guard }] = effects.as_slice() else { panic!() };
+    let guard = guard.clone();
+    e.acknowledge_dispatch(&guard, ActionKind::Cookie, DispatchOutcome::Dispatched).unwrap();
+    assert!(!e.cookie_click_not_sent(&guard));
+}

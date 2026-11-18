@@ -12,6 +12,14 @@ fn the_remote_control_preferences_are_set_and_automation_defaults_are_not_applie
 }
 
 #[test]
+fn the_terms_of_use_dialog_of_a_new_profile_is_skipped_on_every_system() {
+    // Firefox 160 opens it over the first page of a new profile, where it takes the clicks meant for the page.
+    for os in [TargetOs::Linux, TargetOs::Windows, TargetOs::Macos] {
+        assert_eq!(startup_preferences(os)["termsofuse.bypassNotification"], true);
+    }
+}
+
+#[test]
 fn a_restart_report_gives_the_port_only_when_automation_mode_is_off() {
     assert_eq!(parse_port_report("51234 false"), Ok(51234));
     assert_eq!(parse_port_report("51234 true"), Err(Fallback::RestartFailed));
