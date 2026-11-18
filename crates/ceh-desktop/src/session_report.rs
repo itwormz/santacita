@@ -30,6 +30,41 @@ pub fn settings_summary(profile: &ProfileDraft) -> Value {
     })
 }
 
+/// Time between two tries to save a report that could not be saved.
+pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A report that is due to be saved. It stays here until a save has succeeded (the disk may be away for a while, the
+/// search may be paused meanwhile); a failed try only moves the next try by `RETRY_DELAY`.
+#[derive(Default)]
+pub struct PendingReport {
+    request: Option<(String, &'static str)>,
+    next_try: Option<std::time::Instant>,
+}
+impl PendingReport {
+    /// A stop wants a report; a newer request replaces one that is still waiting.
+    pub fn request(&mut self, reason: String, summary: &'static str) {
+        self.request = Some((reason, summary));
+    }
+    /// Try the save when one is due and its delay is over. Returns the id of the saved report; a failure keeps it pending.
+    pub fn try_save(&mut self, now: std::time::Instant, save: impl FnOnce(&str, &str) -> Option<String>) -> Option<String> {
+        let (reason, summary) = self.request.as_ref()?;
+        if self.next_try.is_some_and(|due| now < due) {
+            return None;
+        }
+        match save(reason, summary) {
+            Some(id) => {
+                self.request = None;
+                self.next_try = None;
+                Some(id)
+            }
+            None => {
+                self.next_try = Some(now + RETRY_DELAY);
+                None
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SessionRecorder {
     rows: VecDeque<Value>,
@@ -300,5 +335,44 @@ mod tests {
         let recent = report["session"]["recent"].as_array().unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0]["detail"]["facts"]["office_count"], 2);
+    }
+
+    #[test]
+    fn a_report_that_cannot_be_saved_stays_pending_and_is_retried_after_a_delay() {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        let mut pending = PendingReport::default();
+        assert!(pending.try_save(start, |_, _| panic!("nothing is pending")).is_none());
+        pending.request("no_handler_for_page".into(), "stopped");
+        let mut tries = 0;
+        // The disk is gone for a long time (many more tries than any fixed limit): the report is never dropped.
+        for second in 0..600u64 {
+            let now = start + Duration::from_secs(second);
+            assert!(pending.try_save(now, |_, _| { tries += 1; None }).is_none());
+        }
+        assert!((100..=130).contains(&tries), "a bounded delay between tries, got {tries}");
+        // The disk is back (also while the search is paused): the same report is saved once.
+        let saved = pending.try_save(start + Duration::from_secs(700), |reason, summary| {
+            assert_eq!((reason, summary), ("no_handler_for_page", "stopped"));
+            Some("20261118T100000-00000000".into())
+        });
+        assert_eq!(saved.as_deref(), Some("20261118T100000-00000000"));
+        assert!(pending.try_save(start + Duration::from_secs(800), |_, _| panic!("saved already")).is_none());
+    }
+
+    #[test]
+    fn a_failed_save_is_not_retried_before_the_delay_and_a_newer_request_replaces_the_pending_one() {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        let mut pending = PendingReport::default();
+        pending.request("first".into(), "a");
+        assert!(pending.try_save(start, |_, _| None).is_none());
+        assert!(pending.try_save(start + Duration::from_millis(500), |_, _| panic!("too early")).is_none());
+        pending.request("second".into(), "b");
+        let saved = pending.try_save(start + RETRY_DELAY, |reason, _| {
+            assert_eq!(reason, "second");
+            Some("id".into())
+        });
+        assert_eq!(saved.as_deref(), Some("id"));
     }
 }
