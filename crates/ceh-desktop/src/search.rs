@@ -431,17 +431,15 @@ fn save_stop_report(root: &Path, home: &str, reason: &str, summary: &str, now: c
     })?;
     crate::startup_report::save_session_stop(root, home, report, now)
 }
-/// Save the report a stop asked for. A failed save stays pending and is tried again on the next ticks, a few times.
-fn save_pending_report(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut Option<(String, &'static str, u8)>) {
-    let Some((reason, summary, attempts)) = pending.take() else { return };
+/// Save the report a stop asked for, when one is due. A failed save stays pending and is tried again after a delay,
+/// for as long as the search runs.
+fn save_pending_report(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut crate::session_report::PendingReport) {
     let home = std::env::var("HOME").unwrap_or_default();
-    let saved = crate::current_time().ok().and_then(|now| save_stop_report(root, &home, &reason, summary, now));
-    match saved {
-        Some(id) => {
-            let _ = update(state, |s| s.report_id = Some(id));
-        }
-        None if attempts < 5 => *pending = Some((reason, summary, attempts + 1)),
-        None => {}
+    let saved = pending.try_save(Instant::now(), |reason, summary| {
+        crate::current_time().ok().and_then(|now| save_stop_report(root, &home, reason, summary, now))
+    });
+    if let Some(id) = saved {
+        let _ = update(state, |s| s.report_id = Some(id));
     }
 }
 fn attention_state(
@@ -805,7 +803,7 @@ fn run_owned(
     }
     let result = (|| {
         let mut wait = false;
-        let mut pending_report: Option<(String, &'static str, u8)> = None;
+        let mut pending_report = crate::session_report::PendingReport::default();
         let mut manual = false;
         let mut operation = 0u64;
         let mut read_failures = 0u32;
@@ -1028,7 +1026,7 @@ fn run_owned(
                     let reason = before.report["flow"]["hold_reason"].as_str().map(str::to_owned)
                         .or_else(|| (before.report["preparation"] == "hold").then(|| "preparation_hold".to_owned()))
                         .unwrap_or_else(|| "hold".to_owned());
-                    pending_report = Some((reason, "the search stopped and waits for a person", 0));
+                    pending_report.request(reason, "the search stopped and waits for a person");
                 }
                 let now = mono();
                 if before.control.mode() == ControlMode::Manual {
@@ -1203,7 +1201,7 @@ fn run_owned(
                         let reason = row["detail"].as_str().map(str::to_owned);
                         diagnostics.step(row);
                         if crate::session_report::with(|recorder| recorder.stale(&crate::session_timeline::madrid_text(None), reason.as_deref())) {
-                            pending_report = Some(("stale_document_repeated".to_owned(), "the page kept changing under the planned action", 0));
+                            pending_report.request("stale_document_repeated".to_owned(), "the page kept changing under the planned action");
                         }
                         if entering_auth {
                             return Err("browser_auth_entry_changed");
