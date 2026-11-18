@@ -273,9 +273,10 @@ pub fn closed_window_stop_settled<T>(
     }
     Err(code)
 }
-/// How long the app waits for a window that is closing: 40 looks, 250 ms apart (about ten seconds). Firefox
-/// with the app's profile needs close to three seconds to quit after its window closed.
-pub const CLOSING_WINDOW_LOOKS: u32 = 40;
+/// How long the app waits for a window that is closing: 80 looks, 250 ms apart (about twenty seconds). Firefox
+/// takes from three to over ten seconds to quit after its window closed, and an error recorded before it
+/// is gone would stay in the journal as a failed step.
+pub const CLOSING_WINDOW_LOOKS: u32 = 80;
 pub fn closing_window_pause() {
     std::thread::sleep(std::time::Duration::from_millis(250));
 }
