@@ -111,4 +111,22 @@ mod window_closing_settles {
         assert_eq!(navigation_failure_settled(false, 80, || { looks.set(looks.get() + 1); true }, || looks.get() < 2), None);
         assert_eq!(looks.get(), 2);
     }
+    #[test]
+    fn a_stop_pressed_during_the_last_pause_is_still_a_stop() {
+        use ceh_desktop::requested_stop_is_a_stop;
+        let stop = Cell::new(false);
+        // The pause that returns `true` is the last one: Stop is pressed while it sleeps, the last look still
+        // finds the window open, and the wait ends with the browser error.
+        let looks = Cell::new(0);
+        let settled = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 3, || { looks.set(looks.get() + 1); true }, || {
+            if looks.get() == 2 { stop.set(true); }
+            true
+        });
+        assert_eq!(settled, Err("browser_observation_failed"));
+        assert_eq!(requested_stop_is_a_stop(settled, "stop", stop.get()), Ok("stop"));
+        // Without a Stop the error stays; only a browser error becomes a stop; a result that is fine stays.
+        assert_eq!(requested_stop_is_a_stop(Err("browser_observation_failed"), "stop", false), Err("browser_observation_failed"));
+        assert_eq!(requested_stop_is_a_stop(Err("statistics_unavailable"), "stop", true), Err("statistics_unavailable"));
+        assert_eq!(requested_stop_is_a_stop(Ok("done"), "stop", true), Ok("done"));
+    }
 }

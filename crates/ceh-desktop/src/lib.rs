@@ -237,6 +237,15 @@ pub fn navigation_failure(page_open: bool, certificate_cache_deferred: bool) -> 
         (true, false) => Some("browser_navigation_failed"),
     }
 }
+/// A browser error after the person pressed Stop is their stop, not a failure: the wait for a closing window
+/// can end on the last look, with a Stop pressed while it slept, so the request is read again once the wait is
+/// over, before the statistics and the journal record how the search ended.
+pub fn requested_stop_is_a_stop<T>(result: Result<T, &'static str>, finished: T, stop_requested: bool) -> Result<T, &'static str> {
+    match result {
+        Err(code) if stop_requested && code.starts_with("browser_") => Ok(finished),
+        other => other,
+    }
+}
 /// The same as [`navigation_failure`] for a window that may be closing right now: the person who closes the
 /// browser while the first page loads leaves a window that is still listed for a moment, so the window is
 /// looked at again (see [`closed_window_stop_settled`]) before the failure counts. `None` is a stop.
