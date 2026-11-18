@@ -75,7 +75,7 @@ jobs:
       - name: Chrome (required)
         env:
           CEH_REQUIRE_BROWSERS: '1'
-        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored chrome_recognises_the_same_element chrome_does_not_scroll_the_page_under_a_pinned_banner
+        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored --test-threads 1 chrome_recognises_the_same_element chrome_does_not_scroll_the_page_under_a_pinned_banner
       - name: Firefox (run when installed, advisory)
         # Firefox on a cold hosted runner sometimes misses the 20 s start deadline; Chrome above is the required check.
         continue-on-error: true
