@@ -586,6 +586,8 @@ fn clear_closed_browser(s: &mut SearchSnapshot) {
     s.attention = false;
     s.manual = false;
     s.browser_pid = None;
+    // There is no page to show for a window that is gone.
+    s.page = None;
 }
 #[allow(clippy::too_many_arguments)]
 fn run_session(
@@ -1519,9 +1521,10 @@ mod tests {
     }
     #[test]
     fn a_browser_the_person_closed_leaves_no_attention_manual_mode_or_process_behind() {
-        let mut state = SearchSnapshot { attention: true, manual: true, browser_pid: Some(4242), active: true, ..Default::default() };
+        let mut state = SearchSnapshot { attention: true, manual: true, browser_pid: Some(4242), active: true, page: Some(PageKind::Auth), ..Default::default() };
         clear_closed_browser(&mut state);
         assert!(!state.attention && !state.manual && state.browser_pid.is_none());
+        assert!(state.page.is_none(), "the page of a window that is gone is not shown any more");
         assert!(state.active, "ending the search itself is another step");
     }
     #[test]
