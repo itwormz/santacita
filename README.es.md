@@ -23,7 +23,7 @@
 
 Nueva aplicación en Rust, Tauri y Svelte.
 
-SantaCita 0.4 y posteriores es una aplicación ligera y rápida que funciona con el navegador que ya tiene instalado. Como no incluye ninguno, con algunas configuraciones pueden surgir problemas. En ese caso, pruebe la versión anterior, la [0.3.8](https://github.com/itwormz/santacita/releases/tag/v0.3.8), que incluye su propio navegador Camoufox.
+SantaCita 0.4 y posteriores es una aplicación ligera y rápida escrita en Rust que funciona con el navegador que ya tiene instalado. Como no incluye ninguno, con algunas configuraciones pueden surgir problemas. En ese caso, pruebe la versión anterior, la [0.3.8](https://github.com/itwormz/santacita/releases/tag/v0.3.8), que incluye su propio navegador Camoufox.
 
 Las versiones anteriores a la 0.4.0 son una aplicación en Python; su código permanece en la rama [`ceh-python`](https://github.com/itwormz/santacita/tree/ceh-python).
 
