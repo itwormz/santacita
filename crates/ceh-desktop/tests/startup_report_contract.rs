@@ -153,3 +153,16 @@ fn a_newer_file_that_copy_cannot_read_does_not_hide_the_last_good_report() {
     std::fs::write(dir.join("20991231T235958-00000000.json"), vec![b' '; 200 * 1024]).unwrap();
     assert_eq!(latest_id(root.path(), "/Users/Fictional").as_deref(), Some(good.as_str()));
 }
+
+#[test]
+fn the_saving_order_survives_a_clock_that_goes_backwards() {
+    use ceh_desktop::startup_report::latest_id;
+    let root = tempfile::tempdir().unwrap();
+    let mut last = String::new();
+    // Twelve reports whose timestamps decrease: the last one saved is still the newest and none of the new ones is pruned.
+    for minute in (10..22).rev() {
+        last = save_failure(root.path(), "/Users/Fictional", "browser_start_failed", true, at(minute)).unwrap();
+        assert_eq!(latest_id(root.path(), "/Users/Fictional").as_deref(), Some(last.as_str()), "minute {minute}");
+    }
+    assert!(clipboard_text(root.path(), "/Users/Fictional", &last).is_ok());
+}

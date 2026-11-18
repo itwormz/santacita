@@ -666,7 +666,7 @@ impl StartupReports {
         directory(&self.root)?;
         // Ids sort in saving order: the time to the second, then a counter that grows within the second, then a few
         // random characters. Retention and "newest" both follow that order, never the file system clock.
-        let stamp = when.format("%Y%m%dT%H%M%S").to_string();
+        let mut stamp = when.format("%Y%m%dT%H%M%S").to_string();
         let mut ids = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let entry = entry?;
@@ -680,6 +680,12 @@ impl StartupReports {
             }
         }
         ids.sort_by(|a, b| b.0.cmp(&a.0));
+        // A clock that went backwards must not reorder the reports: the new one never gets an older stamp than the newest.
+        if let Some(newest) = ids.first().map(|(stem, _)| stem[..15].to_owned())
+            && newest > stamp
+        {
+            stamp = newest;
+        }
         let counter = ids
             .iter()
             .filter(|(stem, _)| stem.starts_with(&stamp))
