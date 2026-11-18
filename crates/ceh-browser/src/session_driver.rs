@@ -30,6 +30,8 @@ pub struct DriverUpdate {
     pub details: PublicBookingDetails,
     pub receipts: Vec<ActionReceipt>,
     pub applicant_prepared: bool,
+    /// Where the flow is and what the page looked like, as names, flags and counts (`report_state`).
+    pub report: serde_json::Value,
 }
 /// Linear native plan: only the driver can create it, and it is consumed once.
 /// Public metadata may be published before any action or bounded enrichment.
@@ -364,7 +366,8 @@ impl SessionDriver {
         if preparation!=PreparationDecision::Continue{
             let reload=preparation==PreparationDecision::ReloadGet;
             let effects=match preparation{PreparationDecision::WaitUntil(deadline)=>vec![FlowEffect::WaitUntil(deadline)],PreparationDecision::Hold=>vec![FlowEffect::Hold],_=>vec![FlowEffect::ReobserveAt(now)]};
-            let update=DriverUpdate{preparing:true,observation:page.observation.clone(),effects,control:self.flow.control(),offices:vec![],details:Default::default(),receipts:vec![],applicant_prepared:false};
+            let report=serde_json::json!({"flow":self.flow.diagnostics(),"preparation":match preparation{PreparationDecision::WaitUntil(_)=>"wait",PreparationDecision::ReloadGet=>"reload_get",PreparationDecision::Hold=>"hold",PreparationDecision::Continue=>"continue"},"page":crate::report_state::page_state(&page.page.snapshot)});
+            let update=DriverUpdate{preparing:true,observation:page.observation.clone(),effects,control:self.flow.control(),offices:vec![],details:Default::default(),receipts:vec![],applicant_prepared:false,report};
             return Ok(NativeStep{page,recovery:None,update,now,preparation_reload:reload,planned_at});
         }
         let mut facts = PageFacts {
@@ -447,6 +450,7 @@ impl SessionDriver {
             )?;
         }
         let mut effects = self.accept_observation(page.observation.clone(), facts, now)?;
+        let report = crate::report_state::driver_state(self.flow.diagnostics(), &facts, &page.page.snapshot);
         if self.fresh_pass_requested {
             self.fresh_pass_requested = false;
             if self.flow.control().mode() == ControlMode::Automatic
@@ -464,6 +468,7 @@ impl SessionDriver {
             details: Default::default(),
             receipts: Vec::new(),
             applicant_prepared: false,
+            report,
         };
         Ok(NativeStep {
             page,

@@ -716,6 +716,26 @@ async fn legacy_import(
     .await
     .map_err(|_| "legacy_import_failed")?
 }
+/// The newest saved report, if there is one (the About window offers to copy it).
+#[tauri::command]
+fn startup_report_latest(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) -> Result<Option<String>, &'static str> {
+    authorize(&window)?;
+    let home = std::env::var("HOME").unwrap_or_default();
+    // Development preview (`CEH_PREVIEW_REPORT=1`, debug builds only): a sample report so the button can be looked at.
+    if cfg!(debug_assertions) && std::env::var_os("CEH_PREVIEW_REPORT").is_some() {
+        let report = serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"), "system": std::env::consts::OS, "phase": "session_stop",
+            "error_type": "dispatched_page_unchanged", "message": "preview report (not from a real search)",
+            "session": {"stop": {"reason": "dispatched_page_unchanged"}, "settings": {"province": "Valencia"}},
+        });
+        if ceh_desktop::startup_report::latest_id(&runtime.root, &home).is_none()
+            && let Ok(now) = ceh_desktop::current_time()
+        {
+            let _ = ceh_desktop::startup_report::save_session_stop(&runtime.root, &home, report, now);
+        }
+    }
+    Ok(ceh_desktop::startup_report::latest_id(&runtime.root, &home))
+}
 /// Copy the sanitized startup report with `id` (the id comes from the search snapshot).
 #[tauri::command]
 async fn startup_report_copy(
@@ -919,6 +939,7 @@ fn main() {
             search_show,
             copy_text,
             startup_report_copy,
+            startup_report_latest,
             reset_session,
             legacy_candidates,
             legacy_import,

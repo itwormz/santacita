@@ -567,6 +567,7 @@ impl StartupReports {
             "error_type",
             "message",
             "traceback",
+            "session",
         ];
         report
             .as_object_mut()
@@ -618,6 +619,17 @@ impl StartupReports {
         file.persist_noclobber(self.root.join(format!("{id}.json")))
             .map_err(|_| DiagnosticError::Unavailable)?;
         Ok(id)
+    }
+    /// The id of the newest saved report (ids start with their time), if any.
+    pub fn latest(&self) -> Option<String> {
+        fs::read_dir(&self.root)
+            .ok()?
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let stem = path.file_stem()?.to_str()?.to_owned();
+                (path.extension().is_some_and(|v| v == "json") && REPORT_ID.is_match(&stem)).then_some(stem)
+            })
+            .max()
     }
     pub fn read(&self, id: &str) -> Result<Option<Value>, DiagnosticError> {
         if !REPORT_ID.is_match(id) {

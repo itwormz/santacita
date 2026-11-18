@@ -205,6 +205,7 @@ mod cdp;
 
 #[cfg(feature = "bidi")]
 pub mod session_driver;
+pub mod report_state;
 
 #[cfg(feature = "bidi")]
 mod firefox_certificates;

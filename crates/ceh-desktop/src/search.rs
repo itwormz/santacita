@@ -272,6 +272,7 @@ impl SearchController {
         std::thread::Builder::new()
             .name("ceh-firefox".into())
             .spawn(move || {
+                crate::session_report::begin();
                 let result = run(
                     &root,
                     profile,
@@ -295,9 +296,11 @@ impl SearchController {
                 {
                     let home = std::env::var("HOME").unwrap_or_default();
                     let found = FirefoxInstallation::discover().is_ok();
-                    let id = crate::current_time()
-                        .ok()
-                        .and_then(|now| crate::startup_report::save_failure(&root, &home, code, found, now));
+                    let id = crate::current_time().ok().and_then(|now| {
+                        // A search that got as far as a page leaves what it saw; one that never started leaves the start report.
+                        save_stop_report(&root, &home, code, "the search stopped with an error", now)
+                            .or_else(|| crate::startup_report::save_failure(&root, &home, code, found, now))
+                    });
                     let _ = update(&state, |s| s.report_id = id);
                 }
                 if result.is_err() && !requested_stop && !busy {
@@ -419,6 +422,15 @@ fn apply_worker_control(
         Control::Stop => {}
     }
     Ok(())
+}
+/// Save the report of a stop from what the search remembers; `None` when it never got as far as a page.
+fn save_stop_report(root: &Path, home: &str, reason: &str, summary: &str, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
+    let report = crate::session_report::with(|recorder| {
+        (!recorder.is_empty()).then(|| {
+            recorder.report(env!("CARGO_PKG_VERSION"), &now.to_rfc3339(), serde_json::json!({"reason": reason, "summary": summary}))
+        })
+    })?;
+    crate::startup_report::save_session_stop(root, home, report, now)
 }
 fn attention_state(
     previous: bool,
@@ -736,7 +748,7 @@ fn run_owned(
         use ceh_core::timings::TimingKind;
         let ms = |kind, unit: f64| timings.sample(kind, unit).map(|s| (s * 1000.0).round() as u64).unwrap_or(0);
         let range = timings.action_delay_seconds();
-        diagnostics.set_header(
+        let header =
             crate::session_timeline::SessionHeader {
                 app_version: env!("CARGO_PKG_VERSION").to_owned(),
                 firefox_version: match Engine::of(&profile.browser).unwrap_or(Engine::Firefox) {
@@ -754,8 +766,11 @@ fn run_owned(
                 contact_typing_ms: timings.sample(TimingKind::ContactTyping, samples.contact_typing).map(|v| v.round() as u64).unwrap_or(0),
                 webdriver_mode: browser.webdriver_mode().name().to_owned(),
                 webdriver_fallback: browser.webdriver_fallback().map(|f| f.name().to_owned()),
-            },
-        );
+            };
+        crate::session_report::with(|recorder| {
+            recorder.set_context(crate::session_timeline::header_row(&header), crate::session_report::settings_summary(profile));
+        });
+        diagnostics.set_header(header);
     }
     let initial_preferences = ceh_store::profiles::read_profiles(&root.join("tasks.yml"), crate::catalog(), "ru").ok();
     diagnostics.set_enabled(initial_preferences.as_ref().is_some_and(|bundle| bundle.preferences.diagnostics),
@@ -1030,6 +1045,17 @@ fn run_owned(
                 }
                 effects = before.effects.clone();
                 let observed_kind = before.observation.kind;
+                if crate::session_report::with(|recorder| {
+                    recorder.page(&crate::session_timeline::madrid_text(Some(at)), &before.observation, &effects, &before.report)
+                }) && let Ok(now) = crate::current_time()
+                {
+                    let reason = before.report["flow"]["hold_reason"].as_str().map(str::to_owned)
+                        .or_else(|| (before.report["preparation"] == "hold").then(|| "preparation_hold".to_owned()))
+                        .unwrap_or_else(|| "hold".to_owned());
+                    let home = std::env::var("HOME").unwrap_or_default();
+                    let id = save_stop_report(root, &home, &reason, "the search stopped and waits for a person", now);
+                    let _ = update(state, |s| s.report_id = id);
+                }
                 let deadline = effects
                     .iter()
                     .filter_map(|e| match e {
@@ -1158,7 +1184,15 @@ fn run_owned(
                         if let Some(reason) = ceh_browser::take_stale_reason() {
                             row["detail"] = serde_json::json!(reason);
                         }
+                        let reason = row["detail"].as_str().map(str::to_owned);
                         diagnostics.step(row);
+                        if crate::session_report::with(|recorder| recorder.stale(&crate::session_timeline::madrid_text(None), reason.as_deref()))
+                            && let Ok(now) = crate::current_time()
+                        {
+                            let home = std::env::var("HOME").unwrap_or_default();
+                            let id = save_stop_report(root, &home, "stale_document_repeated", "the page kept changing under the planned action", now);
+                            let _ = update(state, |s| s.report_id = id);
+                        }
                         if entering_auth {
                             return Err("browser_auth_entry_changed");
                         }
@@ -1191,6 +1225,7 @@ fn run_owned(
                     row["scroll_fallback"] = serde_json::json!(true);
                 }
                 diagnostics.step(row);
+                crate::session_report::with(|recorder| recorder.progressed());
                 if profile.fill_mode == "copy" && after.applicant_prepared {
                     let identity = driver.copied_budget_identity(browser.connection(), &after.observation)
                         .map_err(|_| "appointment_budget_unavailable")?;
