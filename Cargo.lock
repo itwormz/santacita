@@ -557,7 +557,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-browser"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "base64 0.22.1",
  "ceh-core",
@@ -572,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-cli"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "ceh-browser",
  "ceh-core",
@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-core"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-desktop"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "arboard",
  "ceh-browser",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-services"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",
@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "ceh-store"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "ceh-core",
  "chrono",

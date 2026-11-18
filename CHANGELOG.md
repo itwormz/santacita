@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.3
+
+- Add a stop report. When a search stops to wait for you, or fails after a page has opened, SantaCita saves a short report. Open About and press Copy on the "Search stop report" card to copy it for a bug report. It holds the app and browser versions, the province and service of the profile, the sign-in and no-slots settings, the place where the search stopped and the latest steps; it never holds the document number, name, phone, e-mail, office, cookies or page text.
+- Correct the hint in Settings: the timeline file is written only while "Diagnostics recording" is on; the report you can copy is always collected.
+- Build the application with Node 26 and TypeScript 6. No behaviour changes are expected.
+
 ## 0.4.2 — Update block and library refresh
 
 - Show the update buttons in About in one row of equal-width buttons under the text; the download button is now labelled "Download".
