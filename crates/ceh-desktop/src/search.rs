@@ -422,14 +422,17 @@ fn apply_worker_control(
     }
     Ok(())
 }
-/// Save the report of a stop from what the search remembers; `None` when it never got as far as a page.
-fn save_stop_report(root: &Path, home: &str, reason: &str, summary: &str, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
-    let report = crate::session_report::with(|recorder| {
+/// The report of a stop, built from what the search remembers right now; `None` when it never got as far as a page.
+fn build_stop_report(reason: &str, summary: &str, now: chrono::DateTime<chrono::Utc>) -> Option<serde_json::Value> {
+    crate::session_report::with(|recorder| {
         (!recorder.is_empty()).then(|| {
             recorder.report(env!("CARGO_PKG_VERSION"), &now.to_rfc3339(), serde_json::json!({"reason": reason, "summary": summary}))
         })
-    })?;
-    crate::startup_report::save_session_stop(root, home, report, now)
+    })
+}
+/// Save the report of a stop from what the search remembers; `None` when it never got as far as a page.
+fn save_stop_report(root: &Path, home: &str, reason: &str, summary: &str, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
+    crate::startup_report::save_session_stop(root, home, build_stop_report(reason, summary, now)?, now)
 }
 /// Save the report a stop asked for, when one is due. A failed save stays pending and is tried again after a delay,
 /// for as long as the search runs.
@@ -438,11 +441,19 @@ fn save_pending_report(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut
 }
 fn save_pending_report_at(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut crate::session_report::PendingReport, now: Instant) {
     let home = std::env::var("HOME").unwrap_or_default();
-    let saved = pending.try_save(now, |reason, summary| {
-        crate::current_time().ok().and_then(|at| save_stop_report(root, &home, reason, summary, at))
+    let saved = pending.try_save(now, |report| {
+        crate::current_time().ok().and_then(|at| crate::startup_report::save_session_stop(root, &home, report.clone(), at))
     });
     if let Some(id) = saved {
         let _ = update(state, |s| s.report_id = Some(id));
+    }
+}
+/// A stop asks for its report: it is built now, while the memory still has the stop, and saved when due.
+fn request_stop_report(pending: &mut crate::session_report::PendingReport, reason: &str, summary: &str) {
+    if let Ok(now) = crate::current_time()
+        && let Some(report) = build_stop_report(reason, summary, now)
+    {
+        pending.request(report);
     }
 }
 fn attention_state(
@@ -1029,7 +1040,7 @@ fn run_owned(
                     let reason = before.report["flow"]["hold_reason"].as_str().map(str::to_owned)
                         .or_else(|| (before.report["preparation"] == "hold").then(|| "preparation_hold".to_owned()))
                         .unwrap_or_else(|| "hold".to_owned());
-                    pending_report.request(reason, "the search stopped and waits for a person");
+                    request_stop_report(&mut pending_report, &reason, "the search stopped and waits for a person");
                 }
                 let now = mono();
                 if before.control.mode() == ControlMode::Manual {
@@ -1204,7 +1215,7 @@ fn run_owned(
                         let reason = row["detail"].as_str().map(str::to_owned);
                         diagnostics.step(row);
                         if crate::session_report::with(|recorder| recorder.stale(&crate::session_timeline::madrid_text(None), reason.as_deref())) {
-                            pending_report.request("stale_document_repeated".to_owned(), "the page kept changing under the planned action");
+                            request_stop_report(&mut pending_report, "stale_document_repeated", "the page kept changing under the planned action");
                         }
                         if entering_auth {
                             return Err("browser_auth_entry_changed");
@@ -1755,7 +1766,7 @@ mod report_saving_tests {
         let root = folder.path().join("data-root");
         std::fs::write(&root, "not a folder").unwrap();
         let mut pending = PendingReport::default();
-        pending.request("no_handler_for_page".into(), "the search stopped");
+        request_stop_report(&mut pending, "no_handler_for_page", "the search stopped");
         let start = Instant::now();
 
         save_pending_report_at(&root, &state, &mut pending, start);
