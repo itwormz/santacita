@@ -836,7 +836,7 @@ fn run_owned(
     let navigated = browser.connection().call("browsingContext.navigate",json!({"context":context,"url":"https://icp.administracionelectronica.gob.es/icpplus/index.html","wait":"none"}));
     if navigated.is_err() {
         let deferred = browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred;
-        return match crate::navigation_failure(browser.page_open(), deferred) {
+        return match crate::navigation_failure_settled(deferred, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)) {
             // The window was closed while the page loaded: a stop, as when it closes later.
             None => stats
                 .finish(&mut db, wall()?, mono(), "stopped")

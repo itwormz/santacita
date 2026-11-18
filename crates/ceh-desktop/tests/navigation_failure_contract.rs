@@ -88,13 +88,27 @@ mod window_closing_settles {
         assert_eq!(closed_window_stop_settled(Ok("done"), "stop", 12, || panic!("must not probe"), || true), Ok("done"));
     }
     #[test]
-    fn pressing_stop_ends_the_wait_and_keeps_the_error() {
+    fn pressing_stop_ends_the_wait_and_is_a_stop_not_an_error() {
         let probes = Cell::new(0);
         let result = closed_window_stop_settled(Err("browser_observation_failed"), "stop", 80, || {
             probes.set(probes.get() + 1);
             true
         }, || probes.get() < 3);
-        assert_eq!(result, Err("browser_observation_failed"));
+        assert_eq!(result, Ok("stop"), "the person ended the search: it is theirs, not a failure");
         assert_eq!(probes.get(), 3, "the third pause was refused: no more looks");
+    }
+    #[test]
+    fn a_first_navigation_that_fails_while_the_window_closes_is_a_stop() {
+        use ceh_desktop::navigation_failure_settled;
+        let probes = Cell::new(0);
+        assert_eq!(navigation_failure_settled(false, 12, || { probes.set(probes.get() + 1); probes.get() < 4 }, || true), None);
+        assert_eq!(probes.get(), 4);
+        // The window stays: the error keeps its kind, told apart by the certificate cache as before.
+        assert_eq!(navigation_failure_settled(false, 3, || true, || true), Some("browser_navigation_failed"));
+        assert_eq!(navigation_failure_settled(true, 3, || true, || true), Some("browser_certificate_cache_failed"));
+        // Stop ends the wait, and the search with it.
+        let looks = Cell::new(0);
+        assert_eq!(navigation_failure_settled(false, 80, || { looks.set(looks.get() + 1); true }, || looks.get() < 2), None);
+        assert_eq!(looks.get(), 2);
     }
 }

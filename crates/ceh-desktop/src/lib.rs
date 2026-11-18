@@ -237,6 +237,20 @@ pub fn navigation_failure(page_open: bool, certificate_cache_deferred: bool) -> 
         (true, false) => Some("browser_navigation_failed"),
     }
 }
+/// The same as [`navigation_failure`] for a window that may be closing right now: the person who closes the
+/// browser while the first page loads leaves a window that is still listed for a moment, so the window is
+/// looked at again (see [`closed_window_stop_settled`]) before the failure counts. `None` is a stop.
+pub fn navigation_failure_settled(
+    certificate_cache_deferred: bool,
+    looks: u32,
+    page_open: impl FnMut() -> bool,
+    pause: impl FnMut() -> bool,
+) -> Option<&'static str> {
+    match closed_window_stop_settled(Err("browser_navigation_failed"), (), looks, page_open, pause) {
+        Ok(()) => None,
+        Err(_) => navigation_failure(true, certificate_cache_deferred),
+    }
+}
 /// A browser error after the person closed the window is a stop (`finished`), not an error: nothing to report,
 /// Start returns. `page_open` is asked only for browser errors.
 pub fn closed_window_stop<T>(
@@ -252,7 +266,8 @@ pub fn closed_window_stop<T>(
 /// A window the person has just closed is still listed for a moment while the browser shuts down, so the
 /// read that failed looks like a hiccup of a window that is there. Ask again (`looks` times, `pause` between
 /// the looks) before the error stays: a window that is really open stays open, one that closes is a stop.
-/// `pause` returns `false` when the wait must end (the person pressed Stop): the error then stays as it is.
+/// `pause` returns `false` when the wait must end because the person pressed Stop: the search is then their
+/// stop, not a failure, and is recorded as such.
 pub fn closed_window_stop_settled<T>(
     result: Result<T, &'static str>,
     finished: T,
@@ -269,7 +284,7 @@ pub fn closed_window_stop_settled<T>(
             return Ok(finished);
         }
         if look + 1 < looks && !pause() {
-            break;
+            return Ok(finished);
         }
     }
     Err(code)
