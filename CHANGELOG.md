@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.4
+
+- Fix the search after you close the browser: closing the window, even on the first page, now ends the search as a stop, without the "search stopped with an error" message and an error report, and the window no longer keeps showing the page that was closed. Firefox on Windows needs a few seconds to quit, so the stop can take up to about 20 seconds.
+- Name the browser and the reason in the report of a browser that did not start: the *Diagnostic report* now says which browser (Firefox, Chrome, Brave, Chromium or Edge) failed and why, for example a start timeout, instead of always naming Firefox.
+- Update the bundled libraries (rusqlite 0.43, base64 0.23, libloading 0.9, x11rb 0.14, uuid 1.29.2) and the CI actions. No behaviour changes are expected.
+
 ## 0.4.3
 
 - Add a stop report. When a search stops because it cannot continue on its own, or fails after a page has opened, SantaCita saves a short report. Open About and press Copy on the "Diagnostic report" card to copy it for a bug report. It holds the app and browser versions, the province and service of the profile, the sign-in and no-slots settings, the place where the search stopped and the latest steps; it never holds the document number, name, phone, e-mail, office, cookies or page text.
