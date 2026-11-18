@@ -142,3 +142,11 @@ test('headings inside fenced code blocks are not release headings',async t=>{
  assert.deepEqual(await releaseNotes(root,'0.4.3'),{title:'',body:'- Real note.\n\n```md\n## 0.4.4 — Example\n\n- Not a release.\n```\n\n~~~\n## 0.4.3 — Fake\n~~~'});
  await assert.rejects(releaseNotes(root,'0.4.4'),/Missing/);
 });
+test('a fence closes only with a fence of the same kind that is at least as long',async t=>{
+ const root=await fixture(t);
+ await writeFile(join(root,'CHANGELOG.md'),'# Changelog\n\n## 0.4.3\n\n- Real note.\n\n````md\n```\n## 0.4.4 — Inside the long fence\n```\n## 0.4.5 — Still inside\n````\n\n## 0.4.2 — Old\n\n- Older.\n');
+ await assert.rejects(releaseNotes(root,'0.4.4'),/Missing/);
+ await assert.rejects(releaseNotes(root,'0.4.5'),/Missing/);
+ assert.equal((await releaseNotes(root,'0.4.2')).title,'Old');
+ assert.match((await releaseNotes(root,'0.4.3')).body,/Real note/);
+});

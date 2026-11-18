@@ -818,6 +818,8 @@ fn run_owned(
         // When the cursor next stirs while the page is only waited on.
         let mut idle_at = Instant::now() + Duration::from_secs(3);
         loop {
+            // At the top of every pass, so a pending report is retried while paused or while nothing can be observed too.
+            save_pending_report(root, state, &mut pending_report);
             while let Ok(message) = receiver.try_recv() {
                 match message.command {
                     Control::Stop => return Ok(SessionEnd::Finished),
@@ -1028,7 +1030,6 @@ fn run_owned(
                         .unwrap_or_else(|| "hold".to_owned());
                     pending_report = Some((reason, "the search stopped and waits for a person", 0));
                 }
-                save_pending_report(root, state, &mut pending_report);
                 let now = mono();
                 if before.control.mode() == ControlMode::Manual {
                     browser.handoff();

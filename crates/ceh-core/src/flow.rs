@@ -449,6 +449,7 @@ impl FlowEngine {
         }
         self.fresh_pass_document = Some(current.document.clone());
         self.round_saw_banner = false;
+        self.hold_reason.set(None);
         self.phase = Some(Phase::Dispatched);
         let guard = self.guard(&current);
         // The worker reports the navigation back like any other recovery: the command must be on record.
@@ -795,6 +796,7 @@ impl FlowEngine {
             return Ok(vec![]);
         }
         if observed.kind == PageKind::Booking {
+            self.hold_reason.set(None);
             self.authority
                 .handoff()
                 .map_err(|_| FlowError::ControlDenied)?;

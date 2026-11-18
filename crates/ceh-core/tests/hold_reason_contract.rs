@@ -65,6 +65,27 @@ fn leaving_a_stop_clears_its_reason() {
 }
 
 #[test]
+fn a_booking_handoff_and_a_fresh_pass_leave_no_stale_reason() {
+    let held = |e: &mut FlowEngine| {
+        let effects = e
+            .observe_with_facts(observation(PageKind::Office), PageFacts { office_count: 0, ..Default::default() }, 0)
+            .unwrap();
+        assert_eq!(effects, vec![FlowEffect::Hold]);
+        assert_eq!(e.diagnostics().hold_reason, Some("office_count_zero"));
+    };
+    let mut handoff = engine();
+    held(&mut handoff);
+    let booking = Observation { document: DocumentId::new("doc-2").unwrap(), ..observation(PageKind::Booking) };
+    assert_eq!(handoff.observe(booking, 1).unwrap(), vec![FlowEffect::Handoff, FlowEffect::Alert]);
+    assert_eq!(handoff.diagnostics().hold_reason, None, "a free date is not the old stop");
+
+    let mut fresh = engine();
+    held(&mut fresh);
+    assert!(matches!(fresh.fresh_pass(2).unwrap()[0], FlowEffect::Recover { .. }));
+    assert_eq!(fresh.diagnostics().hold_reason, None, "a new pass starts without the old stop");
+}
+
+#[test]
 fn a_planned_wait_does_not_record_the_hold_it_may_end_in() {
     let mut e = engine();
     let o = observation(PageKind::RequestNoSlotsRestart);
