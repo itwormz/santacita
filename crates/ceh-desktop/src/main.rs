@@ -932,6 +932,9 @@ fn main() {
                         if compact { 620.0 } else { 850.0 },
                     )
                     .min_inner_size(640.0, 620.0)
+                    // While a browser starts it takes the focus (and again at every step); a click on this window then
+                    // reaches the page at once instead of only bringing the window forward.
+                    .accept_first_mouse(true)
                     .on_navigation(|url| trusted_origin("main", url.as_str()))
                     .build()?;
             let _ = ceh_desktop::window_theme::apply(&window, dark);
