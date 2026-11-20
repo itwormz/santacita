@@ -30,3 +30,17 @@ test('a pause right after the start is a second click on the same button, not a 
  assert.equal(pauseTooSoon(1000,1000+PAUSE_GRACE_MS),false,'a pause after the grace time is meant');
  assert.equal(pauseTooSoon(2000,1000),false,'a clock that went back never blocks');
 });
+
+test('after a click on pause or resume the window shows it as taken until the worker has applied it',async()=>{
+ const {pendingControl,PENDING_CONTROL_MS}=await import('../src/work-state.ts');
+ const running={active:true,paused:false,manual:false},paused={active:true,paused:true,manual:false};
+ assert.equal(pendingControl(null,running,5000),null);
+ assert.equal(pendingControl({command:'pause',since:1000},running,1500),'pause','not paused yet: the click is still being carried out');
+ assert.equal(pendingControl({command:'pause',since:1000},paused,1500),null,'paused: the real state shows');
+ assert.equal(pendingControl({command:'resume',since:1000},paused,1500),'resume');
+ assert.equal(pendingControl({command:'resume',since:1000},running,1500),null);
+ assert.equal(pendingControl({command:'pause',since:1000},{active:false,paused:false,manual:false},1500),null,'the search ended');
+ assert.equal(pendingControl({command:'pause',since:1000},{active:true,paused:false,manual:true},1500),null,'the person took the browser');
+ assert.equal(pendingControl({command:'pause',since:1000},running,1000+PENDING_CONTROL_MS),null,'never stuck: the real state shows after a while');
+ assert.equal(pendingControl({command:'pause',since:1000},null,1500),null);
+});

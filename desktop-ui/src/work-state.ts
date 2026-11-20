@@ -19,3 +19,13 @@ export function promotedControl(search:{active:boolean;manual:boolean;attention:
 /** The start button turns into the pause button in the same place: a second click of a double click lands on it. */
 export const PAUSE_GRACE_MS=1200;
 export function pauseTooSoon(startedAt:number|null,now:number):boolean{return startedAt!==null&&now>=startedAt&&now-startedAt<PAUSE_GRACE_MS;}
+
+/** A pause or resume is carried out at the worker's next step, which can take seconds; the window shows the click as taken. */
+export const PENDING_CONTROL_MS=20000;
+export type PendingControl={command:'pause'|'resume';since:number};
+export function pendingControl(pending:PendingControl|null,search:{active:boolean;paused:boolean;manual:boolean}|null,now:number):'pause'|'resume'|null{
+ if(!pending||!search||!search.active||search.manual||now-pending.since>=PENDING_CONTROL_MS)return null;
+ if(pending.command==='pause'&&search.paused)return null;
+ if(pending.command==='resume'&&!search.paused)return null;
+ return pending.command;
+}
