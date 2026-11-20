@@ -25,8 +25,8 @@ fn a_panic_leaves_its_place_for_the_next_start_and_nothing_else() {
     assert_eq!(report_previous(root.path(), "/Users/Fictional", at()), None);
     install(root.path());
     let panicked = std::thread::Builder::new().name("ceh-test-worker".into()).spawn(|| {
-        let secret = "SYNTHETIC-NIE-Y1234567X";
-        let _ = std::panic::catch_unwind(|| panic!("the profile {secret} could not be read"));
+        let planted = "SYNTHETIC-NIE-Y1234567X";
+        let _ = std::panic::catch_unwind(|| panic!("the profile {planted} could not be read"));
     });
     panicked.unwrap().join().unwrap();
 
