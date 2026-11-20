@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,readFile,mkdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
-import {packageNames,versionKey,readMetadata,writeChecksums,validatePackages,prepareVersion,releaseNotes,releaseTitle,assertNativeTarget,verifyPublishedRelease} from '../release.mjs';
+import {packageNames,versionKey,readMetadata,bumpDevVersion,writeChecksums,validatePackages,prepareVersion,releaseNotes,releaseTitle,assertNativeTarget,verifyPublishedRelease} from '../release.mjs';
 
 async function fixture(t){const dir=await mkdtemp(join(tmpdir(),'santacita-release-'));t.after(()=>rm(dir,{recursive:true,force:true}));return dir;}
 test('package matrix has five exact public names including portable',()=>{
@@ -156,4 +156,44 @@ test('a marker indented by four spaces is not a fence, one indented by up to thr
  assert.equal((await releaseNotes(root,'0.4.2')).title,'Old');
  await assert.rejects(releaseNotes(root,'0.4.1'),/Missing/);
  assert.match((await releaseNotes(root,'0.4.3')).body,/literal text/);
+});
+
+async function sourceTree(t,version){
+ const root=await fixture(t);await mkdir(join(root,'desktop-ui'));await mkdir(join(root,'.github'));
+ await writeFile(join(root,'.github/release-version'),'0.4.4\n');
+ await writeFile(join(root,'Cargo.toml'),`[workspace.package]\nversion = "${version}"\n`);
+ await writeFile(join(root,'Cargo.lock'),`[[package]]\nname = "ceh-core"\nversion = "${version}"\n\n[[package]]\nname = "serde"\nversion = "1.0.0"\n`);
+ await writeFile(join(root,'desktop-ui/package.json'),JSON.stringify({version}));
+ await writeFile(join(root,'desktop-ui/package-lock.json'),JSON.stringify({version,packages:{'':{version}}}));
+ await writeFile(join(root,'CHANGELOG.md'),'# Changelog\n\n## Unreleased\n\n- Something new.\n\n## 0.4.4\n\n- Everything.\n');
+ return root;
+}
+test('a dev version sorts after its release and before the next one, and its number is a plain count',()=>{
+ assert(versionKey('0.4.4-dev.1')>versionKey('0.4.4'));
+ assert(versionKey('0.4.4-dev.10')>versionKey('0.4.4-dev.2'));
+ assert(versionKey('0.4.5')>versionKey('0.4.4-dev.99'));
+ assert(versionKey('0.4.4-dev.1')>versionKey('0.4.4-beta.9'));
+ for(const bad of ['0.4.4-dev.0','0.4.4-dev.01','0.4.4-dev','0.4.4-dev.1.2'])assert.throws(()=>versionKey(bad));
+});
+test('a push to dev counts up: the release number, then dev.1, dev.2 ... in every place that carries the version',async t=>{
+ const root=await sourceTree(t,'0.4.4');
+ assert.equal(await bumpDevVersion(root),'0.4.4-dev.1');
+ assert.equal((await readMetadata(root)).version,'0.4.4-dev.1');
+ assert.equal(await bumpDevVersion(root),'0.4.4-dev.2');
+ assert.equal((await readMetadata(root)).version,'0.4.4-dev.2');
+ assert.equal(await bumpDevVersion(root,7),'0.4.4-dev.7','a given number is used as it is');
+ const lock=await readFile(join(root,'Cargo.lock'),'utf8');
+ assert(lock.includes('name = "serde"\nversion = "1.0.0"'),'other packages are left alone');
+ assert.equal((await readFile(join(root,'.github/release-version'),'utf8')).trim(),'0.4.4','the declared release stays');
+ assert(!(await readFile(join(root,'CHANGELOG.md'),'utf8')).includes('dev'),'the changelog is not touched');
+ assert.equal((await readMetadata(root)).prerelease,false,'a dev version is not a published pre-release');
+});
+test('the next release can be prepared from a dev version, the same one cannot',async t=>{
+ const root=await sourceTree(t,'0.4.4-dev.3');
+ await writeFile(join(root,'.github/release-version'),'0.4.4\n');
+ await assert.rejects(prepareVersion(root),/backwards/);
+ await writeFile(join(root,'.github/release-version'),'0.4.5\n');
+ await prepareVersion(root);
+ assert.equal((await readMetadata(root)).version,'0.4.5');
+ assert.equal(await bumpDevVersion(root),'0.4.5-dev.1','after the release the count starts again');
 });

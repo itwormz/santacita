@@ -5,12 +5,16 @@ import {createReadStream} from 'node:fs';
 import {join,resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 export const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+/** Orders versions. `X.Y.Z-beta.N` precedes `X.Y.Z`; a dev version `X.Y.Z-dev.N` (a push to the dev branch after the
+ * release X.Y.Z) follows it and stays below the next patch release. */
 export function versionKey(value){
- const match=/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-beta\.([1-9][0-9]*))?$/.exec(value);
- if(!match)throw new Error('Expected X.Y.Z or X.Y.Z-beta.N');
- const [,major,minor,patch,beta]=match;const parts=[major,minor,patch,beta??'0'].map(BigInt);
+ const match=/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(beta|dev)\.([1-9][0-9]*))?$/.exec(value);
+ if(!match)throw new Error('Expected X.Y.Z, X.Y.Z-beta.N or X.Y.Z-dev.N');
+ const [,major,minor,patch,kind,count]=match;const parts=[major,minor,patch,count??'0'].map(BigInt);
  if(parts.some(n=>n>0xffffffffn))throw new Error('Version component too large');
- return (parts[0]<<128n)|(parts[1]<<96n)|(parts[2]<<64n)|(beta?parts[3]:1n<<32n);
+ const base=(parts[0]<<128n)|(parts[1]<<96n)|(parts[2]<<64n);
+ if(kind==='beta')return base|parts[3];
+ return base|((1n<<32n)+(kind==='dev'?parts[3]:0n));
 }
 export function packageNames(version,platform,arch){
  versionKey(version);
@@ -119,6 +123,21 @@ export async function releaseNotes(root,version){
 }
 /** The release name: the version, and the title only when the notes have one. */
 export function releaseTitle(version,title){return title?`SantaCita ${version} — ${title}`:`SantaCita ${version}`;}
+/** The version of a push to dev: the release number with `-dev.N`, N counting up from 1 (or `count` when given). It is
+ * written to every file that carries the version, and to nothing else (not the declared release, not the notes). */
+export async function bumpDevVersion(root=ROOT,count){
+ const current=(await readMetadata(root)).version;
+ const match=/^(\d+\.\d+\.\d+)(?:-dev\.(\d+))?$/.exec(current);
+ if(!match)throw new Error('A dev version follows a stable release, not a beta');
+ const next=count??(match[2]?Number(match[2])+1:1);
+ const version=`${match[1]}-dev.${next}`;versionKey(version);
+ const cargoPath=join(root,'Cargo.toml');const cargo=(await readFile(cargoPath,'utf8')).replace(/(\[workspace.package\]\s*\nversion = ")[^"]+"/,`$1${version}"`);
+ const lockPath=join(root,'Cargo.lock');const lock=(await readFile(lockPath,'utf8')).replace(/\r\n/g,'\n').replace(/(^name = "ceh-[^"]+"\nversion = ")[^"]+"/gm,`$1${version}"`);
+ const packagePath=join(root,'desktop-ui/package.json');const pkg=JSON.parse(await readFile(packagePath,'utf8'));pkg.version=version;
+ const npmPath=join(root,'desktop-ui/package-lock.json');const npm=JSON.parse(await readFile(npmPath,'utf8'));npm.version=version;npm.packages[''].version=version;
+ for(const [file,content] of [[cargoPath,cargo],[lockPath,lock],[packagePath,JSON.stringify(pkg,null,2)+'\n'],[npmPath,JSON.stringify(npm,null,2)+'\n']])await writeFile(file,content);
+ await readMetadata(root);return version;
+}
 export async function prepareVersion(root=ROOT){
  const requested=(await readFile(join(root,'.github/release-version'),'utf8')).trim();versionKey(requested);
  const current=(await readMetadata(root)).version;
@@ -142,6 +161,7 @@ export async function prepareVersion(root=ROOT){
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const [command,...args]=process.argv.slice(2);const {version}=await readMetadata(ROOT,process.env.RELEASE_TAG||undefined);
  if(command==='prepare')await prepareVersion();
+ else if(command==='dev-bump')console.log(await bumpDevVersion(ROOT,args[0]?Number(args[0]):undefined));
  else if(command==='notes'){const notes=await releaseNotes(ROOT,version);await writeFile(resolve(args[0]),notes.body+'\n');}
  else if(command==='metadata')console.log(JSON.stringify({version}));
  else if(command==='checksums'){const [platform,arch]=args;await writeChecksums(join(ROOT,'.local/builds/releases'),packageNames(version,platform,arch),`SHA256SUMS-${platform}-${arch}`);}

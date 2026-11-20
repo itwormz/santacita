@@ -12,12 +12,14 @@ fn workspace_version() -> String {
 }
 
 #[test]
-fn the_version_is_a_release_version_not_a_development_placeholder() {
+fn the_version_is_a_release_or_a_numbered_dev_version_never_a_placeholder() {
+    // A release is X.Y.Z or X.Y.Z-beta.N; a push to dev is X.Y.Z-dev.N with N counting from 1.
     let version = workspace_version();
     let (core, pre) = version.split_once('-').map_or((version.as_str(), ""), |(c, p)| (c, p));
     assert!(core.split('.').count() == 3 && core.split('.').all(|p| p.parse::<u32>().is_ok()), "{version}");
-    assert!(pre.is_empty() || (pre.starts_with("beta.") && pre[5..].parse::<u32>().is_ok()), "{version}");
-    assert!(!version.contains("dev"), "{version}");
+    let counted = |prefix: &str| pre.strip_prefix(prefix).is_some_and(|n| n.parse::<u32>().is_ok_and(|n| n > 0) && !n.starts_with('0'));
+    assert!(pre.is_empty() || counted("beta.") || counted("dev."), "{version}");
+    assert_ne!(core, "0.0.0", "{version}");
 }
 
 #[test]
