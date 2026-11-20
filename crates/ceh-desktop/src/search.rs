@@ -1439,16 +1439,15 @@ fn run_owned(
                             diagnostics.rebind(&mut driver);
                             // The new gate starts a new control authority; the presenter follows it.
                             presenter = crate::session_presentation::SessionPresentation::new(session.clone(), (timings.alert_seconds()*1000.).ceil() as u64);
+                            // A rejected navigation with the window still there means the site did not open: the browser's
+                            // error page is in the window and the flow tries again after the profile's wait.
                             if browser
                                 .connection()
                                 .call("browsingContext.navigate", json!({"context":context,"url":ceh_browser::recovery_navigation::ENTRY_URL,"wait":"none"}))
                                 .is_err()
+                                && !browser.page_open()
                             {
-                                if !browser.page_open() {
-                                    return Ok(SessionEnd::Finished);
-                                }
-                                // The site did not open: the browser's error page is in the window and the flow tries
-                                // again after the profile's wait (a certificate problem would show before this point).
+                                return Ok(SessionEnd::Finished);
                             }
                             wait = false;
                             retry_at = Instant::now();

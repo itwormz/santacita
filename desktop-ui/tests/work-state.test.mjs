@@ -44,3 +44,26 @@ test('after a click on pause or resume the window shows it as taken until the wo
  assert.equal(pendingControl({command:'pause',since:1000},running,1000+PENDING_CONTROL_MS),null,'never stuck: the real state shows after a while');
  assert.equal(pendingControl({command:'pause',since:1000},null,1500),null);
 });
+
+test('every command of the search shows as taken at once and ends when the real state shows it',async()=>{
+ const {pendingControl,PENDING_CONTROL_MS,PENDING_STOP_MS}=await import('../src/work-state.ts');
+ const idle={active:false,paused:false,manual:false,browser_pid:null,error:null};
+ const opening={active:true,paused:false,manual:false,browser_pid:null,error:null};
+ const open={...opening,browser_pid:4242};
+ // Start: from the click until the browser is open, however long the preparation and the browser take.
+ assert.equal(pendingControl({command:'start',since:1000},idle,1100),'start','the command has not even returned yet');
+ assert.equal(pendingControl({command:'start',since:1000},opening,9000),'start','the browser is still starting');
+ assert.equal(pendingControl({command:'start',since:1000},open,9000),null,'the browser is open');
+ assert.equal(pendingControl({command:'start',since:1000},{...opening,error:'browser_start_failed'},9000),null,'it failed');
+ assert.equal(pendingControl({command:'start',since:1000},idle,1000+3500),null,'it ended again without a browser');
+ assert.equal(pendingControl({command:'start',since:1000},opening,1000+PENDING_STOP_MS),null,'never stuck');
+ // Stop: until the search is over (it may wait for the browser to close).
+ assert.equal(pendingControl({command:'stop',since:1000},open,30000),'stop');
+ assert.equal(pendingControl({command:'stop',since:1000},idle,30000),null);
+ assert.equal(pendingControl({command:'stop',since:1000},open,1000+PENDING_STOP_MS),null);
+ // Taking the browser back from the person: until the search is no longer manual.
+ const manual={...open,manual:true};
+ assert.equal(pendingControl({command:'takeover',since:1000},manual,2000),'takeover');
+ assert.equal(pendingControl({command:'takeover',since:1000},open,2000),null);
+ assert.equal(pendingControl({command:'takeover',since:1000},manual,1000+PENDING_CONTROL_MS),null);
+});

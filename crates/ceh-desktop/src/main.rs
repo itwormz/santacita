@@ -492,16 +492,18 @@ fn search_snapshot(
     authorize(&window)?;
     runtime.search.snapshot()
 }
+/// The preparation of a start (profile, secrets, notification channels) is not done on the thread that draws the
+/// window: a slow keychain or disk must not hold the button after the click.
 #[tauri::command]
-fn search_start(
-    window: WebviewWindow,
-    runtime: State<'_, DesktopRuntime>,
-    id: String,
-) -> Result<(), &'static str> {
+async fn search_start(window: WebviewWindow, id: String) -> Result<(), &'static str> {
     authorize(&window)?;
-    runtime
-        .search
-        .start(&runtime.root, &id, window, runtime.sound.clone())
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<DesktopRuntime>();
+        runtime.search.start(&runtime.root, &id, window, runtime.sound.clone())
+    })
+    .await
+    .map_err(|_| "search_unavailable")?
 }
 #[tauri::command]
 fn search_control(
@@ -645,15 +647,18 @@ async fn copy_text(
 /// Reset the browser session of profile `id` (Python `reset_session`): a running search of this profile
 /// restarts its pass, otherwise the app-owned browser profile is deleted. Returns what was done.
 #[tauri::command]
-fn reset_session(
-    window: WebviewWindow,
-    runtime: State<'_, DesktopRuntime>,
-    id: String,
-) -> Result<&'static str, &'static str> {
+async fn reset_session(window: WebviewWindow, id: String) -> Result<&'static str, &'static str> {
     authorize(&window)?;
+    let app = window.app_handle().clone();
+    // Deleting a browser profile can take a while: not on the thread that draws the window.
+    tauri::async_runtime::spawn_blocking(move || reset_session_blocking(&app.state::<DesktopRuntime>(), &id))
+        .await
+        .map_err(|_| "browser_profile_unavailable")?
+}
+fn reset_session_blocking(runtime: &DesktopRuntime, id: &str) -> Result<&'static str, &'static str> {
     let snapshot = runtime.search.snapshot()?;
     if snapshot.active {
-        if snapshot.profile.as_deref() != Some(id.as_str()) {
+        if snapshot.profile.as_deref() != Some(id) {
             return Err("search_already_running");
         }
         if snapshot.manual {
@@ -664,7 +669,7 @@ fn reset_session(
     }
     // The profile may have been used with any of the browsers it could choose; reset each one's own copy.
     for kind in [ceh_browser::firefox::ProfileKind::Firefox, ceh_browser::firefox::ProfileKind::Chrome, ceh_browser::firefox::ProfileKind::Brave, ceh_browser::firefox::ProfileKind::Edge, ceh_browser::firefox::ProfileKind::Chromium] {
-        ceh_browser::firefox::ProfileLease::reset_persistent_kind(&runtime.root, &id, kind).map_err(|error| match error {
+        ceh_browser::firefox::ProfileLease::reset_persistent_kind(&runtime.root, id, kind).map_err(|error| match error {
             ceh_browser::firefox::FirefoxError::ProfileBusy => "browser_profile_busy",
             _ => "browser_profile_unavailable",
         })?;

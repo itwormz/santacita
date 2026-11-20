@@ -20,12 +20,29 @@ export function promotedControl(search:{active:boolean;manual:boolean;attention:
 export const PAUSE_GRACE_MS=1200;
 export function pauseTooSoon(startedAt:number|null,now:number):boolean{return startedAt!==null&&now>=startedAt&&now-startedAt<PAUSE_GRACE_MS;}
 
-/** A pause or resume is carried out at the worker's next step, which can take seconds; the window shows the click as taken. */
+/** A command of the search is carried out at the worker's next step, or after the browser has started, which can take
+ * seconds; the window shows the click as taken at once and drops that when the real state shows it. */
 export const PENDING_CONTROL_MS=20000;
-export type PendingControl={command:'pause'|'resume';since:number};
-export function pendingControl(pending:PendingControl|null,search:{active:boolean;paused:boolean;manual:boolean}|null,now:number):'pause'|'resume'|null{
- if(!pending||!search||!search.active||search.manual||now-pending.since>=PENDING_CONTROL_MS)return null;
- if(pending.command==='pause'&&search.paused)return null;
- if(pending.command==='resume'&&!search.paused)return null;
- return pending.command;
+export const PENDING_STOP_MS=60000;
+export type PendingControl={command:'start'|'pause'|'resume'|'stop'|'takeover';since:number};
+type PendingSearch={active:boolean;paused:boolean;manual:boolean;browser_pid?:number|null;error?:unknown}|null;
+export function pendingControl(pending:PendingControl|null,search:PendingSearch,now:number):PendingControl['command']|null{
+ if(!pending)return null;
+ const age=now-pending.since;
+ switch(pending.command){
+  case 'start':
+   if(age>=PENDING_STOP_MS)return null;
+   if(!search||!search.active)return age<3000?'start':null;
+   return search.browser_pid||search.error?null:'start';
+  case 'stop':
+   return search?.active&&age<PENDING_STOP_MS?'stop':null;
+  case 'takeover':
+   return search?.active&&search.manual&&age<PENDING_CONTROL_MS?'takeover':null;
+  case 'pause':
+  case 'resume':
+   if(!search||!search.active||search.manual||age>=PENDING_CONTROL_MS)return null;
+   if(pending.command==='pause'&&search.paused)return null;
+   if(pending.command==='resume'&&!search.paused)return null;
+   return pending.command;
+ }
 }
