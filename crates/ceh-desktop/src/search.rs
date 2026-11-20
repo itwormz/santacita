@@ -1260,8 +1260,11 @@ fn run_owned(
                         std::thread::sleep(Duration::from_millis(500));
                         continue;
                     }
-                    Err(_) => {
-                        diagnostics.step(crate::session_timeline::step_error_row(&effects, action_delay_ms, executing_since.elapsed().as_millis() as u64, "browser_action_failed"));
+                    Err(error) => {
+                        // Which kind of error ended the action goes into the report as a fixed name.
+                        let mut row = crate::session_timeline::step_error_row(&effects, action_delay_ms, executing_since.elapsed().as_millis() as u64, "browser_action_failed");
+                        row["reason"] = serde_json::json!(error.code());
+                        diagnostics.step(row);
                         // A click that never completed while the window was hidden says so instead of a generic failure.
                         if browser.connection().cdp_target().is_none() && window_hidden(browser.connection(), &context) {
                             return Err("browser_in_background");
