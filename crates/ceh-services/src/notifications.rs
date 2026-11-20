@@ -12,6 +12,9 @@ use std::{
 };
 use zeroize::Zeroize;
 const EVENTS: &[&str] = &["auth", "office", "booking", "error"];
+/// "The bot waits on a page it does not know": the message goes out after this long, once for the page. It is not
+/// one of the default events: a profile has to choose it.
+pub const STUCK_AFTER_SECONDS: u64 = 60;
 const VARIABLES: &[&str] = &[
     "message",
     "event",
@@ -75,6 +78,17 @@ pub struct NotificationStateInput {
     pub booking_details: Option<Value>,
     pub booking_details_pending: bool,
     pub browser: Option<String>,
+    /// What the person needs to know about a sign-in or a stopped search (the service, how they sign in, why and
+    /// where the search stopped, when, how many checks it made). Only fixed names and numbers: never page text.
+    pub service: Option<String>,
+    pub access: Option<String>,
+    pub reason: Option<String>,
+    pub stop_page: Option<ceh_core::model::PageKind>,
+    pub at: Option<String>,
+    pub checks: Option<u64>,
+    /// How long the search has waited on this page for a person, and why (a fixed name of the flow).
+    pub stuck_seconds: Option<u64>,
+    pub hold_reason: Option<String>,
 }
 impl Default for NotificationStateInput {
     fn default() -> Self {
@@ -92,6 +106,14 @@ impl Default for NotificationStateInput {
             booking_details: None,
             booking_details_pending: false,
             browser: None,
+            service: None,
+            access: None,
+            reason: None,
+            stop_page: None,
+            at: None,
+            checks: None,
+            stuck_seconds: None,
+            hold_reason: None,
         }
     }
 }
@@ -131,6 +153,23 @@ pub fn notification_state(input: &NotificationStateInput) -> Value {
     }
     if let Some(browser) = &input.browser {
         state["browser"] = json!(browser);
+    }
+    for (key, value) in [("service", &input.service), ("access", &input.access), ("reason", &input.reason), ("at", &input.at)] {
+        if let Some(value) = value {
+            state[key] = json!(value);
+        }
+    }
+    if let Some(page) = input.stop_page.and_then(|page| serde_json::to_value(page).ok()) {
+        state["stop_page"] = page;
+    }
+    if let Some(checks) = input.checks {
+        state["checks"] = json!(checks);
+    }
+    if let Some(seconds) = input.stuck_seconds {
+        state["stuck_seconds"] = json!(seconds);
+    }
+    if let Some(reason) = &input.hold_reason {
+        state["hold_reason"] = json!(reason);
     }
     state
 }
@@ -173,6 +212,8 @@ pub fn state_event_with(state: &Value, include_transient: bool) -> Option<&'stat
         Some("Авторизация сертификатом" | "Cl@ve Móvil" | "Cl@ve Permanente" | "Авторизация") => {
             Some("auth")
         }
+        // A page that has no screen of its own (the bot does not know it) and has been waited on for long enough.
+        Some("") if state["stuck_seconds"].as_u64().is_some_and(|seconds| seconds >= STUCK_AFTER_SECONDS) => Some("stuck"),
         _ => None,
     }
 }
@@ -188,7 +229,7 @@ impl EventRouter {
         }
         let event = state_event(state);
         let active = state_event_with(state, true);
-        let document = if active == Some("office") { state["document"].clone() } else { Value::Null };
+        let document = if matches!(active, Some("office" | "stuck")) { state["document"].clone() } else { Value::Null };
         let identity = (state["run_id"].clone(), document);
         // The runner briefly publishes working mode while inspecting the same attention screen;
         // an alert that was already queued must not be re-armed.
@@ -309,7 +350,7 @@ impl NotificationPlanner {
                 active = Some("office");
             }
         }
-        let document = if active == Some("office") { state["document"].clone() } else { Value::Null };
+        let document = if matches!(active, Some("office" | "stuck")) { state["document"].clone() } else { Value::Null };
         let visit = json!([profile, state["run_id"], document, active]);
         if self.visit.as_ref() != Some(&visit) {
             self.invalidate();
@@ -324,10 +365,11 @@ impl NotificationPlanner {
             return Ok(Vec::new());
         };
         let browser = browser_label(&state["browser"]);
-        let payload = match browser {
+        let mut payload = match browser {
             Some(browser) => make_event_with_browser(kind, label, province, language, browser)?,
             None => make_event(kind, label, province, language)?,
         };
+        add_situation_fields(kind, state, &mut payload);
         let config = settings(raw_config);
         let mut result = Vec::new();
         for (channel, event) in [("telegram", telegram_event), ("webhook", event)] {
@@ -343,7 +385,8 @@ impl NotificationPlanner {
                 continue;
             }
             let message = if channel == "telegram" {
-                let message = telegram_message(&payload, language, &state["booking_details"], &state["available_offices"]);
+                let message = situation_message(kind, &payload, language, state)
+                    .unwrap_or_else(|| telegram_message(&payload, language, &state["booking_details"], &state["available_offices"]));
                 match browser {
                     Some(browser) => with_browser_name(&message, browser),
                     None => message,
@@ -680,6 +723,10 @@ pub fn make_event_with_metadata(
             "Поиск завершился с ошибкой",
             "Открыть приложение и проверить диагностику.",
         ),
+        "stuck" => (
+            "Бот остановился и ждёт вас",
+            "Открыть окно Camoufox и выполнить шаг на странице вручную. Когда страница станет боту знакомой, он продолжит сам.",
+        ),
         "test" => ("Тестовое уведомление", "Подключение уведомлений проверено."),
         _ => return Err(NotificationError::InvalidConfig),
     };
@@ -777,6 +824,188 @@ pub fn telegram_message(event: &Value, language: &str, details: &Value, offices:
             language
         )
     )
+}
+/// A short name from the app (a reason code, a page name): lower-case letters, digits and underscores only.
+fn fixed_name(value: &Value) -> Option<&str> {
+    value.as_str().filter(|name| !name.is_empty() && name.len() <= 48 && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'))
+}
+/// The service as the person knows it ("Toma de huellas / TIE"): short, one line.
+fn service_name(value: &Value) -> Option<&str> {
+    value.as_str().map(str::trim).filter(|name| !name.is_empty() && name.chars().count() <= 60 && !name.chars().any(char::is_control))
+}
+fn page_title(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "province" => "Выбор провинции",
+        "procedure" => "Выбор услуги",
+        "auth" => "Вход с Cl@ve",
+        "auth_wait" => "Авторизация",
+        "applicant" => "Форма заявителя",
+        "applicant_no_slots" => "Форма заявителя · сит нет",
+        "request_menu" => "Меню запроса",
+        "request_no_slots" => "Сит нет",
+        "request_no_slots_restart" => "Сит нет · новый проход",
+        "post_contact_no_slots" => "Сит нет после выбора офиса",
+        "office" => "Выбор офиса",
+        "contact" => "Контактные данные",
+        "booking" => "Выбор даты и времени",
+        "expired" => "Сессия истекла",
+        "server_error" => "Ошибка сервера",
+        "blocked" => "Доступ временно ограничен",
+        "rate_limited" => "HTTP 429",
+        "captcha" => "CAPTCHA",
+        "loading" => "Загрузка",
+        "unknown" => "Неизвестная страница",
+        _ => return None,
+    })
+}
+/// Why a search stopped, in words (the app's own stop codes); `Camoufox` stands for the browser's name.
+fn reason_phrase(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "browser_action_failed" => "действие не подтверждено, окно Camoufox оставлено открытым",
+        "browser_observation_failed" => "не удалось прочитать страницу, окно Camoufox оставлено открытым",
+        "browser_connection_lost" => "связь с Camoufox потеряна, открытое окно сохранено",
+        "browser_recovery_required" => "требуется восстановление браузера, открытое окно сохранено",
+        "browser_navigation_failed" => "не удалось открыть сайт",
+        "browser_in_background" => "клик не прошёл: окно Camoufox скрыто за другими окнами",
+        "browser_start_failed" => "не удалось запустить Camoufox",
+        "browser_not_installed" | "firefox_not_installed" => "выбранный браузер не найден",
+        "browser_profile_unavailable" => "не удалось создать отдельный профиль браузера",
+        "browser_profile_busy" => "браузер прежнего поиска ещё открыт",
+        "browser_certificate_cache_failed" => "не удалось подготовить цепочку сертификатов сайта",
+        "browser_auth_entry_changed" => "страница входа изменилась до клика",
+        "browser_auth_entry_unconfirmed" | "browser_auth_entry_unavailable" => "не удалось нажать «Войти с Cl@ve»",
+        "browser_unsupported" => "этот браузер пока не поддерживается",
+        "statistics_unavailable" | "search_control_failed" | "appointment_budget_unavailable" | "budget_in_use" | "profile_invalid" | "profile_not_found"
+        | "notification_secrets_unavailable" | "notification_transport_unavailable" => "внутренняя ошибка приложения",
+        _ => return None,
+    })
+}
+/// The facts of a sign-in or a stop as extra fields of the event (for a webhook); the plain message is unchanged.
+/// Only fixed names and numbers are taken over, and only for these two events.
+fn add_situation_fields(kind: &str, state: &Value, event: &mut Value) {
+    if !matches!(kind, "auth" | "error" | "stuck") {
+        return;
+    }
+    if let Some(service) = service_name(&state["service"]) {
+        event["service"] = json!(service);
+    }
+    if kind == "stuck" {
+        if let Some(code) = fixed_name(&state["hold_reason"]) {
+            event["reason_code"] = json!(code);
+        }
+        if let Some(seconds) = state["stuck_seconds"].as_u64() {
+            event["stuck_seconds"] = json!(seconds);
+        }
+        return;
+    }
+    if kind == "auth" {
+        if let Some(access @ ("certificate" | "movil" | "permanente")) = state["access"].as_str() {
+            event["access"] = json!(access);
+        }
+        return;
+    }
+    if let Some(code) = fixed_name(&state["reason"]) {
+        event["reason_code"] = json!(code);
+    }
+    if let Some(page) = fixed_name(&state["stop_page"]) {
+        event["stop_page"] = json!(page);
+    }
+    if let Some(checks) = state["checks"].as_u64() {
+        event["checks"] = json!(checks);
+    }
+}
+/// The Telegram text of a sign-in or a stopped search: what is going on and what to do. `None` for every other
+/// event (office and booking keep their own texts).
+fn situation_message(kind: &str, event: &Value, language: &str, state: &Value) -> Option<String> {
+    if !matches!(kind, "auth" | "error" | "stuck") {
+        return None;
+    }
+    let profile = text(event, "profile", "");
+    let province = text(event, "province", "");
+    let mut head = vec![format!("{}: {profile}", tr("Профиль", language))];
+    head.push(match service_name(&state["service"]) {
+        Some(service) => format!("{}: {service} · {province}", tr("Услуга", language)),
+        None => format!("{}: {province}", tr("Провинция", language)),
+    });
+    let mut blocks: Vec<String> = Vec::new();
+    if kind == "stuck" {
+        let reason = fixed_name(&state["hold_reason"]).unwrap_or("");
+        let (title, what, todo) = match reason {
+            "no_handler_for_page" | "unknown_page_persisted" => (
+                "Нужна ваша помощь: страница не распознана",
+                "Бот остановился: он не узнаёт открытую страницу сайта.",
+                "в окне Camoufox сами выполните шаг на этой странице (нажмите нужную кнопку или вернитесь на страницу поиска).",
+            ),
+            "dispatched_page_unchanged" | "action_not_confirmed" | "action_already_attempted" | "request_already_attempted" | "wait_action_already_attempted" => (
+                "Нужна ваша помощь: бот остановился",
+                "Бот нажал кнопку, но страница не изменилась.",
+                "нажмите её сами в окне Camoufox.",
+            ),
+            _ => (
+                "Нужна ваша помощь: бот остановился",
+                "На странице нет того, что ждёт бот.",
+                "вернитесь на страницу поиска в окне Camoufox.",
+            ),
+        };
+        blocks.push(format!("✋ {}", tr(title, language)));
+        blocks.push(head.join("\n"));
+        blocks.push(format!(
+            "{}\n{}: {}\n{}",
+            tr(what, language),
+            tr("Что сделать", language),
+            tr(todo, language),
+            tr("Когда страница станет боту знакомой, он сам продолжит поиск, запускать ничего не нужно.", language)
+        ));
+    } else if kind == "auth" {
+        let (method, instruction) = match state["access"].as_str() {
+            Some("certificate") => (Some("сертификат"), "в окне Camoufox выберите сертификат и подтвердите."),
+            Some("movil") => (Some("Cl@ve Móvil"), "подтвердите вход в приложении Cl@ve на телефоне."),
+            Some("permanente") => (Some("Cl@ve Permanente"), "введите PIN Cl@ve в окне Camoufox."),
+            _ => (None, "в окне Camoufox завершите вход."),
+        };
+        let title = match method {
+            Some(method) => tr("Нужен вход: {method}", language).replace("{method}", &tr(method, language)),
+            None => tr("Нужен вход", language),
+        };
+        blocks.push(format!("🔐 {title}"));
+        blocks.push(head.join("\n"));
+        blocks.push(format!("{}: {}\n{}", tr("Что сделать", language), tr(instruction, language), tr("Поиск продолжится сам после входа.", language)));
+    } else {
+        let time = state["at"].as_str().filter(|at| at.len() == 5 && at.bytes().enumerate().all(|(i, b)| if i == 2 { b == b':' } else { b.is_ascii_digit() }));
+        let checks = state["checks"].as_u64();
+        match (time, checks) {
+            (Some(time), Some(checks)) => head.push(format!(
+                "{} · {}",
+                tr("Остановка в {time}", language).replace("{time}", time),
+                tr("проверок за этот запуск: {checks}", language).replace("{checks}", &checks.to_string())
+            )),
+            (Some(time), None) => head.push(tr("Остановка в {time}", language).replace("{time}", time)),
+            (None, Some(checks)) => head.push(tr("Проверок за этот запуск: {checks}", language).replace("{checks}", &checks.to_string())),
+            (None, None) => {}
+        }
+        blocks.push(format!("⚠️ {}", tr("Поиск остановился", language)));
+        blocks.push(head.join("\n"));
+        let mut why = Vec::new();
+        if let Some(title) = fixed_name(&state["stop_page"]).and_then(page_title) {
+            why.push(tr("Где: страница «{page}»", language).replace("{page}", &tr(title, language)));
+        }
+        if !state["reason"].is_null() {
+            let reason = match fixed_name(&state["reason"]) {
+                Some(code) => match reason_phrase(code) {
+                    Some(phrase) => tr(phrase, language),
+                    None => tr("неизвестная ошибка ({code})", language).replace("{code}", code),
+                },
+                None => tr("неизвестная ошибка", language),
+            };
+            why.push(format!("{}.", tr("Причина: {reason}", language).replace("{reason}", &reason)));
+        }
+        if !why.is_empty() {
+            blocks.push(why.join("\n"));
+        }
+        blocks.push(tr("Что сделать: откройте SantaCita и нажмите «Запустить».", language));
+    }
+    blocks.push("Cita Extranjeria Helper".to_owned());
+    Some(blocks.join("\n\n"))
 }
 pub struct Telegram {
     token: zeroize::Zeroizing<String>,

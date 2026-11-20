@@ -247,6 +247,9 @@ impl SearchController {
                 config: notification_config,
                 browser: "Firefox".into(),
                 run_id: uuid::Uuid::new_v4().to_string(),
+                service: crate::notification_worker::service_label(&profile.procedure),
+                access: crate::notification_worker::access_label(&profile.access_mode, &profile.clave_method),
+                timezone: profile.timezone.clone(),
             },
             prepared,
             move |intent, prepared| ceh_services::notifications::deliver_intent_prepared(intent, prepared, &http),
@@ -311,9 +314,17 @@ impl SearchController {
                     });
                     let _ = update(&state, |s| s.report_id = id);
                 }
-                if result.is_err() && !requested_stop && !busy {
+                if let Err(code) = &result
+                    && !requested_stop
+                    && !busy
+                {
+                    // Where the search stopped and how far it got, besides the reason (fixed names and a number).
+                    let (page, checks) = state.lock().map(|s| (s.page, s.counters.checks)).unwrap_or((None, 0));
                     notifications.observe(ceh_services::notifications::NotificationStateInput {
                         failed: true,
+                        reason: Some((*code).to_owned()),
+                        stop_page: page,
+                        checks: Some(checks),
                         ..Default::default()
                     });
                 }
@@ -849,6 +860,8 @@ fn run_owned(
         let mut wait = false;
         let mut pending_report = crate::session_report::PendingReport::default();
         let mut manual = false;
+        // How long the search has waited on this page for a person (the "help" notification asks after a minute).
+        let mut hold_watch = crate::notification_worker::HoldWatch::default();
         let mut operation = 0u64;
         let mut read_failures = 0u32;
         let mut retry_at = Instant::now();
@@ -1149,6 +1162,8 @@ fn run_owned(
                     }
                 })?;
                 // Telegram's booking text waits for the public details (read right after the handoff below).
+                let held = effects.contains(&FlowEffect::Hold) || before.report["flow"]["phase"] == "held";
+                let stuck_seconds = hold_watch.update(before.observation.document.as_str(), held, mono());
                 notifications.observe(ceh_services::notifications::NotificationStateInput {
                     document: Some(before.observation.document.as_str().to_owned()),
                     page: before.observation.kind,
@@ -1157,6 +1172,8 @@ fn run_owned(
                     paused,
                     offices: before.offices.clone(),
                     booking_details_pending: manual,
+                    stuck_seconds,
+                    hold_reason: before.report["flow"]["hold_reason"].as_str().map(str::to_owned),
                     ..Default::default()
                 });
                 // UI/store/handoff already published before actions or optional public enrichment.

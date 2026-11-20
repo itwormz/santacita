@@ -75,6 +75,11 @@ pub struct LiveSettings {
     pub config: Value,
     pub browser: String,
     pub run_id: String,
+    /// The service as the person knows it, how they sign in (`certificate`, `movil`, `permanente`) and the profile's
+    /// time zone: what a sign-in or stop message says besides the profile and the province. Empty when unknown.
+    pub service: String,
+    pub access: String,
+    pub timezone: String,
 }
 /// Declared worker first: pending alerts are delivered before the planner cancels its intents.
 pub struct LiveNotifications {
@@ -98,6 +103,12 @@ impl LiveNotifications {
     pub fn observe(&mut self, mut input: NotificationStateInput) {
         input.run_id = self.settings.run_id.clone();
         input.browser = Some(self.settings.browser.clone());
+        let known = |value: &String| (!value.is_empty()).then(|| value.clone());
+        input.service = input.service.or_else(|| known(&self.settings.service));
+        input.access = input.access.or_else(|| known(&self.settings.access));
+        if input.at.is_none() {
+            input.at = clock_text(&self.settings.timezone);
+        }
         let state = notification_state(&input);
         let settings = &self.settings;
         if let Ok(intents) = self.planner.observe(
@@ -109,6 +120,52 @@ impl LiveNotifications {
             &settings.config,
         ) {
             self.worker.submit(intents);
+        }
+    }
+}
+
+/// The time of day in the profile's time zone (Madrid when it is not a known one), as `HH:MM`.
+fn clock_text(timezone: &str) -> Option<String> {
+    let zone = timezone.parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::Europe::Madrid);
+    crate::current_time().ok().map(|now| now.with_timezone(&zone).format("%H:%M").to_string())
+}
+/// The service of a profile as the person knows it.
+pub fn service_label(procedure: &str) -> String {
+    match procedure {
+        "huellas" => "Toma de huellas / TIE",
+        "regreso" => "Autorización de regreso",
+        _ => "",
+    }
+    .to_owned()
+}
+/// How the person signs in, as the notification wording knows it.
+pub fn access_label(access_mode: &str, clave_method: &str) -> String {
+    match (access_mode, clave_method) {
+        ("certificate", _) => "certificate".to_owned(),
+        (_, "movil" | "permanente") => clave_method.to_owned(),
+        _ => String::new(),
+    }
+}
+
+/// How long the search has waited on one page for a person: counted from the first look at that page, started
+/// again on another page and after any break (times are the search's own clock, in milliseconds).
+#[derive(Default)]
+pub struct HoldWatch {
+    since: Option<(String, u64)>,
+}
+impl HoldWatch {
+    /// `holding`: the page waits for a person. Returns the seconds waited so far, `None` when it is not waiting.
+    pub fn update(&mut self, document: &str, holding: bool, now_ms: u64) -> Option<u64> {
+        if !holding {
+            self.since = None;
+            return None;
+        }
+        match &self.since {
+            Some((known, at)) if known == document => Some(now_ms.saturating_sub(*at) / 1000),
+            _ => {
+                self.since = Some((document.to_owned(), now_ms));
+                Some(0)
+            }
         }
     }
 }

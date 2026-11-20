@@ -1,5 +1,5 @@
 use ceh_core::model::PageKind;
-use ceh_desktop::notification_worker::{LiveNotifications, LiveSettings, NotificationWorker, prepare_for_start};
+use ceh_desktop::notification_worker::{HoldWatch, LiveNotifications, LiveSettings, NotificationWorker, prepare_for_start};
 use ceh_services::notifications::{
     DeliveryOutcome, NotificationError, NotificationPlanner, NotificationStateInput, prepare_notifications,
 };
@@ -34,6 +34,9 @@ fn settings() -> LiveSettings {
         config: config(),
         browser: "Firefox".into(),
         run_id: "run-1".into(),
+        service: String::new(),
+        access: String::new(),
+        timezone: String::new(),
     }
 }
 type Sent = Arc<Mutex<Vec<(String, String)>>>;
@@ -176,4 +179,62 @@ fn start_preparation_without_enabled_channels_never_touches_the_vault() {
     assert!(prepare_for_start(root.path(), &id, &vault).is_ok());
     assert_eq!(vault.backend().reads.get(), 0);
     assert_eq!(NotificationError::Stale, NotificationError::Stale);
+}
+
+#[test]
+fn a_sign_in_and_a_stop_tell_the_person_the_service_the_method_the_time_and_the_reason() {
+    let sent: Sent = Default::default();
+    let log = sent.clone();
+    let prepared = prepare_notifications("p", &json!({}), &Vault::new(Locked::default()), None).unwrap();
+    let (completed, receipt) = mpsc::channel();
+    let mut live = LiveSettings {
+        config: json!({"telegram":{"enabled":true,"events":["auth","error"],"recipients":[{"id":"1"}],"secret_ref":""}}),
+        service: "Toma de huellas / TIE".into(),
+        access: "movil".into(),
+        timezone: "Europe/Madrid".into(),
+        ..settings()
+    };
+    live.browser = "Chrome".into();
+    let mut notifications = LiveNotifications::start(
+        live,
+        prepared,
+        move |intent, _| {
+            log.lock().unwrap().push((intent.channel().into(), intent.message().into()));
+            Ok(DeliveryOutcome::TelegramAccepted)
+        },
+        move |_, _| { let _ = completed.send(()); },
+    );
+    notifications.observe(NotificationStateInput { document: Some("d".into()), page: PageKind::Auth, attention: true, ..Default::default() });
+    receipt.recv_timeout(Duration::from_secs(5)).expect("the sign-in message is delivered");
+    notifications.observe(NotificationStateInput {
+        failed: true,
+        reason: Some("browser_action_failed".into()),
+        stop_page: Some(PageKind::Expired),
+        checks: Some(14),
+        ..Default::default()
+    });
+    receipt.recv_timeout(Duration::from_secs(5)).expect("the stop message is delivered");
+    drop(notifications);
+    let sent = sent.lock().unwrap();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    let (auth, error) = (&sent[0].1, &sent[1].1);
+    assert!(auth.contains("Sign-in needed: Cl@ve Móvil") && auth.contains("Procedure: Toma de huellas / TIE · Madrid"), "{auth}");
+    assert!(error.contains("Search stopped") && error.contains("Where: the page “Session expired”"), "{error}");
+    assert!(error.contains("Reason: the action was not confirmed; the Chrome window was left open."), "{error}");
+    let stopped = error.lines().find(|line| line.starts_with("Stopped at ")).expect("the time of the stop");
+    let clock = stopped.trim_start_matches("Stopped at ").split(" · ").next().unwrap();
+    assert!(clock.len() == 5 && clock.as_bytes()[2] == b':', "{stopped}");
+    assert!(stopped.ends_with("checks in this run: 14"), "{stopped}");
+}
+
+#[test]
+fn the_wait_on_a_page_is_counted_from_its_first_look_and_starts_again_on_another_page_or_after_a_break() {
+    let mut watch = HoldWatch::default();
+    assert_eq!(watch.update("d1", false, 0), None);
+    assert_eq!(watch.update("d1", true, 1_000), Some(0));
+    assert_eq!(watch.update("d1", true, 31_000), Some(30));
+    assert_eq!(watch.update("d1", true, 62_500), Some(61));
+    assert_eq!(watch.update("d2", true, 70_000), Some(0), "another page starts again");
+    assert_eq!(watch.update("d2", false, 80_000), None);
+    assert_eq!(watch.update("d2", true, 90_000), Some(0), "a break starts again");
 }

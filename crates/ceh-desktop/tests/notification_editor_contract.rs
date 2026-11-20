@@ -157,6 +157,16 @@ fn invalid_or_stale_draft_does_not_write_vault() {
     assert_eq!(vault.backend().calls.get(), 0);
 }
 #[test]
+fn the_help_event_can_be_chosen_while_the_default_events_stay_four() {
+    let root = tempfile::tempdir().unwrap();
+    let vault = Vault::new(Memory::default());
+    let fresh = editor(root.path(), None, &profile(root.path()).1, &vault).unwrap();
+    assert_eq!(fresh.draft.telegram.events, ["auth", "office", "booking", "error"], "off unless chosen");
+    let (mut settings, (draft, revision)) = (enabled(), profile(root.path()));
+    settings.telegram.events = ["auth", "office", "booking", "error", "stuck"].map(String::from).to_vec();
+    assert!(save(root.path(), None, draft, &revision, None, Some(&settings), &vault).is_ok(), "all five events fit");
+}
+#[test]
 fn second_vault_write_failure_rolls_back_new_refs_without_creating_profile() {
     let root = tempfile::tempdir().unwrap();
     let backend = Memory::default();
