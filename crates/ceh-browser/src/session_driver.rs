@@ -362,7 +362,9 @@ impl SessionDriver {
         {
             self.pending = None;
         }
-        let preparation=self.preparation.observe_quiet(&page.observation,page.page.snapshot.official,now,self.observer.network_quiet()).map_err(|_|BrowserError::InvalidControl)?;
+        // A start wait may end at its floor once the protection script has finished its checks (cookie names only).
+        let ready=self.preparation.wants_signal(now)&&crate::evidence::read_cookie_names(connection).is_some_and(|names|crate::evidence::challenge_cookies_ready(&names));
+        let preparation=self.preparation.observe_ready(&page.observation,page.page.snapshot.official,now,self.observer.network_quiet(),ready).map_err(|_|BrowserError::InvalidControl)?;
         if preparation!=PreparationDecision::Continue{
             let reload=preparation==PreparationDecision::ReloadGet;
             let effects=match preparation{PreparationDecision::WaitUntil(deadline)=>vec![FlowEffect::WaitUntil(deadline)],PreparationDecision::Hold=>vec![FlowEffect::Hold],_=>vec![FlowEffect::ReobserveAt(now)]};

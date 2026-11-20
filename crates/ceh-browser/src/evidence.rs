@@ -61,3 +61,11 @@ pub fn read_cookie_names(connection: &mut BidiConnection) -> Option<Value> {
     }
     Some(Value::Array(all))
 }
+
+/// The site's protection script has finished its checks on the page: the cookie it sets after the check and one of
+/// the cookies its browser-side script keeps are present. Names only; if the site renames them, nothing is lost
+/// but the shortcut (the start wait then runs its full length).
+pub fn challenge_cookies_ready(names: &Value) -> bool {
+    let has = |wanted: &dyn Fn(&str) -> bool| names.as_array().into_iter().flatten().filter_map(|c| c["name"].as_str()).any(wanted);
+    has(&|n| n == "TSPD_101") && has(&|n| n == "f5_cspm" || n.starts_with("f5avr"))
+}

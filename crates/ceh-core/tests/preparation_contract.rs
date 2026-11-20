@@ -74,3 +74,48 @@ fn observe_without_network_knowledge_behaves_as_a_quiet_network() {
  let mut a=SessionPreparation::new(5000,8000,45000).unwrap();let mut b=SessionPreparation::new(5000,8000,45000).unwrap();
  for now in [0,4999,5000] {assert_eq!(a.observe(&first,true,now).unwrap(),b.observe_quiet(&first,true,now,true).unwrap());}
 }
+
+#[test]
+fn a_wait_ends_at_its_floor_when_the_page_is_ready_and_the_network_is_quiet() {
+ let first=page("first",PageKind::Province,RequestMethod::Get);let second=page("second",PageKind::Province,RequestMethod::Get);
+ let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
+ // the floor is 40% of the wait (at least 1.5 s): 2 s of 5 s, 3.2 s of 8 s
+ assert_eq!(prep.observe_ready(&first,true,0,true,false).unwrap(),PreparationDecision::WaitUntil(2000),"the first look is at the floor");
+ assert_eq!(prep.observe_ready(&first,true,1999,true,true).unwrap(),PreparationDecision::WaitUntil(2000),"never before the floor, even when ready");
+ assert_eq!(prep.observe_ready(&first,true,2000,true,true).unwrap(),PreparationDecision::ReloadGet);
+ prep.reload_sent(DispatchOutcome::Unknown,2001).unwrap();
+ assert_eq!(prep.observe_ready(&second,true,3000,true,false).unwrap(),PreparationDecision::WaitUntil(6200));
+ assert_eq!(prep.observe_ready(&second,true,6200,true,true).unwrap(),PreparationDecision::Continue);
+}
+#[test]
+fn without_the_signal_or_with_a_busy_network_the_whole_wait_is_kept() {
+ let first=page("first",PageKind::Province,RequestMethod::Get);
+ let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
+ assert_eq!(prep.observe_ready(&first,true,0,true,false).unwrap(),PreparationDecision::WaitUntil(2000));
+ // the signal is asked again every 250 ms until the full wait is over
+ assert_eq!(prep.observe_ready(&first,true,2000,true,false).unwrap(),PreparationDecision::WaitUntil(2250));
+ assert_eq!(prep.observe_ready(&first,true,4800,true,false).unwrap(),PreparationDecision::WaitUntil(5000));
+ assert_eq!(prep.observe_ready(&first,true,5000,true,false).unwrap(),PreparationDecision::ReloadGet,"no signal: the old wait");
+ let mut busy=SessionPreparation::new(5000,8000,45000).unwrap();
+ busy.observe_ready(&first,true,0,false,true).unwrap();
+ assert!(matches!(busy.observe_ready(&first,true,3000,false,true).unwrap(),PreparationDecision::WaitUntil(_)),"a busy network is not ready");
+}
+#[test]
+fn the_signal_is_only_wanted_between_the_floor_and_the_end_of_a_wait() {
+ let first=page("first",PageKind::Province,RequestMethod::Get);
+ let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
+ assert!(!prep.wants_signal(0),"nothing is waiting yet");
+ prep.observe_ready(&first,true,0,true,false).unwrap();
+ assert!(!prep.wants_signal(1999));
+ assert!(prep.wants_signal(2000));
+ assert!(prep.wants_signal(4999));
+ assert!(!prep.wants_signal(5000));
+}
+#[test]
+fn a_pause_moves_the_floor_with_the_wait() {
+ let first=page("first",PageKind::Province,RequestMethod::Get);
+ let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
+ prep.observe_ready(&first,true,0,true,false).unwrap();prep.pause(1000).unwrap();prep.resume(11000).unwrap();
+ assert_eq!(prep.observe_ready(&first,true,11000,true,true).unwrap(),PreparationDecision::WaitUntil(12000),"1 s of the floor is left");
+ assert_eq!(prep.observe_ready(&first,true,12000,true,true).unwrap(),PreparationDecision::ReloadGet);
+}

@@ -35,3 +35,17 @@ fn evidence_scripts_only_read_the_page() {
         assert!(!source.contains(forbidden), "evidence.rs must not contain {forbidden}");
     }
 }
+
+#[test]
+fn the_protection_checks_are_finished_only_when_both_kinds_of_cookie_are_there() {
+    use ceh_browser::evidence::challenge_cookies_ready;
+    use serde_json::json;
+    let names = |list: &[&str]| json!(list.iter().map(|n| json!({"name": n, "domain": "x"})).collect::<Vec<_>>());
+    assert!(challenge_cookies_ready(&names(&["TSPD_101", "TSPD_101_DID", "f5_cspm"])));
+    assert!(challenge_cookies_ready(&names(&["TSPD_101", "f5avr0123456789aaaaaaaaaaaaaaaa_cspm_"])));
+    assert!(!challenge_cookies_ready(&names(&["TSPD_101_DID"])), "the device cookie alone is set before the script runs");
+    assert!(!challenge_cookies_ready(&names(&["TSPD_101"])));
+    assert!(!challenge_cookies_ready(&names(&["f5_cspm"])));
+    assert!(!challenge_cookies_ready(&json!(null)));
+    assert!(!challenge_cookies_ready(&names(&[])));
+}
