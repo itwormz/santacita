@@ -313,3 +313,19 @@ fn a_very_small_typing_delay_is_not_stretched_by_a_minimum_interval_per_key() {
         }
     }
 }
+
+#[test]
+fn the_field_stays_inside_its_budget_for_every_delay_including_the_ones_near_a_key_minimum() {
+    // Around the point where a key's share is near the shortest time a key can take, and for few keys.
+    for median in 1u64..=40 {
+        for count in [1usize, 2, 3, 5, 9, 20, 60] {
+            let old = (count as u64 * median) as f64;
+            for seed in 0..150u64 {
+                let rhythm = typing_rhythm(seed, median, count);
+                let total = field_ms(&rhythm) as f64;
+                assert!(total <= old * 1.7, "delay {median}, {count} keys, seed {seed}: {total} ms against {old} ms");
+                assert!(rhythm.keys.iter().all(|k| k.hold_ms <= k.hold_ms + k.pause_ms), "{:?}", rhythm.keys);
+            }
+        }
+    }
+}
