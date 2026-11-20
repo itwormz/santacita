@@ -21,3 +21,12 @@ test('the browser button is promoted while the user must act or a stopped search
  assert.equal(promotedControl({...idle,active:true,attention:true,browser_pid:7}),'browser');
  assert.equal(promotedControl({...idle,browser_pid:7}),'browser','a browser kept after Stop (retained)');
 });
+
+test('a pause right after the start is a second click on the same button, not a request to pause',async()=>{
+ const {pauseTooSoon,PAUSE_GRACE_MS}=await import('../src/work-state.ts');
+ assert.equal(pauseTooSoon(null,5000),false,'nothing was started from here');
+ assert.equal(pauseTooSoon(1000,1000+253),true,'the double click that paused a search 253 ms after its start');
+ assert.equal(pauseTooSoon(1000,1000+PAUSE_GRACE_MS-1),true);
+ assert.equal(pauseTooSoon(1000,1000+PAUSE_GRACE_MS),false,'a pause after the grace time is meant');
+ assert.equal(pauseTooSoon(2000,1000),false,'a clock that went back never blocks');
+});

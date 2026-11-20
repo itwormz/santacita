@@ -119,3 +119,13 @@ fn a_pause_moves_the_floor_with_the_wait() {
  assert_eq!(prep.observe_ready(&first,true,11000,true,true).unwrap(),PreparationDecision::WaitUntil(12000),"1 s of the floor is left");
  assert_eq!(prep.observe_ready(&first,true,12000,true,true).unwrap(),PreparationDecision::ReloadGet);
 }
+
+#[test]
+fn a_pause_before_the_first_page_was_seen_is_resumed_like_any_other() {
+ let first=page("first",PageKind::Province,RequestMethod::Get);
+ let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
+ prep.pause(253).unwrap();
+ assert!(prep.observe_ready(&first,true,300,true,false).is_err(),"nothing is planned while paused");
+ prep.resume(90000).unwrap();
+ assert_eq!(prep.observe_ready(&first,true,90100,true,false).unwrap(),PreparationDecision::WaitUntil(92100),"the start wait begins when the page is seen, not before the pause");
+}

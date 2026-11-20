@@ -15,3 +15,7 @@ export function promotedControl(search:{active:boolean;manual:boolean;attention:
  if(!search)return 'start';
  return search.manual||search.attention||(!search.active&&search.browser_pid!==null)?'browser':'start';
 }
+
+/** The start button turns into the pause button in the same place: a second click of a double click lands on it. */
+export const PAUSE_GRACE_MS=1200;
+export function pauseTooSoon(startedAt:number|null,now:number):boolean{return startedAt!==null&&now>=startedAt&&now-startedAt<PAUSE_GRACE_MS;}

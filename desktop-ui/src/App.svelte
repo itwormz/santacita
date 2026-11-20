@@ -4,7 +4,7 @@ import {onMount} from 'svelte';import {journalText,nextSelection} from './journa
 import {legacyCandidates,checkUpdates,type UpdateStatus,searchSnapshot,startSearch,controlSearch,showSearchBrowser,copyText,resetSession,loadStatistics,loadBudget,loadJournalHistory,setDailyTarget,tryAppointmentNow,resumeSearch,type SearchSnapshot,type SearchRow} from './bridge';
 import {budgetLine,sourceKey,waitReasonKey,attemptWindowLabel,showTryNowButton,canResume,type BudgetSummary} from './budget';
 import DailyBudgetDialog from './DailyBudgetDialog.svelte';import ImportOfferDialog from './ImportOfferDialog.svelte';
-import {promotedControl,pages,statuses,searchErrors,countdown} from './work-state';
+import {promotedControl,pages,statuses,searchErrors,countdown,pauseTooSoon} from './work-state';
 import {workCheckTotals,madridDayKey} from './statistics';
 import {SerialWrites} from './serial';
 import {PersistedValue} from './persisted-value';import {LatestRequest} from './latest-request';
@@ -32,8 +32,9 @@ let budget=$derived(search?.active&&search.profile===selected?search.appointment
 $effect(()=>{const id=selected;const active=search?.active;let current=true;if(native&&id&&!active)loadBudget(id).then(value=>{if(current){idleBudget=value;idleFor=id;}}).catch(()=>{if(current){idleBudget=null;idleFor=id;}});return()=>{current=false;};});
 onMount(()=>{let disposed=false;let timer:ReturnType<typeof setTimeout>;let statsAt=0;async function poll(){try{const value=await searchSnapshot();if(disposed)return;search=value;now=Date.now();if(value.active&&value.profile)selected=value.profile;if(now-statsAt>5000){statsAt=now;statsRefresh++;}}catch{/* Non-native HTML preview has no worker. */}if(!disposed)timer=setTimeout(poll,500);}void poll();return()=>{disposed=true;clearTimeout(timer);};});
 $effect(()=>{const id=selected;const connected=native;const day=statisticsDay;statsRefresh;let current=true;if(connected&&id)loadStatistics(id).then(value=>{if(current)checkSummary={profile:id,day,...workCheckTotals(value)};}).catch(()=>{if(current)checkSummary=null;});return()=>{current=false;};});
-async function runSearch(){if(!selected||searchBusy)return;searchBusy=true;try{await writes.settled();await startSearch(selected);error='';search=await searchSnapshot();}catch(e){error=searchErrors[String(e)]??'Не удалось запустить поиск';}finally{searchBusy=false;}}
-async function searchCommand(command:'pause'|'resume'|'stop'){try{await controlSearch(command);search=await searchSnapshot();error='';}catch{error='Не удалось изменить состояние поиска';}}
+let startedAt:number|null=null;
+async function runSearch(){if(!selected||searchBusy)return;searchBusy=true;try{await writes.settled();await startSearch(selected);startedAt=Date.now();error='';search=await searchSnapshot();}catch(e){error=searchErrors[String(e)]??'Не удалось запустить поиск';}finally{searchBusy=false;}}
+async function searchCommand(command:'pause'|'resume'|'stop'){if(command==='pause'&&pauseTooSoon(startedAt,Date.now()))return;try{await controlSearch(command);search=await searchSnapshot();error='';}catch{error='Не удалось изменить состояние поиска';}}
 async function commandFailed(e:unknown,fallback:string){const code=String(e);error=searchErrors[code]??fallback;}
 async function tryNowCommand(){try{await tryAppointmentNow();error='';notice='Ближайшая попытка разрешена; остальные тайминги сохранены';}catch(e){await commandFailed(e,'Не удалось изменить состояние поиска');}}
 async function resumeCommand(){try{await resumeSearch();error='';search=await searchSnapshot();}catch(e){await commandFailed(e,'Не удалось изменить состояние поиска');}}
