@@ -17,9 +17,6 @@ use serde_json::{Value, json};
 use std::{path::Path, sync::LazyLock};
 use zeroize::Zeroize;
 const EVENTS: [&str; 4] = ["auth", "office", "booking", "error"];
-/// Every event a channel can ask for; the help event ("the bot waits on a page it does not know") is not among the
-/// defaults, a profile has to choose it.
-const ALLOWED_EVENTS: [&str; 5] = ["auth", "office", "booking", "error", "stuck"];
 fn events() -> Vec<String> {
     EVENTS.iter().map(|s| s.to_string()).collect()
 }
@@ -254,8 +251,8 @@ pub fn editor<B: Backend>(
 }
 fn validate(draft: &NotificationDraft) -> Result<(), EditError> {
     let valid_events = |items: &[String]| {
-        items.len() <= ALLOWED_EVENTS.len()
-            && items.iter().all(|s| ALLOWED_EVENTS.contains(&s.as_str()))
+        items.len() <= 4
+            && items.iter().all(|s| EVENTS.contains(&s.as_str()))
             && items
                 .iter()
                 .collect::<std::collections::BTreeSet<_>>()

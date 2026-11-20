@@ -377,10 +377,12 @@ impl NotificationPlanner {
                 continue;
             };
             let config = &config[channel];
+            // The help message has no switch of its own: it goes where a stopped search goes.
+            let wanted = if event == "stuck" { "error" } else { event };
             if !yes(config, "enabled")
                 || !config["events"]
                     .as_array()
-                    .is_some_and(|events| events.contains(&json!(event)))
+                    .is_some_and(|events| events.contains(&json!(wanted)))
             {
                 continue;
             }

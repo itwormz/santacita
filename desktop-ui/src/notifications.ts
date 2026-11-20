@@ -1,10 +1,6 @@
 // Editable values only. Vault references never cross this UI boundary.
 export interface Recipient {id:string;label:string;type:'private'|'group'|'supergroup'|'channel';username:string}
-export type NotificationEvent='auth'|'office'|'booking'|'error'|'stuck';
-/// The four events that are on by default and that "all important events" stands for; the help event ("the bot waits on a page it does not know") is a separate choice.
-export const IMPORTANT_EVENTS:NotificationEvent[]=['auth','office','booking','error'];
-export function allImportant(values:NotificationEvent[]):boolean{return IMPORTANT_EVENTS.every(event=>values.includes(event));}
-export function setAllImportant(values:NotificationEvent[],checked:boolean):NotificationEvent[]{const extra=values.filter(event=>!IMPORTANT_EVENTS.includes(event));return checked?[...IMPORTANT_EVENTS,...extra]:extra;}
+export type NotificationEvent='auth'|'office'|'booking'|'error';
 export interface NamedValue {name:string;value:string;secret:boolean}
 export interface WebhookConfig {url:string;method:'GET'|'POST';headers:NamedValue[];query:NamedValue[];body_mode:'standard'|'custom';body:string}
 export interface NotificationDraft {telegram:{enabled:boolean;events:NotificationEvent[];recipients:Recipient[];token:string};webhook:{enabled:boolean;events:NotificationEvent[];config:WebhookConfig}}

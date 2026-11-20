@@ -369,8 +369,7 @@
     "Для другого получателя — отправить ему ссылку.": "For another recipient, send them the link.",
     "Окно браузера нельзя поднять в этой среде. Откройте его вручную.": "The browser window cannot be brought forward in this environment. Open it manually.",
     "Импорт старых данных не завершён. Повторите импорт в настройках.": "Importing the previous data is incomplete. Retry the import in Settings.",
-    "Добавьте получателя, чтобы получать уведомления. Токен можно сохранить сейчас.": "Add a recipient to receive notifications. You can save the token now.",
-    "Бот ждёт вас на неизвестной странице": "The bot waits for you on an unknown page"
+    "Добавьте получателя, чтобы получать уведомления. Токен можно сохранить сейчас.": "Add a recipient to receive notifications. You can save the token now."
   },
   "es": {
     "Всего": "Total",
@@ -742,7 +741,6 @@
     "Для другого получателя — отправить ему ссылку.": "Para otro destinatario, enviarle el enlace.",
     "Окно браузера нельзя поднять в этой среде. Откройте его вручную.": "No se puede traer al frente la ventana del navegador en este entorno. Ábrala manualmente.",
     "Импорт старых данных не завершён. Повторите импорт в настройках.": "La importación de los datos anteriores no ha terminado. Repítala en Ajustes.",
-    "Добавьте получателя, чтобы получать уведомления. Токен можно сохранить сейчас.": "Añade un destinatario para recibir notificaciones. Puedes guardar el token ahora.",
-    "Бот ждёт вас на неизвестной странице": "El bot le espera en una página desconocida"
+    "Добавьте получателя, чтобы получать уведомления. Токен можно сохранить сейчас.": "Añade un destinatario para recibir notificaciones. Puedes guardar el token ahora."
   }
 }

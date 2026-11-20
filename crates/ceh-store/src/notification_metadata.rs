@@ -2,9 +2,6 @@
 use crate::{legacy_yaml::RawValue, profile_write::ProfileWriteError};
 use serde::{Deserialize, Serialize};
 const EVENTS: [&str; 4] = ["auth", "office", "booking", "error"];
-/// Every event a channel can ask for; the help event ("the bot waits on a page it does not know") is not among the
-/// defaults, a profile has to choose it.
-const ALLOWED_EVENTS: [&str; 5] = ["auth", "office", "booking", "error", "stuck"];
 fn events() -> Vec<String> {
     EVENTS.iter().map(|s| s.to_string()).collect()
 }
@@ -116,8 +113,8 @@ impl NotificationMetadata {
     }
     pub fn validate(&self) -> Result<(), ProfileWriteError> {
         let valid = [&self.telegram.channel, &self.webhook].iter().all(|c| {
-            c.events.len() <= ALLOWED_EVENTS.len()
-                && c.events.iter().all(|s| ALLOWED_EVENTS.contains(&s.as_str()))
+            c.events.len() <= 4
+                && c.events.iter().all(|s| EVENTS.contains(&s.as_str()))
                 && c.events
                     .iter()
                     .collect::<std::collections::BTreeSet<_>>()

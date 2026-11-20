@@ -124,7 +124,8 @@ fn stuck_state(document: &str, seconds: u64, reason: &str) -> Value {
     json!({"run_id":"r","document":document,"mode":"manual","screen":"","browser":"Chrome","service":"Toma de huellas / TIE","stuck_seconds":seconds,"hold_reason":reason})
 }
 fn stuck_config() -> Value {
-    json!({"telegram":{"enabled":true,"events":["stuck"],"recipients":[{"id":"1"}],"secret_ref":"a"},"webhook":{"enabled":true,"events":["stuck"],"secret_ref":"b"}})
+    // No event of its own: it goes to the channels that ask for a stopped search.
+    json!({"telegram":{"enabled":true,"events":["error"],"recipients":[{"id":"1"}],"secret_ref":"a"},"webhook":{"enabled":true,"events":["error"],"secret_ref":"b"}})
 }
 
 #[test]
@@ -165,12 +166,12 @@ fn the_help_message_says_what_the_bot_met_what_to_do_and_that_it_goes_on_by_itse
 }
 
 #[test]
-fn the_help_message_is_off_unless_chosen_and_translated() {
-    assert!(!ceh_services::notifications::defaults()["telegram"]["events"].as_array().unwrap().contains(&json!("stuck")), "off by default");
-    // A channel that did not choose it gets nothing.
-    let config = json!({"telegram":{"enabled":true,"events":["auth","office","booking","error"],"recipients":[{"id":"1"}],"secret_ref":"a"}});
+fn the_help_message_follows_the_stopped_search_setting_and_is_translated() {
+    // It is not an event of its own: the default events are the four they were, and it goes where "error" goes.
+    assert_eq!(ceh_services::notifications::defaults()["telegram"]["events"], json!(["auth", "office", "booking", "error"]));
+    let without_stop = json!({"telegram":{"enabled":true,"events":["auth","office","booking"],"recipients":[{"id":"1"}],"secret_ref":"a"}});
     let mut planner = NotificationPlanner::default();
-    assert!(planner.observe("profile", "Demo", "Barcelona", &stuck_state("d", 120, "no_handler_for_page"), "ru", &config).unwrap().is_empty());
+    assert!(planner.observe("profile", "Demo", "Barcelona", &stuck_state("d", 120, "no_handler_for_page"), "ru", &without_stop).unwrap().is_empty(), "a channel that does not ask for stops gets nothing");
     for language in ["en", "es"] {
         for reason in ["no_handler_for_page", "dispatched_page_unchanged", "office_count_zero"] {
             let mut planner = NotificationPlanner::default();

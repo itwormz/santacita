@@ -57,7 +57,7 @@ macOS: arrastre SantaCita a Applications. No está notarizada; si se bloquea, us
 
 ## 🔔 Notificaciones
 
-Los perfiles admiten sonido, Telegram y webhook. Telegram se configura con token de bot, destinatarios y eventos: acceso, elección de oficina, elección de cita, búsqueda detenida y, si se elige, una página que el bot no reconoce. El webhook requiere dirección HTTPS y eventos; cabeceras y plantilla son opcionales.
+Los perfiles admiten sonido, Telegram y webhook. Telegram se configura con token de bot, destinatarios y eventos: acceso, elección de oficina, elección de cita, búsqueda detenida (también una página que el bot no reconoce). El webhook requiere dirección HTTPS y eventos; cabeceras y plantilla son opcionales.
 
 Los secretos se guardan en el almacén de credenciales del sistema. macOS puede pedir la contraseña del Llavero para acceder al token de Telegram.
 

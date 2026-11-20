@@ -57,7 +57,7 @@ macOS: drag SantaCita into Applications. The app is not notarized; if blocked, u
 
 ## 🔔 Notifications
 
-Profiles support sound, Telegram and webhooks. Set up Telegram with a bot token, recipients and events: sign-in, office, booking, a stopped search, and, if you choose it, a page the bot does not recognize. A webhook needs an HTTPS address and events; headers and a template are optional.
+Profiles support sound, Telegram and webhooks. Set up Telegram with a bot token, recipients and events: sign-in, office, booking, and a stopped search (including a page the bot does not recognize). A webhook needs an HTTPS address and events; headers and a template are optional.
 
 Secrets stay in the system credential store. macOS may ask for the Keychain password to access the Telegram token.
 
