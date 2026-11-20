@@ -241,12 +241,12 @@ pub fn apply_icon(window: &tauri::WebviewWindow, status: IconStatus) -> Result<(
             Ok(())
         };
         if objc2::MainThreadMarker::new().is_some() {
-            return set();
+            return crate::window_theme::guarded("icon_unavailable", set);
         }
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         window
             .run_on_main_thread(move || {
-                let _ = tx.send(set());
+                let _ = tx.send(crate::window_theme::guarded("icon_unavailable", set));
             })
             .map_err(|_| "icon_unavailable")?;
         rx.recv_timeout(std::time::Duration::from_secs(2))

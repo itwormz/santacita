@@ -49,7 +49,7 @@ rusqlite.workspace = true
 zip = { version = "=9.4.1", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = {version="=0.6.5",optional=true}
+objc2 = {version="=0.6.5",optional=true,features=["exception"]}
 objc2-app-kit = {version="=0.3.2",optional=true,default-features=false,features= ["libc", "NSRunningApplication", "NSApplication", "NSImage", "NSAppearance", "NSWindow", "NSResponder"] }
 objc2-foundation = {version="=0.3.2",optional=true,default-features=false,features= ["NSData"] }
 
