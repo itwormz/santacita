@@ -31,7 +31,7 @@ fn uuid_like() -> [u8; 8] {
     let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
     (n.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)).to_le_bytes()
 }
-fn once(headless: bool, persistent: bool, unfocus: bool, burst: bool) -> Result<String, String> {
+fn once(headless: bool, persistent: bool, unfocus: bool, burst: bool, bootstrap: Option<[f64; 2]>) -> Result<String, String> {
     let installation = FirefoxInstallation::discover().map_err(|e| format!("{e:?}"))?;
     let runtime = Path::new(".local/builds/work/live-probe");
     std::fs::create_dir_all(runtime).map_err(|e| e.to_string())?;
@@ -44,6 +44,9 @@ fn once(headless: bool, persistent: bool, unfocus: bool, burst: bool) -> Result<
     let mut timings = AssistTimings::default();
     if burst {
         timings = ceh_core::timings::parse_timings(&serde_json::json!({"typing_ms":[0.0,0.0]})).unwrap();
+    }
+    if let Some([low, high]) = bootstrap {
+        timings = ceh_core::timings::parse_timings(&serde_json::json!({"bootstrap_seconds":[low, high]})).map_err(|e| format!("{e:?}"))?;
     }
     let samples = SessionSamples { first_bootstrap: unit(), second_bootstrap: unit(), reload: unit(), contact_typing: unit(), typing: unit() };
     let mut driver = SessionDriver::with_samples(&context, session, profile(), timings.clone(), gate, samples).map_err(|e| format!("{e:?}"))?;
@@ -87,7 +90,7 @@ fn once(headless: bool, persistent: bool, unfocus: bool, burst: bool) -> Result<
         std::thread::sleep(Duration::from_millis(200));
     };
     let _ = browser.stop();
-    Ok(format!("{outcome} | {}", trail.join(" > ")))
+    Ok(format!("{outcome} after {:.1}s | {}", clock.elapsed().as_secs_f64(), trail.join(" > ")))
 }
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -95,10 +98,15 @@ fn main() {
     let persistent = args.iter().any(|a| a == "--persistent");
     let unfocus = args.iter().any(|a| a == "--unfocus");
     let burst = args.iter().any(|a| a == "--burst");
+    // --bootstrap LOW,HIGH: the two start waits in seconds (default 5,8).
+    let bootstrap: Option<[f64; 2]> = args.iter().position(|a| a == "--bootstrap").and_then(|i| args.get(i + 1)).and_then(|v| {
+        let (a, b) = v.split_once(',')?;
+        Some([a.parse().ok()?, b.parse().ok()?])
+    });
     let runs: usize = args.iter().position(|a| a == "--runs").and_then(|i| args.get(i + 1)).and_then(|v| v.parse().ok()).unwrap_or(1);
     let pause: u64 = args.iter().position(|a| a == "--pause").and_then(|i| args.get(i + 1)).and_then(|v| v.parse().ok()).unwrap_or(45);
     for run in 1..=runs {
-        println!("run {run}/{runs}: {}", once(headless, persistent, unfocus, burst).unwrap_or_else(|e| format!("error {e}")));
+        println!("run {run}/{runs}: {}", once(headless, persistent, unfocus, burst, bootstrap).unwrap_or_else(|e| format!("error {e}")));
         if run < runs { std::thread::sleep(Duration::from_secs(pause)); }
     }
 }

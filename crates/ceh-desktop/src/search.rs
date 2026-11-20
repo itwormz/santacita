@@ -1204,7 +1204,8 @@ fn run_owned(
                         / u64::MAX as f64;
                     let pause = timings.sample(ceh_core::timings::TimingKind::Action,sample).map_err(|_|"profile_invalid")?;
                     let document = before.observation.document.as_str().to_owned();
-                    let reading = if read_document.as_deref() == Some(document.as_str()) {
+                    let reading = if read_document.as_deref() == Some(document.as_str()) || only_cookie_banner(&effects) {
+                        // A cookie banner is clicked as soon as it is seen; the page is read before its own step.
                         0.0
                     } else {
                         read_document = Some(document);
@@ -1583,6 +1584,15 @@ mod tests {
         assert!(state.active, "ending the search itself is another step");
     }
     #[test]
+    fn a_step_that_only_accepts_the_cookie_banner_skips_the_reading_pause() {
+        use ceh_core::model::{DocumentGuard, DocumentId, SessionId};
+        let guard = DocumentGuard { session: SessionId::new("s").unwrap(), epoch: 1, document: DocumentId::new("d").unwrap(), expected_page: PageKind::Province };
+        assert!(only_cookie_banner(&[FlowEffect::AcceptCookies { guard: guard.clone() }]));
+        assert!(!only_cookie_banner(&[]), "no effect is not a banner");
+        assert!(!only_cookie_banner(&[FlowEffect::Alert]));
+        assert!(!only_cookie_banner(&[FlowEffect::AcceptCookies { guard: guard.clone() }, FlowEffect::Prepare { guard, action: ceh_core::model::ActionKind::Province }]), "a page step is read first");
+    }
+    #[test]
     fn held_attention_does_not_restart_active_time_on_empty_polls() {
         assert!(attention_state(false, false, false, &[FlowEffect::Alert]));
         assert!(attention_state(true, false, false, &[]));
@@ -1842,4 +1852,9 @@ mod report_saving_tests {
         assert_eq!(state.lock().unwrap().report_id.as_deref(), Some(id.as_str()));
         crate::session_report::begin();
     }
+}
+
+/// True when the step does nothing but accept the cookie banner.
+pub(crate) fn only_cookie_banner(effects: &[FlowEffect]) -> bool {
+    !effects.is_empty() && effects.iter().all(|effect| matches!(effect, FlowEffect::AcceptCookies { .. }))
 }
