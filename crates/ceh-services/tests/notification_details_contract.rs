@@ -20,9 +20,9 @@ fn error_state(reason: &str) -> Value {
 
 #[test]
 fn a_sign_in_message_names_the_method_and_what_to_do() {
-    let by_certificate = telegram("ru", auth_state("certificate"));
+    let first_message = telegram("ru", auth_state("certificate"));
     for line in ["🔐 Нужен вход: сертификат", "Профиль: Barcelona TIE", "Услуга: Toma de huellas / TIE · Barcelona", "Что сделать: в окне Chrome выберите сертификат и подтвердите.", "Поиск продолжится сам после входа."] {
-        assert!(by_certificate.contains(line), "missing {line:?} in:\n{by_certificate}");
+        assert!(first_message.contains(line), "missing {line:?} in:\n{first_message}");
     }
     assert!(telegram("ru", auth_state("movil")).contains("Нужен вход: Cl@ve Móvil") && telegram("ru", auth_state("movil")).contains("подтвердите вход в приложении Cl@ve на телефоне"));
     assert!(telegram("ru", auth_state("permanente")).contains("Нужен вход: Cl@ve Permanente") && telegram("ru", auth_state("permanente")).contains("введите PIN Cl@ve в окне Chrome"));
