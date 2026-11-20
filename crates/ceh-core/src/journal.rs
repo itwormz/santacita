@@ -87,7 +87,7 @@ pub struct JournalRow {
 fn error(kind: PageKind) -> bool {
     matches!(
         kind,
-        PageKind::Expired | PageKind::ServerError | PageKind::Blocked | PageKind::RateLimited
+        PageKind::Expired | PageKind::ServerError | PageKind::Blocked | PageKind::RateLimited | PageKind::Unreachable
     )
 }
 fn no_slots(kind: PageKind) -> bool {

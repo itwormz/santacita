@@ -123,6 +123,11 @@ pub struct ScriptSources {
     pub base: Option<String>,
     pub sources: Vec<String>,
 }
+/// Set the modification time of a session directory to `now` (seconds since the epoch).
+fn touch(path: &Path, now: f64) -> std::io::Result<()> {
+    let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(now as u64);
+    std::fs::set_times(path, std::fs::FileTimes::new().set_modified(at))
+}
 pub struct ScriptArchive {
     root: PathBuf,
     redactor: Sanitizer,
@@ -182,7 +187,7 @@ impl ScriptArchive {
         directory(&self.root.join("sessions"))?;
         let current = self.root.join("sessions").join(name);
         directory(&current)?;
-        filetime::set_file_mtime(&current, filetime::FileTime::from_unix_time(now as i64, 0))?;
+        touch(&current, now)?;
         if !cleanup {
             return Ok(current);
         }
@@ -316,7 +321,7 @@ impl ScriptArchive {
             &session.join("resources.json"),
             &serde_json::to_vec_pretty(&records).map_err(|_| DiagnosticError::Invalid)?,
         )?;
-        filetime::set_file_mtime(session, filetime::FileTime::from_unix_time(now as i64, 0))?;
+        touch(session, now)?;
         Ok(Some(digest))
     }
     pub fn references(

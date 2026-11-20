@@ -137,6 +137,7 @@ impl StatisticsLedger {
                 | PageKind::RateLimited
                 | PageKind::Blocked
                 | PageKind::Expired
+                | PageKind::Unreachable
                 | PageKind::Loading
                 | PageKind::Unknown
         ) {

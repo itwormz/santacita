@@ -65,6 +65,10 @@ Windows requires .NET 8 and WiX **4.0.6** (`dotnet tool install --global wix --v
 
 Linux requires `libwebkit2gtk-4.1-dev`, `build-essential`, `libssl-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`, `libfuse2` and `file` to build. Ubuntu 22.04 is the baseline. CI extracts the AppImage and checks the executable and desktop entry. This is not a native GUI or browser test.
 
+## Versions on `dev`
+
+Every push to `dev` carries `<last release>-dev.N` (N counts the pushes since that release); a release keeps the plain version from `.github/release-version`. Before pushing, run `node packaging/release.mjs dev-bump` (or `dev-bump N`): it writes the version into `Cargo.toml`, `Cargo.lock` and the two frontend `package*.json` files and nothing else. GitHub builds nothing from `dev`; the tests run there and packages are built only from a release tag. `node packaging/release.mjs prepare` for the next release starts from the dev version.
+
 ## Workflows
 
 - **Tests:** Rust workspace, frontend tests and Svelte checks for code changes. Documentation-only changes use local-link and tooling checks; failed/unknown scope classification runs full checks.

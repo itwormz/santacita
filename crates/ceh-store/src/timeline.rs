@@ -108,6 +108,7 @@ fn state(v: &Value) -> &'static str {
         "unknown",
         "rate_limit",
         "loading",
+        "unreachable",
     ]
     .iter()
     .any(|word| stage.contains(word) || kind.contains(word))
@@ -162,6 +163,7 @@ fn availability(rows: &[Value]) -> Result<Vec<Value>, StoreError> {
                         "blocked",
                         "server_error",
                         "rate_limited",
+                        "unreachable",
                         "unknown",
                     ]
                     .contains(&stage)))
@@ -582,6 +584,7 @@ fn run(rows: &[Value], metadata: &Value, cap: Option<Time>) -> Result<Vec<Value>
                 "blocked",
                 "server_error",
                 "rate_limited",
+                "unreachable",
                 "unknown",
             ]
             .contains(&text(&rows[i], "stage"))

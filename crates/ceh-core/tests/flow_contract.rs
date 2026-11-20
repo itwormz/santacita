@@ -643,11 +643,12 @@ fn loading_timeout_waits_then_restarts_without_replaying_form() {
     );
     assert_eq!(
         e.observe(o.clone(), 45_000).unwrap(),
-        vec![FlowEffect::WaitUntil(75_000)]
+        vec![FlowEffect::WaitUntil(345_000)],
+        "the page timeout (45 s), then the fixed wait for a site that does not open (5 minutes by default)"
     );
-    assert!(e.observe(o.clone(), 74_999).unwrap().is_empty());
+    assert!(e.observe(o.clone(), 344_999).unwrap().is_empty());
     assert!(matches!(
-        &e.observe(o, 75_000).unwrap()[0],
+        &e.observe(o, 345_000).unwrap()[0],
         FlowEffect::Recover {
             action: ceh_core::recovery::RecoveryAction::Restart {
                 clear_profile: false,

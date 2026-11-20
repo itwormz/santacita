@@ -245,8 +245,11 @@ impl SearchController {
                 province: profile.province.clone(),
                 language,
                 config: notification_config,
-                browser: "Firefox".into(),
+                browser: crate::notification_worker::browser_label(&profile.browser).into(),
                 run_id: uuid::Uuid::new_v4().to_string(),
+                service: crate::notification_worker::service_label(&profile.procedure),
+                access: crate::notification_worker::access_label(&profile.access_mode, &profile.clave_method),
+                timezone: profile.timezone.clone(),
             },
             prepared,
             move |intent, prepared| ceh_services::notifications::deliver_intent_prepared(intent, prepared, &http),
@@ -311,9 +314,17 @@ impl SearchController {
                     });
                     let _ = update(&state, |s| s.report_id = id);
                 }
-                if result.is_err() && !requested_stop && !busy {
+                if let Err(code) = &result
+                    && !requested_stop
+                    && !busy
+                {
+                    // Where the search stopped and how far it got, besides the reason (fixed names and a number).
+                    let (page, checks) = state.lock().map(|s| (s.page, s.counters.checks)).unwrap_or((None, 0));
                     notifications.observe(ceh_services::notifications::NotificationStateInput {
                         failed: true,
+                        reason: Some((*code).to_owned()),
+                        stop_page: page,
+                        checks: Some(checks),
                         ..Default::default()
                     });
                 }
@@ -834,7 +845,13 @@ fn run_owned(
         browser.connection(), &mut driver, &context);
     // Only the new owned about:blank context receives this initial GET.
     let navigated = browser.connection().call("browsingContext.navigate",json!({"context":context,"url":"https://icp.administracionelectronica.gob.es/icpplus/index.html","wait":"none"}));
-    if navigated.is_err() {
+    let site_down = navigated.is_err() && {
+        let deferred = browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred;
+        crate::site_did_not_open(crate::navigation_failure_settled(deferred, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)).filter(|_| !cancelled.load(Ordering::Acquire)))
+    };
+    // A site that did not open leaves the browser's error page in the window: the flow recognizes it and tries again
+    // after the profile's wait, instead of the search ending here.
+    if navigated.is_err() && !site_down {
         let deferred = browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred;
         return match crate::navigation_failure_settled(deferred, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)).filter(|_| !cancelled.load(Ordering::Acquire)) {
             // The window was closed while the page loaded: a stop, as when it closes later.
@@ -849,6 +866,8 @@ fn run_owned(
         let mut wait = false;
         let mut pending_report = crate::session_report::PendingReport::default();
         let mut manual = false;
+        // How long the search has waited on this page for a person (the "help" notification asks after a minute).
+        let mut hold_watch = crate::notification_worker::HoldWatch::default();
         let mut operation = 0u64;
         let mut read_failures = 0u32;
         let mut retry_at = Instant::now();
@@ -996,6 +1015,10 @@ fn run_owned(
             }
             publish_budget(state, &mut budget, crate::current_time()?, &appointment_policy, observer.hot_retry())?;
             let paused = driver.control().mode() == ControlMode::Paused;
+            if paused {
+                // A pause ends the hold being timed: after it the one-minute count starts again.
+                hold_watch = crate::notification_worker::HoldWatch::default();
+            }
             if !paused && !manual && (wait || Instant::now() < retry_at) && Instant::now() >= idle_at {
                 let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().map_err(|_| "search_unavailable")?);
                 idle_at = Instant::now() + Duration::from_millis(driver.idle_motion(browser.connection(), &context, seed).unwrap_or(4000));
@@ -1149,6 +1172,8 @@ fn run_owned(
                     }
                 })?;
                 // Telegram's booking text waits for the public details (read right after the handoff below).
+                let held = effects.contains(&FlowEffect::Hold) || before.report["flow"]["phase"] == "held";
+                let stuck_seconds = hold_watch.update(before.observation.document.as_str(), held, mono());
                 notifications.observe(ceh_services::notifications::NotificationStateInput {
                     document: Some(before.observation.document.as_str().to_owned()),
                     page: before.observation.kind,
@@ -1157,6 +1182,8 @@ fn run_owned(
                     paused,
                     offices: before.offices.clone(),
                     booking_details_pending: manual,
+                    stuck_seconds,
+                    hold_reason: before.report["flow"]["hold_reason"].as_str().map(str::to_owned),
                     ..Default::default()
                 });
                 // UI/store/handoff already published before actions or optional public enrichment.
@@ -1187,7 +1214,8 @@ fn run_owned(
                         / u64::MAX as f64;
                     let pause = timings.sample(ceh_core::timings::TimingKind::Action,sample).map_err(|_|"profile_invalid")?;
                     let document = before.observation.document.as_str().to_owned();
-                    let reading = if read_document.as_deref() == Some(document.as_str()) {
+                    let reading = if read_document.as_deref() == Some(document.as_str()) || only_cookie_banner(&effects) {
+                        // A cookie banner is clicked as soon as it is seen; the page is read before its own step.
                         0.0
                     } else {
                         read_document = Some(document);
@@ -1260,8 +1288,11 @@ fn run_owned(
                         std::thread::sleep(Duration::from_millis(500));
                         continue;
                     }
-                    Err(_) => {
-                        diagnostics.step(crate::session_timeline::step_error_row(&effects, action_delay_ms, executing_since.elapsed().as_millis() as u64, "browser_action_failed"));
+                    Err(error) => {
+                        // Which kind of error ended the action goes into the report as a fixed name.
+                        let mut row = crate::session_timeline::step_error_row(&effects, action_delay_ms, executing_since.elapsed().as_millis() as u64, "browser_action_failed");
+                        row["reason"] = serde_json::json!(error.code());
+                        diagnostics.step(row);
                         // A click that never completed while the window was hidden says so instead of a generic failure.
                         if browser.connection().cdp_target().is_none() && window_hidden(browser.connection(), &context) {
                             return Err("browser_in_background");
@@ -1412,15 +1443,15 @@ fn run_owned(
                             diagnostics.rebind(&mut driver);
                             // The new gate starts a new control authority; the presenter follows it.
                             presenter = crate::session_presentation::SessionPresentation::new(session.clone(), (timings.alert_seconds()*1000.).ceil() as u64);
+                            // A rejected navigation with the window still there means the site did not open: the browser's
+                            // error page is in the window and the flow tries again after the profile's wait.
                             if browser
                                 .connection()
                                 .call("browsingContext.navigate", json!({"context":context,"url":ceh_browser::recovery_navigation::ENTRY_URL,"wait":"none"}))
                                 .is_err()
+                                && !browser.page_open()
                             {
-                                if !browser.page_open() {
-                                    return Ok(SessionEnd::Finished);
-                                }
-                                return Err("browser_navigation_failed");
+                                return Ok(SessionEnd::Finished);
                             }
                             wait = false;
                             retry_at = Instant::now();
@@ -1561,6 +1592,15 @@ mod tests {
         assert!(!state.attention && !state.manual && state.browser_pid.is_none());
         assert!(state.page.is_none(), "the page of a window that is gone is not shown any more");
         assert!(state.active, "ending the search itself is another step");
+    }
+    #[test]
+    fn a_step_that_only_accepts_the_cookie_banner_skips_the_reading_pause() {
+        use ceh_core::model::{DocumentGuard, DocumentId, SessionId};
+        let guard = DocumentGuard { session: SessionId::new("s").unwrap(), epoch: 1, document: DocumentId::new("d").unwrap(), expected_page: PageKind::Province };
+        assert!(only_cookie_banner(&[FlowEffect::AcceptCookies { guard: guard.clone() }]));
+        assert!(!only_cookie_banner(&[]), "no effect is not a banner");
+        assert!(!only_cookie_banner(&[FlowEffect::Alert]));
+        assert!(!only_cookie_banner(&[FlowEffect::AcceptCookies { guard: guard.clone() }, FlowEffect::Prepare { guard, action: ceh_core::model::ActionKind::Province }]), "a page step is read first");
     }
     #[test]
     fn held_attention_does_not_restart_active_time_on_empty_polls() {
@@ -1822,4 +1862,9 @@ mod report_saving_tests {
         assert_eq!(state.lock().unwrap().report_id.as_deref(), Some(id.as_str()));
         crate::session_report::begin();
     }
+}
+
+/// True when the step does nothing but accept the cookie banner.
+pub(crate) fn only_cookie_banner(effects: &[FlowEffect]) -> bool {
+    !effects.is_empty() && effects.iter().all(|effect| matches!(effect, FlowEffect::AcceptCookies { .. }))
 }

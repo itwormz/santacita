@@ -21,3 +21,49 @@ test('the browser button is promoted while the user must act or a stopped search
  assert.equal(promotedControl({...idle,active:true,attention:true,browser_pid:7}),'browser');
  assert.equal(promotedControl({...idle,browser_pid:7}),'browser','a browser kept after Stop (retained)');
 });
+
+test('a pause right after the start is a second click on the same button, not a request to pause',async()=>{
+ const {pauseTooSoon,PAUSE_GRACE_MS}=await import('../src/work-state.ts');
+ assert.equal(pauseTooSoon(null,5000),false,'nothing was started from here');
+ assert.equal(pauseTooSoon(1000,1000+253),true,'the double click that paused a search 253 ms after its start');
+ assert.equal(pauseTooSoon(1000,1000+PAUSE_GRACE_MS-1),true);
+ assert.equal(pauseTooSoon(1000,1000+PAUSE_GRACE_MS),false,'a pause after the grace time is meant');
+ assert.equal(pauseTooSoon(2000,1000),false,'a clock that went back never blocks');
+});
+
+test('after a click on pause or resume the window shows it as taken until the worker has applied it',async()=>{
+ const {pendingControl,PENDING_CONTROL_MS}=await import('../src/work-state.ts');
+ const running={active:true,paused:false,manual:false},paused={active:true,paused:true,manual:false};
+ assert.equal(pendingControl(null,running,5000),null);
+ assert.equal(pendingControl({command:'pause',since:1000},running,1500),'pause','not paused yet: the click is still being carried out');
+ assert.equal(pendingControl({command:'pause',since:1000},paused,1500),null,'paused: the real state shows');
+ assert.equal(pendingControl({command:'resume',since:1000},paused,1500),'resume');
+ assert.equal(pendingControl({command:'resume',since:1000},running,1500),null);
+ assert.equal(pendingControl({command:'pause',since:1000},{active:false,paused:false,manual:false},1500),null,'the search ended');
+ assert.equal(pendingControl({command:'pause',since:1000},{active:true,paused:false,manual:true},1500),null,'the person took the browser');
+ assert.equal(pendingControl({command:'pause',since:1000},running,1000+PENDING_CONTROL_MS),null,'never stuck: the real state shows after a while');
+ assert.equal(pendingControl({command:'pause',since:1000},null,1500),null);
+});
+
+test('every command of the search shows as taken at once and ends when the real state shows it',async()=>{
+ const {pendingControl,PENDING_CONTROL_MS,PENDING_STOP_MS}=await import('../src/work-state.ts');
+ const idle={active:false,paused:false,manual:false,browser_pid:null,error:null};
+ const opening={active:true,paused:false,manual:false,browser_pid:null,error:null};
+ const open={...opening,browser_pid:4242};
+ // Start: from the click until the browser is open, however long the preparation and the browser take.
+ assert.equal(pendingControl({command:'start',since:1000},idle,1100),'start','the command has not even returned yet');
+ assert.equal(pendingControl({command:'start',since:1000},opening,9000),'start','the browser is still starting');
+ assert.equal(pendingControl({command:'start',since:1000},open,9000),null,'the browser is open');
+ assert.equal(pendingControl({command:'start',since:1000},{...opening,error:'browser_start_failed'},9000),null,'it failed');
+ assert.equal(pendingControl({command:'start',since:1000},idle,1000+3500),null,'it ended again without a browser');
+ assert.equal(pendingControl({command:'start',since:1000},opening,1000+PENDING_STOP_MS),null,'never stuck');
+ // Stop: until the search is over (it may wait for the browser to close).
+ assert.equal(pendingControl({command:'stop',since:1000},open,30000),'stop');
+ assert.equal(pendingControl({command:'stop',since:1000},idle,30000),null);
+ assert.equal(pendingControl({command:'stop',since:1000},open,1000+PENDING_STOP_MS),null);
+ // Taking the browser back from the person: until the search is no longer manual.
+ const manual={...open,manual:true};
+ assert.equal(pendingControl({command:'takeover',since:1000},manual,2000),'takeover');
+ assert.equal(pendingControl({command:'takeover',since:1000},open,2000),null);
+ assert.equal(pendingControl({command:'takeover',since:1000},manual,1000+PENDING_CONTROL_MS),null);
+});

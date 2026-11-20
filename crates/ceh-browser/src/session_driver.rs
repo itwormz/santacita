@@ -11,6 +11,9 @@ use ceh_core::{
     preparation::{SessionPreparation,PreparationDecision},
 };
 use std::time::{Duration, Instant};
+/// A start wait may end early only when the page's network has been silent this long: the protection script sends
+/// its last request about a second after the page shows, and nothing follows it.
+const READY_QUIET: Duration = Duration::from_millis(1200);
 /// Independent unit samples are supplied by the runtime; the policy stays deterministic.
 #[derive(Clone,Copy)]
 pub struct SessionSamples{pub first_bootstrap:f64,pub second_bootstrap:f64,pub reload:f64,pub contact_typing:f64,pub typing:f64}
@@ -158,7 +161,7 @@ impl SessionDriver {
     }
     pub fn with_samples(context:&str,session:SessionId,profile:ProfileDraft,timings:AssistTimings,gate:DispatchGate,samples:SessionSamples)->Result<Self,BrowserError>{
         let sampled=|kind,unit|timings.sample(kind,unit).map_err(|_|BrowserError::Unsupported);
-        let preparation=SessionPreparation::new((sampled(TimingKind::Bootstrap,samples.first_bootstrap)?*1000.).ceil() as u64,(sampled(TimingKind::Bootstrap,samples.second_bootstrap)?*1000.).ceil() as u64,(timings.navigation_seconds()*1000.).ceil() as u64).map_err(|_|BrowserError::Unsupported)?;
+        let preparation=SessionPreparation::new((sampled(TimingKind::Bootstrap,samples.first_bootstrap)?*1000.).ceil() as u64,(sampled(TimingKind::Bootstrap,samples.second_bootstrap)?*1000.).ceil() as u64,(timings.navigation_seconds()*1000.).ceil() as u64).map_err(|_|BrowserError::Unsupported)?.without_reload();
         let reload_sample=sampled(TimingKind::Reload,samples.reload)?;
         let contact_typing_ms=sampled(TimingKind::ContactTyping,samples.contact_typing)?;
         let typing_ms=sampled(TimingKind::Typing,samples.typing)?;
@@ -362,7 +365,11 @@ impl SessionDriver {
         {
             self.pending = None;
         }
-        let preparation=self.preparation.observe_quiet(&page.observation,page.page.snapshot.official,now,self.observer.network_quiet()).map_err(|_|BrowserError::InvalidControl)?;
+        // A start wait may end at its floor once the protection script has finished its checks (cookie names only).
+        let ready=self.preparation.wants_signal(now)&&self.observer.network_quiet_for()>=READY_QUIET&&{let cookie=crate::evidence::read_cookie_names(connection).is_some_and(|names|crate::evidence::challenge_cookies_ready(&names));
+            // The cookie calls took time: look at the network again once what arrived meanwhile is taken in.
+            cookie&&self.observer.drain_events(connection).is_ok()&&self.observer.network_quiet_for()>=READY_QUIET};
+        let preparation=self.preparation.observe_ready(&page.observation,page.page.snapshot.official,now,self.observer.network_quiet(),ready).map_err(|_|BrowserError::InvalidControl)?;
         if preparation!=PreparationDecision::Continue{
             let reload=preparation==PreparationDecision::ReloadGet;
             let effects=match preparation{PreparationDecision::WaitUntil(deadline)=>vec![FlowEffect::WaitUntil(deadline)],PreparationDecision::Hold=>vec![FlowEffect::Hold],_=>vec![FlowEffect::ReobserveAt(now)]};

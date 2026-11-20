@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.4.5
+
+- Fix the crash when you press *Browser* on macOS 13 and older: bringing the browser window forward used calls that exist only on macOS 14, and the app closed. The app now checks that the system has them, and an error in a system call no longer ends the app.
+- Fix a search that stopped working when the site's error page went away while the app was about to click its recovery button: the click is dropped and the page is read again.
+- Make typing faster: a field takes at most 70 % longer than the profile's typing delay, where the human-like rhythm had made it several times slower.
+- Say more in the Telegram messages. A sign-in message names the way you sign in (certificate, Cl@ve Móvil, Cl@ve Permanente) and what to do; a stop message names the service, the time, the number of checks, the kind of page where the search stopped and the reason. A page the bot does not recognize is announced after a minute with what to do, and the bot goes on by itself when it recognizes the page; it is sent to the channels that have a stopped search enabled. Office and booking messages are unchanged.
+- Keep the place of a panic for the next start: if the app ever panics, the *Diagnostic report* names the code location (never a message) after the next start.
+- Handle a site that does not open. The browser's own error page (no connection, name not found, timeout) is recognized in Firefox and Chrome and shown as "Site unavailable"; the search no longer ends with "could not open the site" but tries again after one fixed pause, 5 minutes by default (1–30 minutes in a profile's timings, "Site does not open"). A page that did not load in time waits the same pause.
+- Shorten the waits between pages. A start wait now ends as soon as the site has finished its own checks instead of after the full time, the explicit reload after the first start wait is gone, the pause for reading a page is shorter, and the cookie banner is accepted without that pause. The first click comes after about 10 s instead of about 27 s.
+- Make every control answer at once. Start, pause, resume, stop and "continue search" show "Starting…", "Pausing…", "Resuming…" or "Stopping…" immediately; a double click on *Start* no longer pauses the search it started; the menu button next to *Browser* opens at the first click, also while a browser is starting.
+- Build with Rust 1.100 and update the bundled libraries (Tauri, zip, zeroize, uuid, yaml-rust2, the interface packages). No behaviour changes are expected from the update.
+
 ## 0.4.4
 
 - Fix the search after you close the browser: closing the window, even on the first page, now ends the search as a stop, without the "search stopped with an error" message and an error report, and the window no longer keeps showing the page that was closed. Firefox on Windows needs a few seconds to quit, so the stop can take up to about 20 seconds.

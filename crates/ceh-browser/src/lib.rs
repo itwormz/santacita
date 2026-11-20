@@ -54,6 +54,24 @@ pub enum BrowserError {
     Unsupported,
 }
 
+impl BrowserError {
+    /// A fixed name for the report: which kind of error ended an action, never page or user data.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NoObservation => "no_observation",
+            Self::Paused => "paused",
+            Self::StaleCommand => "stale_command",
+            Self::DuplicateCommand => "duplicate_command",
+            Self::InvalidControl => "invalid_control",
+            Self::EndOfReplay => "end_of_replay",
+            Self::WrongSession => "wrong_session",
+            Self::StaleDocument => "stale_document",
+            Self::ManualOwnership => "manual_ownership",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
+
 pub use ceh_core::model::DispatchOutcome;
 
 pub trait BrowserPort {
@@ -216,4 +234,29 @@ mod firefox_certificates;
 pub fn skip_missing_browser(name: &str) {
     assert!(std::env::var_os("CEH_REQUIRE_BROWSERS").is_none() && std::env::var_os("CEH_REQUIRE_BROWSER").is_none(), "{name} is required but not installed");
     eprintln!("SKIPPED: {name} not installed");
+}
+
+#[cfg(test)]
+mod browser_error_code_tests {
+    use super::BrowserError::{self, *};
+
+    #[test]
+    fn every_browser_error_has_a_fixed_code_for_the_report() {
+        let all = [
+            (NoObservation, "no_observation"),
+            (Paused, "paused"),
+            (StaleCommand, "stale_command"),
+            (DuplicateCommand, "duplicate_command"),
+            (InvalidControl, "invalid_control"),
+            (EndOfReplay, "end_of_replay"),
+            (WrongSession, "wrong_session"),
+            (StaleDocument, "stale_document"),
+            (ManualOwnership, "manual_ownership"),
+            (Unsupported, "unsupported"),
+        ];
+        for (error, code) in all {
+            assert_eq!(BrowserError::code(&error), code);
+            assert!(code.chars().all(|c| c.is_ascii_lowercase() || c == '_'), "{code} is a plain name");
+        }
+    }
 }

@@ -331,3 +331,29 @@ fn unsent_no_slots_aliases_retry_instead_of_holding_and_remain_bounded() {
         assert!(e.observe_with_facts(o, f, 107001).unwrap().is_empty());
     }
 }
+
+fn unreachable_page(document: &str) -> Observation {
+    Observation { document: DocumentId::new(document).unwrap(), variant: "dnsNotFound".into(), ..observation(PageKind::Unreachable) }
+}
+#[test]
+fn a_site_that_does_not_open_is_tried_again_at_the_same_interval_every_time() {
+    let mut e = engine();
+    let site_down = PageFacts::default();
+    assert_eq!(e.observe_with_facts(unreachable_page("first"), site_down, 1000).unwrap(), vec![FlowEffect::WaitUntil(301_000)], "5 minutes by default");
+    assert!(e.observe_with_facts(unreachable_page("first"), site_down, 300_999).unwrap().is_empty());
+    let effects = e.observe_with_facts(unreachable_page("first"), site_down, 301_000).unwrap();
+    assert!(matches!(effects.as_slice(), [FlowEffect::Recover { action: RecoveryAction::GetEntry, .. }]), "{effects:?}");
+    // The try fails again and the browser shows its error page once more: the wait does not grow.
+    let again = e.observe_with_facts(unreachable_page("second"), site_down, 302_000).unwrap();
+    assert_eq!(again, vec![FlowEffect::WaitUntil(602_000)], "{again:?}");
+    let third = e.observe_with_facts(unreachable_page("second"), site_down, 602_000).unwrap();
+    assert!(matches!(third.as_slice(), [FlowEffect::Recover { action: RecoveryAction::GetEntry, .. }]), "{third:?}");
+    let fourth = e.observe_with_facts(unreachable_page("third"), site_down, 603_000).unwrap();
+    assert_eq!(fourth, vec![FlowEffect::WaitUntil(903_000)], "{fourth:?}");
+}
+#[test]
+fn the_interval_for_an_unreachable_site_comes_from_the_profile() {
+    let mut e = engine();
+    e.apply_timings(parse_timings(&json!({"unreachable_seconds": 90})).unwrap(), 30.).unwrap();
+    assert_eq!(e.observe_with_facts(unreachable_page("first"), PageFacts::default(), 0).unwrap(), vec![FlowEffect::WaitUntil(90_000)]);
+}

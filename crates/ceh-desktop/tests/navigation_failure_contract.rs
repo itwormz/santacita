@@ -130,3 +130,12 @@ mod window_closing_settles {
         assert_eq!(requested_stop_is_a_stop(Ok("done"), "stop", true), Ok("done"));
     }
 }
+
+#[test]
+fn a_site_that_did_not_open_in_a_window_that_is_still_there_is_waited_out_not_an_error() {
+    use ceh_desktop::site_did_not_open;
+    assert!(site_did_not_open(navigation_failure(true, false)), "the browser shows its own error page and the search tries again");
+    assert!(!site_did_not_open(navigation_failure(true, true)), "a missing certificate chain is a setting, not a wait");
+    assert!(!site_did_not_open(navigation_failure(false, false)), "a closed window is a stop");
+    assert!(!site_did_not_open(Some("browser_start_failed")));
+}

@@ -61,3 +61,10 @@ pub fn read_cookie_names(connection: &mut BidiConnection) -> Option<Value> {
     }
     Some(Value::Array(all))
 }
+
+/// The protection script's cookie for the check is there (`TSPD_101`, set when its script has run on the page).
+/// Names only; if the site renames it, nothing is lost but the shortcut (the start wait then runs its full length).
+/// The device cookie `TSPD_101_DID` alone does not count, and `f5_cspm` only comes much later on this site.
+pub fn challenge_cookies_ready(names: &Value) -> bool {
+    names.as_array().into_iter().flatten().filter_map(|c| c["name"].as_str()).any(|n| n == "TSPD_101")
+}

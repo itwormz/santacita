@@ -3,9 +3,9 @@ members = ["crates/ceh-core", "crates/ceh-browser", "crates/ceh-store", "crates/
 resolver = "3"
 
 [workspace.package]
-version = "0.4.4"
+version = "0.4.5"
 edition = "2024"
-rust-version = "1.89"
+rust-version = "1.100"
 license-file = "LICENSE"
 publish = false
 
@@ -18,7 +18,7 @@ hex = "=0.4.3"
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 
-yaml-rust2 = { version = "=0.13.0", default-features = false }
+yaml-rust2 = { version = "=0.13.1", default-features = false }
 num-bigint = "=0.4.8"
 
 rusqlite = { version = "=0.43.0", default-features = false, features = ["bundled", "backup", "functions"] }

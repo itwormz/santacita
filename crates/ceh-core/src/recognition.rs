@@ -46,6 +46,9 @@ pub struct PageSnapshot {
     pub fill_mode: String,
     #[serde(default)]
     pub button_label: String,
+    /// The code of the browser's own error page (`dnsNotFound`, `ERR_TIMED_OUT`), empty on every other page.
+    #[serde(default)]
+    pub network_error: String,
     #[serde(default)]
     pub last_action: Option<String>,
     #[serde(default)]
@@ -178,6 +181,15 @@ fn shape_hash(shape: &PageShape) -> String {
     hex::encode(Sha256::digest(raw.as_bytes()))
 }
 
+/// A short code of letters, digits and underscores, or a fixed name: nothing else of an error page is ever kept.
+fn network_error_code(code: &str) -> String {
+    if !code.is_empty() && code.len() <= 64 && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        code.to_owned()
+    } else {
+        "network_error".to_owned()
+    }
+}
+
 pub fn recognize(snapshot: &PageSnapshot) -> Result<Recognition, InvalidSnapshot> {
     if snapshot.frames.is_empty() {
         return Err(InvalidSnapshot);
@@ -222,6 +234,12 @@ pub fn recognize(snapshot: &PageSnapshot) -> Result<Recognition, InvalidSnapshot
         }
     }
     if result.kind != PageKind::Unknown {
+        return Ok(result);
+    }
+    // The browser could not open the site and shows its own page: told by its code, which no language changes.
+    if !snapshot.network_error.is_empty() {
+        result.kind = PageKind::Unreachable;
+        result.variant = network_error_code(&snapshot.network_error);
         return Ok(result);
     }
     // Python raises HTTP_BLOCKED for a 403 entry response after the challenge-text check (captcha text

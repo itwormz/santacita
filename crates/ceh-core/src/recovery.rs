@@ -128,6 +128,9 @@ pub fn plan_recovery(
             };
             (delay(RetryKind::ServerRetry)?, action)
         }
+        // The browser's own error page: one fixed wait, then the start page again (a navigation that fails once
+        // more shows this page again and the same wait follows).
+        PageKind::Unreachable => (delay(RetryKind::Unreachable)?, RecoveryAction::GetEntry),
         _ => return Err(RecoveryError::UnsupportedPage),
     };
     if facts.certificate_validation_error && observed.kind == PageKind::ServerError {

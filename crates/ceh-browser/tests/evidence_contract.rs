@@ -35,3 +35,16 @@ fn evidence_scripts_only_read_the_page() {
         assert!(!source.contains(forbidden), "evidence.rs must not contain {forbidden}");
     }
 }
+
+#[test]
+fn the_protection_cookie_of_the_finished_check_is_the_one_that_counts() {
+    use ceh_browser::evidence::challenge_cookies_ready;
+    use serde_json::json;
+    let names = |list: &[&str]| json!(list.iter().map(|n| json!({"name": n, "domain": "x"})).collect::<Vec<_>>());
+    assert!(challenge_cookies_ready(&names(&["TSPD_101", "TSPD_101_DID", "JSESSIONID"])));
+    assert!(challenge_cookies_ready(&names(&["TSPD_101"])), "f5_cspm comes much later on this site, it is not waited for");
+    assert!(!challenge_cookies_ready(&names(&["TSPD_101_DID", "TS01629f81"])), "the device cookie alone does not say the check is done");
+    assert!(!challenge_cookies_ready(&names(&["f5_cspm"])));
+    assert!(!challenge_cookies_ready(&json!(null)));
+    assert!(!challenge_cookies_ready(&names(&[])));
+}

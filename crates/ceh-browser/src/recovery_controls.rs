@@ -192,6 +192,16 @@ pub fn read(
     })
 }
 
+/// The page read just before the click must still be the error the click was planned for. When it is not (the
+/// message of an expired session can vanish from a page that stays, or the browser left the site) the plan is
+/// out of date: that is a stale document, read again by the search, not an unsupported action that stops it.
+pub(crate) fn fresh_page_allows_recovery(official: bool, kind: PageKind) -> Result<(), BrowserError> {
+    if official && matches!(kind, PageKind::Expired | PageKind::ServerError) {
+        Ok(())
+    } else {
+        Err(BrowserError::StaleDocument)
+    }
+}
 /// Activate only the exact recovery message/source that the core scheduled.
 /// Root authority and the error frame's realm/DOM are both rechecked; no fallback.
 pub fn activate_own_control(
@@ -205,14 +215,7 @@ pub fn activate_own_control(
     let fresh = observer
         .observe(connection, "manual")
         .map_err(|_| BrowserError::NoObservation)?;
-    if !fresh.page.snapshot.official
-        || !matches!(
-            fresh.observation.kind,
-            PageKind::Expired | PageKind::ServerError
-        )
-    {
-        return Err(BrowserError::Unsupported);
-    }
+    fresh_page_allows_recovery(fresh.page.snapshot.official, fresh.observation.kind)?;
     let actual = fresh
         .page
         .sources
@@ -236,4 +239,26 @@ pub fn activate_own_control(
             source,
         ),
     )
+}
+
+#[cfg(test)]
+mod fresh_page_tests {
+    use super::fresh_page_allows_recovery;
+    use crate::BrowserError;
+    use ceh_core::model::PageKind;
+
+    #[test]
+    fn a_recovery_click_goes_ahead_only_while_the_page_is_still_the_error_it_was_planned_for() {
+        assert_eq!(fresh_page_allows_recovery(true, PageKind::Expired), Ok(()));
+        assert_eq!(fresh_page_allows_recovery(true, PageKind::ServerError), Ok(()));
+    }
+    #[test]
+    fn a_page_that_stopped_being_an_error_while_the_click_waited_is_stale_not_unsupported() {
+        // The message of an expired session can disappear from a page that is still there (a form page with a
+        // box on it): the plan is out of date, so the page is read again, and the search does not stop.
+        for kind in [PageKind::Procedure, PageKind::Province, PageKind::Loading, PageKind::Unknown, PageKind::Auth] {
+            assert_eq!(fresh_page_allows_recovery(true, kind), Err(BrowserError::StaleDocument), "{kind:?}");
+        }
+        assert_eq!(fresh_page_allows_recovery(false, PageKind::Expired), Err(BrowserError::StaleDocument), "left the official site");
+    }
 }

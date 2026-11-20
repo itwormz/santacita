@@ -142,6 +142,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -214,6 +215,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -291,6 +293,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -369,6 +372,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -447,6 +451,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -525,6 +530,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -600,6 +606,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -756,6 +763,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -830,6 +838,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -907,6 +916,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -981,6 +991,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -1076,6 +1087,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [
@@ -1153,6 +1165,7 @@
           "navigation_seconds": 45.0,
           "clave_error_seconds": 180.0,
           "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
           "no_slots_restart_seconds": 180.0,
           "alert_seconds": 3.0,
           "recovery_jitter_seconds": [

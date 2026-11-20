@@ -23,7 +23,9 @@
 
 Nueva aplicación en Rust, Tauri y Svelte.
 
-SantaCita 0.4.0 es la primera versión estable de la nueva aplicación. La línea 0.3.x corresponde a la aplicación anterior en Python; su código permanece en la rama `ceh-python`.
+SantaCita 0.4 y posteriores es una aplicación ligera y rápida escrita en Rust que funciona con el navegador que ya tiene instalado. Como no incluye ninguno, con algunas configuraciones pueden surgir problemas. En ese caso, pruebe la versión anterior, la [0.3.8](https://github.com/itwormz/santacita/releases/tag/v0.3.8), que incluye su propio navegador Camoufox.
+
+Las versiones anteriores a la 0.4.0 son una aplicación en Python; su código permanece en la rama [`ceh-python`](https://github.com/itwormz/santacita/tree/ceh-python).
 
 ## 🚀 Inicio rápido
 
@@ -55,7 +57,7 @@ macOS: arrastre SantaCita a Applications. No está notarizada; si se bloquea, us
 
 ## 🔔 Notificaciones
 
-Los perfiles admiten sonido, Telegram y webhook. Telegram se configura con token de bot, destinatarios y eventos. El webhook requiere dirección HTTPS y eventos; cabeceras y plantilla son opcionales.
+Los perfiles admiten sonido, Telegram y webhook. Telegram se configura con token de bot, destinatarios y eventos: acceso, elección de oficina, elección de cita, búsqueda detenida (también una página que el bot no reconoce). El webhook requiere dirección HTTPS y eventos; cabeceras y plantilla son opcionales.
 
 Los secretos se guardan en el almacén de credenciales del sistema. macOS puede pedir la contraseña del Llavero para acceder al token de Telegram.
 

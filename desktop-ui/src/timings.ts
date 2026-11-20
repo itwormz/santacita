@@ -19,14 +19,14 @@ export function parseTimingInputs(fields:TimingInputs,shape:Timings):Timings{
 export const timingGroups=[
  {title:'Ввод данных',fields:[['action_delay_seconds','Между действиями'],['typing_ms','Ввод NIE и имени'],['contact_typing_ms','Ввод контактов']]},
  {title:'Интервалы проверки',fields:[['bootstrap_seconds','Начальная загрузка / F5'],['reload_seconds','Интервал проверки'],['navigation_seconds','Таймаут страницы']]},
- {title:'Восстановление',fields:[['no_slots_restart_seconds','Новый проход · Aceptar'],['clave_error_seconds','Ошибка Cl@ve'],['rate_limit_seconds','HTTP 429'],['recovery_jitter_seconds','Добавочная пауза'],['expired_seconds','Истёкшая сессия'],['server_button_seconds','Кнопка ошибки'],['server_retry_seconds','Ошибка без кнопки'],['blocked_seconds','Блокировка'],['timeout_retry_seconds','Клик не отправлен'],['post_timeout_seconds','Ожидание после клика'],['restart_seconds','Перезапуск после таймаута']]},
+ {title:'Восстановление',fields:[['no_slots_restart_seconds','Новый проход · Aceptar'],['clave_error_seconds','Ошибка Cl@ve'],['rate_limit_seconds','HTTP 429'],['unreachable_seconds','Сайт не открывается'],['recovery_jitter_seconds','Добавочная пауза'],['expired_seconds','Истёкшая сессия'],['server_button_seconds','Кнопка ошибки'],['server_retry_seconds','Ошибка без кнопки'],['blocked_seconds','Блокировка'],['timeout_retry_seconds','Клик не отправлен'],['post_timeout_seconds','Ожидание после клика'],['restart_seconds','Перезапуск после таймаута']]},
  {title:'Уведомления',fields:[['alert_seconds','Повтор звонка']]}
 ];
 /** Full field titles of Python 0.3.6 (`TIMING_FIELDS`), shown as the tooltip of each timing card. */
 export const timingTitles:Record<string,string>={
  action_delay_seconds:'Между действиями, с',bootstrap_seconds:'Начальная загрузка / F5, с',typing_ms:'Между символами NIE и имени, мс',contact_typing_ms:'Между символами контактов, мс',
  reload_seconds:'Проверка сит: интервал, с',navigation_seconds:'Таймаут загрузки страницы, с',no_slots_restart_seconds:'Нет сит с Aceptar: пауза нового прохода, с',
- clave_error_seconds:'Ошибка Cl@ve: пауза перед новым окном, с',rate_limit_seconds:'HTTP 429: пауза перед пробой, с',alert_seconds:'Повтор звукового сигнала, с',
+ clave_error_seconds:'Ошибка Cl@ve: пауза перед новым окном, с',rate_limit_seconds:'HTTP 429: пауза перед пробой, с',unreachable_seconds:'Сайт не открывается: пауза между попытками, с',alert_seconds:'Повтор звукового сигнала, с',
  recovery_jitter_seconds:'Джиттер восстановления: добавочная пауза, с',expired_seconds:'Истёкшая сессия: паузы попыток, с',server_button_seconds:'Кнопка ошибки: паузы попыток, с',
  server_retry_seconds:'Ошибка сервера без кнопки: паузы, с',blocked_seconds:'Блокировка: паузы новых сессий, с',timeout_retry_seconds:'Клик не отправлен: паузы повторов, с',
  post_timeout_seconds:'Клик отправлен: ожидание результата, с',restart_seconds:'Таймаут действия: пауза перезапуска, с'

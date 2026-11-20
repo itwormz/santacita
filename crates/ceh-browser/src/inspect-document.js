@@ -16,11 +16,19 @@
   if (Array.from(document.querySelectorAll('select[id^="tramiteGrupo["]')).some(shown)) visible.push('select[id^="tramiteGrupo["]:visible');
   const text = document.body?.innerText ?? '';
   if (text.length > 65536) throw new Error('document inspection limit');
+  // The browser's own error page (the site did not open): its code, never its words. Firefox keeps the code in the
+  // address of the page (about:neterror?e=...), Chrome in the text (ERR_..., DNS_PROBE_...).
+  const networkError = (() => {
+    let code = '';
+    if (location.protocol === 'chrome-error:') code = (/\b(ERR_[A-Z0-9_]+|DNS_PROBE_[A-Z0-9_]+)\b/.exec(text) || [])[1] || 'chrome_error';
+    else if (String(document.documentURI).startsWith('about:neterror')) code = (/[?&]e=([A-Za-z0-9]+)/.exec(document.documentURI) || [])[1] || 'neterror';
+    return code.slice(0, 64);
+  })();
   const applicant = document.querySelector('#txtIdCitado');
   const restart = document.querySelector('form[action="salirInicio"] #btnSubmit');
   const request = document.querySelector('#btnEnviar');
   const button = shown(restart) ? restart : request;
-  return JSON.stringify({visible, frames:[{text}], official:location.hostname==='icp.administracionelectronica.gob.es',
+  return JSON.stringify({visible, frames:[{text}], official:location.hostname==='icp.administracionelectronica.gob.es', network_error:networkError,
     endpoint:location.pathname.split('/').pop() ?? '', fill_mode:fillMode,
     applicant_editable:!!applicant && !applicant.disabled && !applicant.readOnly && applicant.type!=='hidden',
     button_label:button ? (button.getAttribute('value') || button.innerText || '').trim() : '',
