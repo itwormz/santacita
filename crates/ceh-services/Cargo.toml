@@ -26,10 +26,10 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 fs2 = "=0.4.3"
 tempfile = "=3.27.0"
 base64 = "=0.23.1"
-zeroize = "=1.8.2"
+zeroize = "=1.9.2"
 uuid = { version = "1", features = ["v4", "v5"] }
 keyring-core = { version = "=1.0.1", optional = true }
-zip = { version = "=9.4.1", default-features = false, features = ["deflate"] }
+zip = { version = "=9.8.1", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"], optional = true }

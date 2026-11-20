@@ -18,7 +18,7 @@ hex = "=0.4.3"
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 
-yaml-rust2 = { version = "=0.13.0", default-features = false }
+yaml-rust2 = { version = "=0.13.1", default-features = false }
 num-bigint = "=0.4.8"
 
 rusqlite = { version = "=0.43.0", default-features = false, features = ["bundled", "backup", "functions"] }

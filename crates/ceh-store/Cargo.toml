@@ -20,5 +20,5 @@ rusqlite.workspace = true
 chrono-tz.workspace = true
 tempfile = "=3.27.0"
 fs2 = "=0.4.3"
-uuid = { version = "=1.29.2", features = ["v4"] }
+uuid = { version = "=1.29.3", features = ["v4"] }
 hmac = "=0.13.0"
