@@ -42,11 +42,16 @@ fn once(headless: bool, persistent: bool, unfocus: bool, burst: bool, bootstrap:
     let session = SessionId::new(format!("probe-{}", uuid_like()[0])).map_err(|e| format!("{e:?}"))?;
     let gate = DispatchGate::new(session.clone());
     let mut timings = AssistTimings::default();
+    // --burst and --bootstrap are applied together, each also when used alone.
+    let mut overrides = serde_json::Map::new();
     if burst {
-        timings = ceh_core::timings::parse_timings(&serde_json::json!({"typing_ms":[0.0,0.0]})).unwrap();
+        overrides.insert("typing_ms".into(), serde_json::json!([0.0, 0.0]));
     }
     if let Some([low, high]) = bootstrap {
-        timings = ceh_core::timings::parse_timings(&serde_json::json!({"bootstrap_seconds":[low, high]})).map_err(|e| format!("{e:?}"))?;
+        overrides.insert("bootstrap_seconds".into(), serde_json::json!([low, high]));
+    }
+    if !overrides.is_empty() {
+        timings = ceh_core::timings::parse_timings(&serde_json::Value::Object(overrides)).map_err(|e| format!("{e:?}"))?;
     }
     let samples = SessionSamples { first_bootstrap: unit(), second_bootstrap: unit(), reload: unit(), contact_typing: unit(), typing: unit() };
     let mut driver = SessionDriver::with_samples(&context, session, profile(), timings.clone(), gate, samples).map_err(|e| format!("{e:?}"))?;

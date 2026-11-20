@@ -238,3 +238,12 @@ fn the_wait_on_a_page_is_counted_from_its_first_look_and_starts_again_on_another
     assert_eq!(watch.update("d2", false, 80_000), None);
     assert_eq!(watch.update("d2", true, 90_000), Some(0), "a break starts again");
 }
+
+#[test]
+fn the_messages_name_the_browser_of_the_profile() {
+    use ceh_desktop::notification_worker::browser_label;
+    for (id, label) in [("firefox", "Firefox"), ("chrome", "Chrome"), ("brave", "Brave"), ("edge", "Edge"), ("chromium", "Chromium"), ("Chrome", "Chrome")] {
+        assert_eq!(browser_label(id), label, "{id}");
+    }
+    assert_eq!(browser_label("something else"), "Firefox", "an unknown id keeps the old default");
+}

@@ -35,7 +35,7 @@ $effect(()=>{const id=selected;const connected=native;const day=statisticsDay;st
 let startedAt:number|null=null;
 let pending=$state<PendingControl|null>(null);
 let starting=$state(false);
-let pendingNow=$derived(starting?'start':pendingControl(pending,search,now));
+let pendingNow=$derived((()=>{const real=pendingControl(pending,search,now);return starting&&real!=='stop'?'start':real;})());
 async function runSearch(){if(!selected||searchBusy)return;searchBusy=true;starting=true;pending={command:'start',since:Date.now()};try{await writes.settled();await startSearch(selected);startedAt=Date.now();error='';search=await searchSnapshot();}catch(e){pending=null;error=searchErrors[String(e)]??'Не удалось запустить поиск';}finally{searchBusy=false;starting=false;}}
 async function searchCommand(command:'pause'|'resume'|'stop'){if(command==='pause'&&pauseTooSoon(startedAt,Date.now()))return;pending={command,since:Date.now()};try{await controlSearch(command);search=await searchSnapshot();error='';}catch{pending=null;error='Не удалось изменить состояние поиска';}}
 async function commandFailed(e:unknown,fallback:string){const code=String(e);error=searchErrors[code]??fallback;}

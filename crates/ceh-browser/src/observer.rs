@@ -153,6 +153,10 @@ impl PageObserver {
             .as_mut()
             .map_or_else(Default::default, crate::passive::ResponseQueue::drain)
     }
+    /// Take in the events that arrived since the last read, so that `network_quiet*` is up to date.
+    pub fn drain_events(&mut self, connection: &mut BidiConnection) -> Result<(), ProtocolError> {
+        self.drain(connection)
+    }
     fn drain(&mut self, connection: &mut BidiConnection) -> Result<(), ProtocolError> {
         for event in connection.take_events() {
             self.ingest(&event)?;

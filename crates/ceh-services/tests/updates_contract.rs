@@ -18,7 +18,9 @@ fn a_higher_stable_release_is_offered_with_its_public_page() {
 #[test]
 fn a_development_build_is_older_than_every_release_of_its_number() {
     assert!(newer("1.0.0", "0.0.0-dev.1"));
-    assert!(newer("1.0.0", "1.0.0-dev.3"), "the release of the same number replaces its dev build");
+    // A dev build is made after the release of its number (every push to dev carries <last release>-dev.N).
+    assert!(!newer("1.0.0", "1.0.0-dev.3"), "the release it was made after is not an update to it");
+    assert!(newer("1.0.1", "1.0.0-dev.3"), "the next release is");
     assert!(!newer("1.0.0-dev.3", "1.0.0"));
 }
 

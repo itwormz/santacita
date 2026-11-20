@@ -299,3 +299,17 @@ fn idle_moves_never_leave_the_viewport_and_report_where_the_cursor_ends() {
     assert_eq!(moves.iter().map(|m| (m.x, m.y)).collect::<Vec<_>>(), vec![(7, -4), (-3, 9)]);
     assert_eq!(end, (304.0, 305.0));
 }
+
+#[test]
+fn a_very_small_typing_delay_is_not_stretched_by_a_minimum_interval_per_key() {
+    // 120 keys at 1 ms used to take at least 120 x 8 ms; the limit of 70 % longer holds for every delay.
+    for (median, count) in [(1u64, 120usize), (1, 40), (2, 120), (3, 60), (5, 200)] {
+        let old = (count as u64 * median) as f64;
+        for seed in 0..200u64 {
+            let rhythm = typing_rhythm(seed, median, count);
+            let total = field_ms(&rhythm) as f64;
+            assert!(total <= old * 1.7 + 1.0, "delay {median}, {count} keys, seed {seed}: {total} ms against {old} ms");
+            assert!(rhythm.keys.iter().all(|k| k.hold_ms <= k.hold_ms + k.pause_ms), "a key is never held longer than its own time");
+        }
+    }
+}

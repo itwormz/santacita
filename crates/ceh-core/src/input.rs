@@ -174,6 +174,8 @@ pub struct TypingRhythm {
     pub first_ms: u64,
     pub keys: Vec<Keystroke>,
 }
+/// The shortest time a key takes when the field's budget allows it.
+const MIN_KEY_MS: f64 = 8.0;
 /// The whole field takes the profile's typing delay times the number of keys (what a fixed pause between keys
 /// used to take) times 1.25 .. 1.65: never more than 70 % longer, whatever the seed. The time is shared out
 /// among the keys with a log-normal spread, and about one key in twenty-five is a hesitation of two to three
@@ -195,14 +197,38 @@ pub fn typing_rhythm(seed: u64, median_ms: u64, count: usize) -> TypingRhythm {
         })
         .collect();
     let sum: f64 = weights.iter().sum();
-    let keys = weights
-        .iter()
-        .map(|weight| {
-            let interval = (budget * weight / sum).round().max(8.0);
-            let hold = (interval * rng.range(0.45, 0.75)).clamp(12.0, 130.0).min(interval - 6.0).max(1.0);
-            Keystroke { hold_ms: hold.round() as u64, pause_ms: (interval - hold.round()) as u64 }
-        })
-        .collect();
+    let keys = if budget / count as f64 >= MIN_KEY_MS {
+        weights
+            .iter()
+            .map(|weight| {
+                let interval = (budget * weight / sum).round().max(MIN_KEY_MS);
+                let hold = (interval * rng.range(0.45, 0.75)).clamp(12.0, 130.0).min(interval - 6.0).max(1.0);
+                Keystroke { hold_ms: hold.round() as u64, pause_ms: (interval - hold.round()) as u64 }
+            })
+            .collect()
+    } else {
+        // Less than 8 ms a key: the whole budget is shared out in whole milliseconds (largest remainders), so that
+        // the field is never longer than its budget; a key may get no time at all.
+        let exact: Vec<f64> = weights.iter().map(|weight| budget * weight / sum).collect();
+        let mut intervals: Vec<u64> = exact.iter().map(|x| x.floor() as u64).collect();
+        let mut left = (budget.floor() as u64).saturating_sub(intervals.iter().sum());
+        let mut order: Vec<usize> = (0..count).collect();
+        order.sort_by(|&a, &b| (exact[b] - exact[b].floor()).total_cmp(&(exact[a] - exact[a].floor())));
+        for &index in &order {
+            if left == 0 {
+                break;
+            }
+            intervals[index] += 1;
+            left -= 1;
+        }
+        intervals
+            .iter()
+            .map(|&interval| {
+                let hold = if interval == 0 { 0 } else { ((interval as f64 * rng.range(0.45, 0.75)).round() as u64).clamp(1, interval) };
+                Keystroke { hold_ms: hold, pause_ms: interval - hold }
+            })
+            .collect()
+    };
     TypingRhythm { first_ms, keys }
 }
 

@@ -179,9 +179,10 @@ fn the_network_is_quiet_for_as_long_as_nothing_has_been_asked_or_answered() {
     observer.ingest(&request).unwrap();
     assert!(!observer.network_quiet());
     assert_eq!(observer.network_quiet_for(), Duration::ZERO, "a request in flight is not quiet at all");
+    let before_answer = std::time::Instant::now();
     observer.ingest(&response).unwrap();
     assert!(observer.network_quiet());
-    assert!(observer.network_quiet_for() < Duration::from_millis(40), "it was busy a moment ago");
+    assert!(observer.network_quiet_for() <= before_answer.elapsed(), "it was busy a moment ago, not longer ago than the answer");
     std::thread::sleep(Duration::from_millis(60));
     assert!(observer.network_quiet_for() >= Duration::from_millis(60), "and it stays quiet from then on");
     // Another page's traffic does not count.

@@ -30,7 +30,7 @@ pub fn parse_release_list(body: &str, include_beta: bool, repository: &str) -> R
     Ok(raw.as_array().ok_or(UpdateError::Invalid)?.iter().filter_map(|raw|parse_entry(raw,include_beta,Some(repository)).ok()).max_by_key(|entry|version_key(&entry.version)))
 }
 pub fn newer(latest: &str, current: &str) -> bool {
-    let current=version_key(current).or_else(||{let(core,dev)=current.split_once("-dev.")?;if dev.parse::<u32>().ok()?==0{return None;}let mut key=version_key(core)?;key.1=0;Some(key)});
+    let current=version_key(current).or_else(||{let(core,dev)=current.split_once("-dev.")?;let dev=dev.parse::<u32>().ok()?;if dev==0{return None;}let key=version_key(core)?;Some(crate::release_versions::VersionKey(key.0,3,dev))});
     matches!((version_key(latest),current),(Some(a),Some(b)) if a>b)
 }
 fn client() -> Result<reqwest::blocking::Client,UpdateError> {

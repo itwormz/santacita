@@ -171,8 +171,9 @@ mod exception_tests {
     fn an_objective_c_exception_in_an_appkit_call_is_an_error_not_an_abort() {
         let result: Result<(), &'static str> = guarded("browser_show_failed", || {
             let object = objc2::runtime::NSObject::new();
-            // What macOS 13 does with a selector it does not have: raise NSInvalidArgumentException.
-            let _: () = unsafe { objc2::msg_send![&*object, thisSelectorDoesNotExist] };
+            // What macOS 13 does with a selector it does not have: raise NSInvalidArgumentException. NSObject's own
+            // `doesNotRecognizeSelector:` raises exactly that, without sending a message objc2 would refuse in a debug build.
+            let _: () = unsafe { objc2::msg_send![&*object, doesNotRecognizeSelector: objc2::sel!(thisSelectorDoesNotExist)] };
             Ok(())
         });
         assert_eq!(result, Err("browser_show_failed"));

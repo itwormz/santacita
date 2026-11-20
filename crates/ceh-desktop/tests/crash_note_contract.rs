@@ -19,8 +19,8 @@ fn a_panic_leaves_its_place_for_the_next_start_and_nothing_else() {
     assert_eq!(short_location("/Users/runner/.cargo/registry/src/index.crates.io-abc/tao-0.35.0/src/platform_impl/macos/observer.rs:812:9"), "tao-0.35.0/src/platform_impl/macos/observer.rs:812:9");
     assert_eq!(short_location("crates/ceh-desktop/src/main.rs:10:5"), "crates/ceh-desktop/src/main.rs:10:5");
 
+    // A fresh installation: no data folder yet, the hook makes it.
     let root = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(root.path().join("data")).unwrap();
     // Nothing happened before: nothing to report.
     assert_eq!(report_previous(root.path(), "/Users/Fictional", at()), None);
     install(root.path());
@@ -38,4 +38,24 @@ fn a_panic_leaves_its_place_for_the_next_start_and_nothing_else() {
     assert!(!text.contains("SYNTHETIC-NIE") && !text.contains("Y1234567X") && !text.contains("could not be read"), "the message of the panic stays out: {text}");
     // The note is used up: the next start reports nothing again.
     assert_eq!(report_previous(root.path(), "/Users/Fictional", at()), None);
+}
+
+#[test]
+fn a_note_is_kept_until_its_report_is_saved_and_an_unreadable_one_is_dropped() {
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let note = data.join("last-panic.json");
+    std::fs::write(&note, r#"{"version":"0.4.5","thread":"main","location":"src/lib.rs:1:1","class":"other"}"#).unwrap();
+    // The report folder cannot be made (a file is in its place): the only note must survive for the next start.
+    std::fs::write(data.join("startup-errors"), "in the way").unwrap();
+    assert_eq!(report_previous(root.path(), "/Users/Fictional", at()), None);
+    assert!(note.exists(), "the note stays while no report could be saved");
+    std::fs::remove_file(data.join("startup-errors")).unwrap();
+    assert!(report_previous(root.path(), "/Users/Fictional", at()).is_some(), "the next start reports it");
+    assert!(!note.exists(), "and uses it up");
+    // A note that is not JSON would never become a report: it is removed.
+    std::fs::write(&note, "not json").unwrap();
+    assert_eq!(report_previous(root.path(), "/Users/Fictional", at()), None);
+    assert!(!note.exists());
 }

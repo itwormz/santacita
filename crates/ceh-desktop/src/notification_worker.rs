@@ -8,6 +8,16 @@ use ceh_services::secrets::{Backend, Vault};
 use serde_json::Value;
 use std::{path::Path, sync::mpsc, thread::JoinHandle};
 
+/// The name of the profile's browser as the messages show it (`Camoufox` in their texts stands for it).
+pub fn browser_label(id: &str) -> &'static str {
+    match id.to_ascii_lowercase().as_str() {
+        "chrome" => "Chrome",
+        "brave" => "Brave",
+        "edge" => "Edge",
+        "chromium" => "Chromium",
+        _ => "Firefox",
+    }
+}
 /// Read the secrets of enabled channels before the browser opens. Unreadable secrets stop the start.
 pub fn prepare_for_start<B: Backend>(
     root: &Path,

@@ -245,7 +245,7 @@ impl SearchController {
                 province: profile.province.clone(),
                 language,
                 config: notification_config,
-                browser: "Firefox".into(),
+                browser: crate::notification_worker::browser_label(&profile.browser).into(),
                 run_id: uuid::Uuid::new_v4().to_string(),
                 service: crate::notification_worker::service_label(&profile.procedure),
                 access: crate::notification_worker::access_label(&profile.access_mode, &profile.clave_method),
@@ -1015,6 +1015,10 @@ fn run_owned(
             }
             publish_budget(state, &mut budget, crate::current_time()?, &appointment_policy, observer.hot_retry())?;
             let paused = driver.control().mode() == ControlMode::Paused;
+            if paused {
+                // A pause ends the hold being timed: after it the one-minute count starts again.
+                hold_watch = crate::notification_worker::HoldWatch::default();
+            }
             if !paused && !manual && (wait || Instant::now() < retry_at) && Instant::now() >= idle_at {
                 let seed = u64::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().map_err(|_| "search_unavailable")?);
                 idle_at = Instant::now() + Duration::from_millis(driver.idle_motion(browser.connection(), &context, seed).unwrap_or(4000));

@@ -108,6 +108,7 @@ fn state(v: &Value) -> &'static str {
         "unknown",
         "rate_limit",
         "loading",
+        "unreachable",
     ]
     .iter()
     .any(|word| stage.contains(word) || kind.contains(word))

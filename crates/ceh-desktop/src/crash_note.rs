@@ -41,6 +41,10 @@ pub fn short_location(location: &str) -> String {
 /// Keep the place of every panic from now on in `data/last-panic.json` (the last one wins).
 pub fn install(root: &Path) {
     let _ = NOTE.set(note_path(root));
+    // A fresh installation may not have the data folder yet when the first panic happens.
+    if let Some(folder) = note_path(root).parent() {
+        let _ = std::fs::create_dir_all(folder);
+    }
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         if let Some(path) = NOTE.get() {
@@ -64,8 +68,11 @@ pub fn install(root: &Path) {
 pub fn report_previous(root: &Path, home: &str, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
     let path = note_path(root);
     let text = std::fs::read_to_string(&path).ok()?;
-    let _ = std::fs::remove_file(&path);
-    let note: Value = serde_json::from_str(&text).ok()?;
+    let Ok(note) = serde_json::from_str::<Value>(&text) else {
+        // A note that cannot be read is of no use at any later start either.
+        let _ = std::fs::remove_file(&path);
+        return None;
+    };
     let field = |name: &str| note[name].as_str().map(|v| v.chars().take(200).collect::<String>()).unwrap_or_default();
     let summary = format!("{} in {} ({})", field("location"), field("thread"), field("class"));
     let report = json!({
@@ -82,5 +89,10 @@ pub fn report_previous(root: &Path, home: &str, now: chrono::DateTime<chrono::Ut
         "traceback": [],
         "session": {"stop": {"reason": "panic", "summary": summary}},
     });
-    crate::startup_report::save_session_stop(root, home, report, now)
+    let saved = crate::startup_report::save_session_stop(root, home, report, now);
+    // Kept until the report is saved: an unwritable report folder must not lose the only note.
+    if saved.is_some() {
+        let _ = std::fs::remove_file(&path);
+    }
+    saved
 }
