@@ -5,7 +5,7 @@ export type Entry=
  | {kind:'wait';id:number;count:number;first:SearchRow;last:SearchRow}
  | {kind:'pass';id:number;number:number;reason:'restart'|null;time:number};
 const NO_SLOTS=['applicant_no_slots','request_no_slots','request_no_slots_restart','post_contact_no_slots'];
-const ERROR_STAGES=['expired','server_error','blocked','rate_limited'];
+const ERROR_STAGES=['expired','server_error','blocked','rate_limited','unreachable'];
 const isVisit=(row:SearchRow)=>row.event==='visit';
 const isWait=(row:SearchRow)=>isVisit(row)&&NO_SLOTS.includes(row.stage??'')&&['passed','waiting','checked'].includes(row.status)&&(row.destination==null||NO_SLOTS.includes(row.destination));
 /** A visit row that is only a step of the way or still in progress: not worth a line. */

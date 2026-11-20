@@ -1,7 +1,7 @@
 import type {SearchRow} from './bridge';
 /** "What happened" of a log row, as Python's page journal words it: a template and its values. */
 export interface JournalText{template:string;values:Record<string,string>}
-const ERROR_STAGES=['expired','server_error','blocked','rate_limited'];
+const ERROR_STAGES=['expired','server_error','blocked','rate_limited','unreachable'];
 const NO_SLOTS=['request_no_slots','request_no_slots_restart','post_contact_no_slots'];
 const ACTION:Record<string,string>={province:'Выбираем провинцию',procedure:'Выбираем услугу',auth:'Начинаем авторизацию',auth_wait:'Открываем выбранный способ авторизации',applicant:'Заполняем данные заявителя',request_menu:'Запрашиваем ситу',contact:'Заполняем контактные данные',office:'Выбираем офис',request_no_slots:'Повторяем проверку сит',applicant_no_slots:'Обновляем форму без ввода данных',request_no_slots_restart:'Возвращаемся к началу через Aceptar',post_contact_no_slots:'Завершаем проход после отсутствия сит'};
 const SENT:Record<string,string>={province:'Выбор провинции отправлен — ожидается ответ',procedure:'Выбор услуги отправлен — ожидается ответ',applicant:'Данные заявителя отправлены — ожидается ответ',contact:'Контактные данные отправлены — ожидается ответ',office:'Выбранный офис отправлен — ожидается ответ'};

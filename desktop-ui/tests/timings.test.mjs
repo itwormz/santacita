@@ -26,7 +26,8 @@ test('timing groups and their order are those of Python 0.3.6',()=>{
  assert.deepEqual(timingGroups.map(group=>group.title),['Ввод данных','Интервалы проверки','Восстановление','Уведомления']);
  assert.deepEqual(timingGroups[0].fields.map(([key])=>key),['action_delay_seconds','typing_ms','contact_typing_ms']);
  assert.deepEqual(timingGroups[1].fields.map(([key])=>key),['bootstrap_seconds','reload_seconds','navigation_seconds']);
- assert.equal(timingGroups[2].fields.length,11);
+ assert.equal(timingGroups[2].fields.length,12,'the 11 of Python 0.3.6 and the pause between tries when the site does not open');
+ assert.ok(timingGroups[2].fields.some(([key])=>key==='unreachable_seconds'));
  for(const group of timingGroups)for(const [key] of group.fields)assert.ok(timingTitles[key],`${key} has the full title shown as the tooltip`);
  assert.equal(timingTitles.typing_ms,'Между символами NIE и имени, мс');
 });

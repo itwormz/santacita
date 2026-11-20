@@ -13,6 +13,7 @@ struct Values {
     navigation_seconds: f64,
     clave_error_seconds: f64,
     rate_limit_seconds: f64,
+    unreachable_seconds: f64,
     no_slots_restart_seconds: f64,
     alert_seconds: f64,
     recovery_jitter_seconds: [f64; 2],
@@ -50,6 +51,8 @@ pub enum RetryKind {
     RateLimit,
     ClaveError,
     NoSlotsRestart,
+    /// The site does not open at all (the browser's own error page): one fixed wait between tries.
+    Unreachable,
 }
 
 struct Spec {
@@ -114,6 +117,12 @@ const FIELDS: &[Spec] = &[
         sequence: false,
     },
     Spec {
+        key: "unreachable_seconds",
+        lower: 60.0,
+        upper: 1800.0,
+        sequence: false,
+    },
+    Spec {
         key: "alert_seconds",
         lower: 1.0,
         upper: 60.0,
@@ -169,7 +178,7 @@ const FIELDS: &[Spec] = &[
     },
 ];
 fn defaults_json() -> Value {
-    serde_json::json!({"action_delay_seconds": [0.3, 0.8], "bootstrap_seconds": [5, 8], "typing_ms": [70, 140], "contact_typing_ms": [35, 70], "reload_seconds": [30, 60], "navigation_seconds": 45, "clave_error_seconds": 180, "rate_limit_seconds": 180, "no_slots_restart_seconds": 180, "alert_seconds": 3, "recovery_jitter_seconds": [0, 0], "expired_seconds": [0, 30, 60, 120, 300], "server_button_seconds": [0, 30, 60, 120, 300], "server_retry_seconds": [30, 60, 120, 300], "blocked_seconds": [30, 60, 120, 300, 600], "timeout_retry_seconds": [2, 5], "post_timeout_seconds": 5, "restart_seconds": 5})
+    serde_json::json!({"action_delay_seconds": [0.3, 0.8], "bootstrap_seconds": [5, 8], "typing_ms": [70, 140], "contact_typing_ms": [35, 70], "reload_seconds": [30, 60], "navigation_seconds": 45, "clave_error_seconds": 180, "rate_limit_seconds": 180, "unreachable_seconds": 300, "no_slots_restart_seconds": 180, "alert_seconds": 3, "recovery_jitter_seconds": [0, 0], "expired_seconds": [0, 30, 60, 120, 300], "server_button_seconds": [0, 30, 60, 120, 300], "server_retry_seconds": [30, 60, 120, 300], "blocked_seconds": [30, 60, 120, 300, 600], "timeout_retry_seconds": [2, 5], "post_timeout_seconds": 5, "restart_seconds": 5})
 }
 
 fn number(value: &Value) -> Option<f64> {
@@ -339,6 +348,7 @@ impl AssistTimings {
         } else {
             match kind {
                 RetryKind::RateLimit => self.0.rate_limit_seconds,
+                RetryKind::Unreachable => self.0.unreachable_seconds,
                 RetryKind::ClaveError => self.0.clave_error_seconds,
                 RetryKind::NoSlotsRestart => self.0.no_slots_restart_seconds,
                 _ => unreachable!("schedule selected above"),

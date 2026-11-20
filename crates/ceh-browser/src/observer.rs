@@ -177,8 +177,9 @@ impl PageObserver {
         page.snapshot.pending_action = action_text(self.pending_action)?;
         let recognition = recognize(&page.snapshot).map_err(|_| ProtocolError::InvalidData)?;
         // A visible booking always yields to the person promptly; all automatic actions
-        // wait for a stable loaded document. Never guess GET from a DOM snapshot.
-        let kind = if stable || recognition.kind == PageKind::Booking {
+        // wait for a stable loaded document. Never guess GET from a DOM snapshot. The browser's own error page
+        // never gets a load event, and nothing is done on it but opening the start page again, so it is told at once.
+        let kind = if stable || matches!(recognition.kind, PageKind::Booking | PageKind::Unreachable) {
             recognition.kind
         } else {
             PageKind::Loading

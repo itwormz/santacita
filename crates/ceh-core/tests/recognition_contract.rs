@@ -78,3 +78,31 @@ fn the_block_marker_names_the_phrase_that_made_a_page_a_block() {
     assert_eq!(block_marker("Demasiadas solicitudes, inténtelo más tarde"), Some("demasiadas solicitudes"));
     assert_eq!(block_marker("Seleccione la provincia donde solicitar la cita"), None);
 }
+
+fn net_error_page(code: &str, visible: &[&str], text: &str) -> ceh_core::recognition::Recognition {
+    let snapshot: PageSnapshot = serde_json::from_value(serde_json::json!({
+        "visible": visible, "official": false,
+        "frames": [{"text": text}], "network_error": code
+    }))
+    .unwrap();
+    recognize(&snapshot).unwrap()
+}
+
+#[test]
+fn the_error_page_of_a_browser_that_could_not_open_the_site_is_its_own_state_with_its_code() {
+    use ceh_core::model::PageKind;
+    // Chrome (text in the browser's language) and Firefox (about:neterror): the page is told by its code, never by words.
+    let chrome = net_error_page("DNS_PROBE_FINISHED_NXDOMAIN", &["body"], "This site can’t be reached");
+    assert_eq!(chrome.kind, PageKind::Unreachable);
+    assert_eq!(chrome.variant, "DNS_PROBE_FINISHED_NXDOMAIN", "the code is what diagnostics keep");
+    let firefox = net_error_page("netTimeout", &["body"], "Проблема при загрузке страницы");
+    assert_eq!(firefox.kind, PageKind::Unreachable);
+    // Seen while it is still being drawn, with nothing visible yet: still the same state, not "loading".
+    assert_eq!(net_error_page("connectionFailure", &[], "").kind, PageKind::Unreachable);
+    // Nothing but a short code of letters, digits and underscores is ever kept.
+    assert_eq!(net_error_page("<script>alert(1)</script>", &["body"], "x").variant, "network_error");
+    assert_eq!(net_error_page(&"A".repeat(200), &["body"], "x").variant, "network_error");
+    // A page without an error code is recognized as before.
+    let plain: PageSnapshot = serde_json::from_value(serde_json::json!({"visible": ["body"], "frames": [{"text": "x"}]})).unwrap();
+    assert_ne!(recognize(&plain).unwrap().kind, PageKind::Unreachable);
+}

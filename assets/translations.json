@@ -1162,7 +1162,8 @@
     "вернитесь на страницу поиска в окне Camoufox.": "go back to the search page in the Camoufox window.",
     "Когда страница станет боту знакомой, он сам продолжит поиск, запускать ничего не нужно.": "When the bot recognizes the page, it will continue the search by itself; there is nothing to start.",
     "Бот остановился и ждёт вас": "The bot has stopped and is waiting for you",
-    "Открыть окно Camoufox и выполнить шаг на странице вручную. Когда страница станет боту знакомой, он продолжит сам.": "Open the Camoufox window and do the step on the page by hand. When the bot recognizes the page, it will continue by itself."
+    "Открыть окно Camoufox и выполнить шаг на странице вручную. Когда страница станет боту знакомой, он продолжит сам.": "Open the Camoufox window and do the step on the page by hand. When the bot recognizes the page, it will continue by itself.",
+    "Сайт недоступен": "Site unavailable"
   },
   "es": {
     "Перепроверять наличие сит": "Volver a comprobar citas",
@@ -2327,6 +2328,7 @@
     "вернитесь на страницу поиска в окне Camoufox.": "vuelva a la página de búsqueda en la ventana de Camoufox.",
     "Когда страница станет боту знакомой, он сам продолжит поиск, запускать ничего не нужно.": "Cuando el bot reconozca la página, continuará la búsqueda por sí solo; no hay que iniciar nada.",
     "Бот остановился и ждёт вас": "El bot se detuvo y le espera",
-    "Открыть окно Camoufox и выполнить шаг на странице вручную. Когда страница станет боту знакомой, он продолжит сам.": "Abra la ventana de Camoufox y haga el paso en la página a mano. Cuando el bot reconozca la página, continuará solo."
+    "Открыть окно Camoufox и выполнить шаг на странице вручную. Когда страница станет боту знакомой, он продолжит сам.": "Abra la ventana de Camoufox y haga el paso en la página a mano. Cuando el bot reconozca la página, continuará solo.",
+    "Сайт недоступен": "Sitio no disponible"
   }
 }

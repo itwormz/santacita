@@ -856,6 +856,7 @@ fn page_title(name: &str) -> Option<&'static str> {
         "rate_limited" => "HTTP 429",
         "captcha" => "CAPTCHA",
         "loading" => "Загрузка",
+        "unreachable" => "Сайт недоступен",
         "unknown" => "Неизвестная страница",
         _ => return None,
     })

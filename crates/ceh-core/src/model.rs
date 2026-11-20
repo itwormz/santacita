@@ -84,6 +84,8 @@ pub enum PageKind {
     Blocked,
     RateLimited,
     Loading,
+    /// The browser's own error page: the site could not be reached at all.
+    Unreachable,
     Unknown,
 }
 

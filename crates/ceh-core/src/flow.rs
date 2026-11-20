@@ -906,7 +906,7 @@ impl FlowEngine {
         }
         if matches!(
             observed.kind,
-            PageKind::Expired | PageKind::ServerError | PageKind::Blocked | PageKind::RateLimited
+            PageKind::Expired | PageKind::ServerError | PageKind::Blocked | PageKind::RateLimited | PageKind::Unreachable
         ) {
             let key = (observed.kind, facts.recovery.own_control);
             let attempt = self
@@ -1074,9 +1074,10 @@ impl FlowEngine {
                         now.saturating_add(500).min(deadline),
                     )]);
                 }
+                // The page did not load in time: the site does not open. The same fixed wait as for the browser's error page.
                 let delay = self
                     .timings
-                    .recovery_delay(RetryKind::ServerRetry, 0, self.recovery_jitter)
+                    .recovery_delay(RetryKind::Unreachable, 0, self.recovery_jitter)
                     .map_err(|_| FlowError::InvalidDelay)?;
                 let deadline = deadline_millis(now, delay).map_err(|_| FlowError::ClockOverflow)?;
                 self.phase = Some(Phase::LoadingCooldown { deadline });

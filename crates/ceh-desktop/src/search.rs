@@ -845,7 +845,13 @@ fn run_owned(
         browser.connection(), &mut driver, &context);
     // Only the new owned about:blank context receives this initial GET.
     let navigated = browser.connection().call("browsingContext.navigate",json!({"context":context,"url":"https://icp.administracionelectronica.gob.es/icpplus/index.html","wait":"none"}));
-    if navigated.is_err() {
+    let site_down = navigated.is_err() && {
+        let deferred = browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred;
+        crate::site_did_not_open(crate::navigation_failure_settled(deferred, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)).filter(|_| !cancelled.load(Ordering::Acquire)))
+    };
+    // A site that did not open leaves the browser's error page in the window: the flow recognizes it and tries again
+    // after the profile's wait, instead of the search ending here.
+    if navigated.is_err() && !site_down {
         let deferred = browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred;
         return match crate::navigation_failure_settled(deferred, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)).filter(|_| !cancelled.load(Ordering::Acquire)) {
             // The window was closed while the page loaded: a stop, as when it closes later.
@@ -1441,7 +1447,8 @@ fn run_owned(
                                 if !browser.page_open() {
                                     return Ok(SessionEnd::Finished);
                                 }
-                                return Err("browser_navigation_failed");
+                                // The site did not open: the browser's error page is in the window and the flow tries
+                                // again after the profile's wait (a certificate problem would show before this point).
                             }
                             wait = false;
                             retry_at = Instant::now();

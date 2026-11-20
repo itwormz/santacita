@@ -74,3 +74,20 @@ fn adaptive_reload_flag_defaults_true_accepts_bool_and_rejects_other_values() {
         assert_eq!(error.field, Some("adaptive_reload_on_429"));
     }
 }
+
+#[test]
+fn an_unreachable_site_is_tried_again_at_one_fixed_interval_that_the_profile_can_change() {
+    use ceh_core::timings::AssistTimings;
+    let defaults = AssistTimings::default();
+    for attempt in [0, 1, 7, 500] {
+        assert_eq!(defaults.recovery_delay(RetryKind::Unreachable, attempt, 0.0).unwrap(), 300.0, "the same wait every time");
+    }
+    let one_minute = parse_timings(&serde_json::json!({"unreachable_seconds": 60})).unwrap();
+    assert_eq!(one_minute.recovery_delay(RetryKind::Unreachable, 3, 0.0).unwrap(), 60.0);
+    let half_hour = parse_timings(&serde_json::json!({"unreachable_seconds": "1800"})).unwrap();
+    assert_eq!(half_hour.recovery_delay(RetryKind::Unreachable, 0, 0.0).unwrap(), 1800.0);
+    for bad in [serde_json::json!(59.9), serde_json::json!(1801), serde_json::json!([300]), serde_json::json!("soon")] {
+        assert!(parse_timings(&serde_json::json!({"unreachable_seconds": bad})).is_err(), "{bad}");
+    }
+    assert!(parse_timings(&serde_json::json!({"rate_limit_seconds": 180})).unwrap().recovery_delay(RetryKind::Unreachable, 0, 0.0).unwrap() == 300.0, "a profile saved before the setting existed gets the default");
+}

@@ -238,6 +238,12 @@ pub fn navigation_failure(page_open: bool, certificate_cache_deferred: bool) -> 
         (true, false) => Some("browser_navigation_failed"),
     }
 }
+/// A rejected navigation to the site in a window that is still there means the browser could not reach it and shows its
+/// own error page: that is not the end of the search, the flow recognizes the page and tries again after its wait.
+/// A missing certificate chain is a setting, not something to wait for.
+pub fn site_did_not_open(failure: Option<&'static str>) -> bool {
+    failure == Some("browser_navigation_failed")
+}
 /// A browser error after the person pressed Stop is their stop, not a failure: the wait for a closing window
 /// can end on the last look, with a Stop pressed while it slept, so the request is read again once the wait is
 /// over, before the statistics and the journal record how the search ended.
