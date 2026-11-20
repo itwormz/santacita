@@ -174,24 +174,33 @@ pub struct TypingRhythm {
     pub first_ms: u64,
     pub keys: Vec<Keystroke>,
 }
-/// Per-key pauses from a log-normal distribution whose median is the profile's typing delay (about plus or
-/// minus 40 %), cut to 20 ms .. 350 ms; about one key in twenty is followed by a longer stop of 150-400 ms.
-/// Holds last 45-190 ms and the first key waits 200-600 ms. A delay of 0 adds no time at all.
+/// The whole field takes the profile's typing delay times the number of keys (what a fixed pause between keys
+/// used to take) times 1.25 .. 1.65: never more than 70 % longer, whatever the seed. The time is shared out
+/// among the keys with a log-normal spread, and about one key in twenty-five is a hesitation of two to three
+/// times the usual interval. Every key is held for 45-75 % of its own interval (12-130 ms, so a fast setting
+/// holds the key shorter) and the pause is the rest of it; the first key waits 120-320 ms, at most a quarter of
+/// the field's time. A delay of 0 (or nothing to type) adds no time at all.
 pub fn typing_rhythm(seed: u64, median_ms: u64, count: usize) -> TypingRhythm {
     let mut rng = Rng::new(seed ^ 0x7479_7069_6E67);
-    if median_ms == 0 {
+    if median_ms == 0 || count == 0 {
         return TypingRhythm { first_ms: 0, keys: vec![Keystroke { hold_ms: 0, pause_ms: 0 }; count] };
     }
-    let first_ms = rng.ms((200, 600));
-    let keys = (0..count)
+    let total = count as f64 * median_ms as f64 * rng.range(1.25, 1.65);
+    let first_ms = (rng.ms((120, 320)) as f64).min(total * 0.25).round() as u64;
+    let budget = total - first_ms as f64;
+    let weights: Vec<f64> = (0..count)
         .map(|_| {
-            let hold_ms = rng.ms((45, 190));
-            let pause_ms = if rng.unit() < 0.05 {
-                rng.ms((150, 400))
-            } else {
-                ((median_ms as f64 * (0.55 * rng.normal()).exp()).round() as u64).clamp(20, 350)
-            };
-            Keystroke { hold_ms, pause_ms }
+            let weight = (0.4 * rng.normal()).exp().clamp(0.4, 2.2);
+            if rng.unit() < 0.04 { weight * rng.range(2.0, 3.5) } else { weight }
+        })
+        .collect();
+    let sum: f64 = weights.iter().sum();
+    let keys = weights
+        .iter()
+        .map(|weight| {
+            let interval = (budget * weight / sum).round().max(8.0);
+            let hold = (interval * rng.range(0.45, 0.75)).clamp(12.0, 130.0).min(interval - 6.0).max(1.0);
+            Keystroke { hold_ms: hold.round() as u64, pause_ms: (interval - hold.round()) as u64 }
         })
         .collect();
     TypingRhythm { first_ms, keys }

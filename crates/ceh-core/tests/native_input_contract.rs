@@ -145,28 +145,50 @@ fn the_cursor_never_leaves_the_room_the_element_has_in_the_viewport() {
 
 use ceh_core::input::typing_rhythm;
 
+fn field_ms(r: &ceh_core::input::TypingRhythm) -> u64 {
+    r.first_ms + r.keys.iter().map(|k| k.hold_ms + k.pause_ms).sum::<u64>()
+}
+
 #[test]
-fn typing_has_its_own_pause_and_hold_for_every_key() {
+fn typing_has_its_own_hold_and_pause_for_every_key() {
     let rhythm = typing_rhythm(7, 90, 20);
     assert_eq!(rhythm.keys.len(), 20);
-    assert!((200..=600).contains(&rhythm.first_ms), "{}", rhythm.first_ms);
+    assert!((100..=320).contains(&rhythm.first_ms), "{}", rhythm.first_ms);
     let pauses: std::collections::HashSet<u64> = rhythm.keys.iter().map(|k| k.pause_ms).collect();
+    let holds: std::collections::HashSet<u64> = rhythm.keys.iter().map(|k| k.hold_ms).collect();
     assert!(pauses.len() >= 8, "intervals are not all equal: {pauses:?}");
-    assert!(rhythm.keys.iter().all(|k| (45..=190).contains(&k.hold_ms)), "{:?}", rhythm.keys);
+    assert!(holds.len() >= 8, "holds are not all equal: {holds:?}");
+    assert!(rhythm.keys.iter().all(|k| (12..=130).contains(&k.hold_ms) && k.pause_ms >= 6), "{:?}", rhythm.keys);
     assert_eq!(typing_rhythm(7, 90, 20), typing_rhythm(7, 90, 20), "a seed gives the same rhythm");
 }
 
 #[test]
-fn the_pauses_centre_on_the_configured_value_with_rare_longer_stops() {
-    let mut pauses: Vec<u64> = (0..200u64).flat_map(|seed| typing_rhythm(seed, 90, 20).keys.into_iter().map(|k| k.pause_ms)).collect();
-    pauses.sort_unstable();
-    let median = pauses[pauses.len() / 2];
-    assert!((75..=105).contains(&median), "median {median}");
-    assert!(pauses.iter().all(|p| *p <= 400));
-    let regular_max = 350;
-    let long = pauses.iter().filter(|p| **p > regular_max).count() as f64 / pauses.len() as f64;
-    let hesitations = pauses.iter().filter(|p| (150..=400).contains(*p)).count() as f64 / pauses.len() as f64;
-    assert!(long < 0.08 && hesitations > 0.02, "long {long}, hesitations {hesitations}");
+fn a_field_never_takes_more_than_seventy_percent_longer_than_the_fixed_delay_it_replaced() {
+    // The profile's typing delay used to be the pause between two keys: a field took count x delay.
+    for median in [35u64, 52, 70, 105, 140] {
+        for count in [4usize, 9, 20, 22] {
+            let old = (count as u64 * median) as f64;
+            let mut sum = 0.0;
+            for seed in 0..300u64 {
+                let total = field_ms(&typing_rhythm(seed, median, count)) as f64;
+                assert!(total <= old * 1.7, "delay {median}, {count} keys, seed {seed}: {total} ms against {old} ms");
+                sum += total;
+            }
+            let mean = sum / 300.0 / old;
+            assert!((1.25..=1.6).contains(&mean), "delay {median}, {count} keys: on average x{mean:.2} of the old time");
+        }
+    }
+}
+
+#[test]
+fn the_intervals_vary_and_now_and_then_a_key_waits_noticeably_longer() {
+    let mut intervals: Vec<f64> = (0..200u64).flat_map(|seed| typing_rhythm(seed, 90, 20).keys.into_iter().map(|k| (k.hold_ms + k.pause_ms) as f64)).collect();
+    let mean = intervals.iter().sum::<f64>() / intervals.len() as f64;
+    let spread = (intervals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / intervals.len() as f64).sqrt() / mean;
+    assert!(spread > 0.25, "a person's keys are not evenly spaced: spread {spread:.2}");
+    intervals.sort_by(f64::total_cmp);
+    let long = intervals.iter().filter(|v| **v > mean * 2.0).count() as f64 / intervals.len() as f64;
+    assert!((0.005..0.08).contains(&long), "rare hesitations, {long:.3}");
 }
 
 #[test]
@@ -174,6 +196,12 @@ fn no_configured_typing_delay_means_no_added_time() {
     let rhythm = typing_rhythm(3, 0, 10);
     assert_eq!(rhythm.first_ms, 0);
     assert!(rhythm.keys.iter().all(|k| k.pause_ms == 0 && k.hold_ms == 0));
+}
+
+#[test]
+fn typing_nothing_waits_for_nothing() {
+    let rhythm = typing_rhythm(3, 90, 0);
+    assert_eq!((rhythm.first_ms, rhythm.keys.len()), (0, 0));
 }
 
 use ceh_core::input::reading_pause_ms;
