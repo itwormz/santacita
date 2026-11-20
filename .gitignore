@@ -2,6 +2,7 @@
 /data/
 /debug/
 /.local/
+/.local
 /tasks.yml
 /.tasks.yml.lock
 /.profiles-*
