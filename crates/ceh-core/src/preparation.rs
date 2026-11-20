@@ -12,17 +12,20 @@ const MIN_FLOOR_MS:u64=1_500;
 #[derive(Clone)]
 enum Phase{Initial,First{document:DocumentId,deadline:u64},ReloadReady{document:DocumentId},AwaitNew{document:DocumentId,deadline:u64},Second{document:DocumentId,deadline:u64},Ready,Held}
 #[derive(Clone)]
-pub struct SessionPreparation{first:u64,second:u64,load_timeout:u64,phase:Phase,last:Option<u64>,paused:Option<u64>,idle_since:Option<u64>}
+pub struct SessionPreparation{first:u64,second:u64,load_timeout:u64,phase:Phase,last:Option<u64>,paused:Option<u64>,idle_since:Option<u64>,no_reload:bool}
 impl SessionPreparation{
  fn floor(wait:u64)->u64{(wait*FLOOR_PERCENT/100).max(MIN_FLOOR_MS).min(wait)}
  /// The moment the readiness signal starts to count in the wait that ends at `deadline`.
  fn floor_at(deadline:u64,wait:u64)->u64{deadline.saturating_sub(wait).saturating_add(Self::floor(wait))}
  pub fn new(first_ms:u64,second_ms:u64,load_timeout_ms:u64)->Result<Self,PreparationError>{
   if load_timeout_ms==0{return Err(PreparationError::InvalidTiming);}
-  Ok(Self{first:first_ms,second:second_ms,load_timeout:load_timeout_ms,phase:Phase::Initial,last:None,paused:None,idle_since:None})
+  Ok(Self{first:first_ms,second:second_ms,load_timeout:load_timeout_ms,phase:Phase::Initial,last:None,paused:None,idle_since:None,no_reload:false})
  }
  fn check(&self,now:u64)->Result<(),PreparationError>{if self.last.is_some_and(|old|now<old){Err(PreparationError::ClockReversed)}else{Ok(())}}
  fn deadline(now:u64,delay:u64)->Result<u64,PreparationError>{now.checked_add(delay).ok_or(PreparationError::Overflow)}
+ /// After the first start wait the search goes on without the explicit GET reload (a real run on 2026-11-20 got to the
+ /// applicant form without it; the reload path stays for the case that it is needed again).
+ pub fn without_reload(mut self)->Self{self.no_reload=true;self}
  pub fn pause(&mut self,now:u64)->Result<(),PreparationError>{self.check(now)?;self.last=Some(now);if self.paused.is_none(){self.paused=Some(now);}Ok(())}
  pub fn resume(&mut self,now:u64)->Result<(),PreparationError>{
   self.check(now)?;
@@ -46,6 +49,7 @@ impl SessionPreparation{
    Phase::First{document,deadline:_} if page.kind==PageKind::Province&&document!=page.document=>{let deadline=Self::deadline(now,self.first)?;(Phase::First{document:page.document.clone(),deadline},PreparationDecision::WaitUntil(deadline))},
    Phase::First{deadline,..} if page.kind!=PageKind::Province&&now>=Self::deadline(deadline,self.load_timeout)?=>(Phase::Held,PreparationDecision::Hold),
    Phase::First{document,deadline} if now<deadline||page.kind!=PageKind::Province=>(Phase::First{document,deadline},PreparationDecision::WaitUntil(if now<deadline{deadline}else{Self::deadline(now,500)?})),
+   Phase::First{..} if self.no_reload=>(Phase::Ready,PreparationDecision::Continue),
    Phase::First{document,..}=>(Phase::ReloadReady{document},PreparationDecision::ReloadGet),
    Phase::ReloadReady{document} if document==page.document&&page.kind==PageKind::Province=>(Phase::ReloadReady{document},PreparationDecision::ReloadGet),
    Phase::ReloadReady{..}=>{let deadline=Self::deadline(now,self.first)?;(Phase::First{document:page.document.clone(),deadline},PreparationDecision::WaitUntil(deadline))},

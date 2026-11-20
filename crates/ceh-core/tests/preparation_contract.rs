@@ -129,3 +129,17 @@ fn a_pause_before_the_first_page_was_seen_is_resumed_like_any_other() {
  prep.resume(90000).unwrap();
  assert_eq!(prep.observe_ready(&first,true,90100,true,false).unwrap(),PreparationDecision::WaitUntil(91600),"the start wait begins when the page is seen, not before the pause");
 }
+
+#[test]
+fn without_the_explicit_reload_the_search_goes_on_after_the_first_start_wait() {
+ let first=page("first",PageKind::Province,RequestMethod::Get);
+ let mut prep=SessionPreparation::new(5000,8000,45000).unwrap().without_reload();
+ assert_eq!(prep.observe_ready(&first,true,0,true,false).unwrap(),PreparationDecision::WaitUntil(1500));
+ assert_eq!(prep.observe_ready(&first,true,1500,true,true).unwrap(),PreparationDecision::Continue,"no GET reload, the page is used as it is");
+ assert_eq!(prep.observe_ready(&first,true,2000,true,true).unwrap(),PreparationDecision::Continue);
+ // Without the signal the whole first wait still runs.
+ let mut slow=SessionPreparation::new(5000,8000,45000).unwrap().without_reload();
+ slow.observe_ready(&first,true,0,true,false).unwrap();
+ assert!(matches!(slow.observe_ready(&first,true,4000,true,false).unwrap(),PreparationDecision::WaitUntil(_)));
+ assert_eq!(slow.observe_ready(&first,true,5000,true,false).unwrap(),PreparationDecision::Continue);
+}

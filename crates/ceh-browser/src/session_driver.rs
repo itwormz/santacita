@@ -161,7 +161,7 @@ impl SessionDriver {
     }
     pub fn with_samples(context:&str,session:SessionId,profile:ProfileDraft,timings:AssistTimings,gate:DispatchGate,samples:SessionSamples)->Result<Self,BrowserError>{
         let sampled=|kind,unit|timings.sample(kind,unit).map_err(|_|BrowserError::Unsupported);
-        let preparation=SessionPreparation::new((sampled(TimingKind::Bootstrap,samples.first_bootstrap)?*1000.).ceil() as u64,(sampled(TimingKind::Bootstrap,samples.second_bootstrap)?*1000.).ceil() as u64,(timings.navigation_seconds()*1000.).ceil() as u64).map_err(|_|BrowserError::Unsupported)?;
+        let preparation=SessionPreparation::new((sampled(TimingKind::Bootstrap,samples.first_bootstrap)?*1000.).ceil() as u64,(sampled(TimingKind::Bootstrap,samples.second_bootstrap)?*1000.).ceil() as u64,(timings.navigation_seconds()*1000.).ceil() as u64).map_err(|_|BrowserError::Unsupported)?.without_reload();
         let reload_sample=sampled(TimingKind::Reload,samples.reload)?;
         let contact_typing_ms=sampled(TimingKind::ContactTyping,samples.contact_typing)?;
         let typing_ms=sampled(TimingKind::Typing,samples.typing)?;
