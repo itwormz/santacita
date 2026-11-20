@@ -7,7 +7,7 @@ pub enum PreparationError{InvalidTiming,ClockReversed,Overflow,Paused,Unexpected
 const IDLE_BUDGET_MS:u64=10_000;
 const IDLE_STEP_MS:u64=250;
 /// With a readiness signal a wait may end after this share of it (and never before `MIN_FLOOR_MS`).
-const FLOOR_PERCENT:u64=40;
+const FLOOR_PERCENT:u64=25;
 const MIN_FLOOR_MS:u64=1_500;
 #[derive(Clone)]
 enum Phase{Initial,First{document:DocumentId,deadline:u64},ReloadReady{document:DocumentId},AwaitNew{document:DocumentId,deadline:u64},Second{document:DocumentId,deadline:u64},Ready,Held}

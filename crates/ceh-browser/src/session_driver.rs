@@ -11,6 +11,9 @@ use ceh_core::{
     preparation::{SessionPreparation,PreparationDecision},
 };
 use std::time::{Duration, Instant};
+/// A start wait may end early only when the page's network has been silent this long: the protection script sends
+/// its last request about a second after the page shows, and nothing follows it.
+const READY_QUIET: Duration = Duration::from_millis(1200);
 /// Independent unit samples are supplied by the runtime; the policy stays deterministic.
 #[derive(Clone,Copy)]
 pub struct SessionSamples{pub first_bootstrap:f64,pub second_bootstrap:f64,pub reload:f64,pub contact_typing:f64,pub typing:f64}
@@ -363,7 +366,7 @@ impl SessionDriver {
             self.pending = None;
         }
         // A start wait may end at its floor once the protection script has finished its checks (cookie names only).
-        let ready=self.preparation.wants_signal(now)&&crate::evidence::read_cookie_names(connection).is_some_and(|names|crate::evidence::challenge_cookies_ready(&names));
+        let ready=self.preparation.wants_signal(now)&&self.observer.network_quiet_for()>=READY_QUIET&&crate::evidence::read_cookie_names(connection).is_some_and(|names|crate::evidence::challenge_cookies_ready(&names));
         let preparation=self.preparation.observe_ready(&page.observation,page.page.snapshot.official,now,self.observer.network_quiet(),ready).map_err(|_|BrowserError::InvalidControl)?;
         if preparation!=PreparationDecision::Continue{
             let reload=preparation==PreparationDecision::ReloadGet;

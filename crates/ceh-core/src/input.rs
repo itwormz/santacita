@@ -206,11 +206,11 @@ pub fn typing_rhythm(seed: u64, median_ms: u64, count: usize) -> TypingRhythm {
     TypingRhythm { first_ms, keys }
 }
 
-/// How long a person reads a page that has just loaded before the first action on it: 0.6-1.5 s plus about
-/// 15 ms for every visible word (at most 4 s for the words). Added to the profile's action delay.
+/// How long a person who knows the form looks at a page that has just loaded before the first action on it:
+/// 0.4-1.0 s plus about 8 ms for every visible word (at most 1.5 s for the words). Added to the profile's action delay.
 pub fn reading_pause_ms(seed: u64, visible_words: usize) -> u64 {
     let mut rng = Rng::new(seed ^ 0x7265_6164);
-    rng.ms((600, 1500)) + (visible_words as u64 * 15).min(4000)
+    rng.ms((400, 1000)) + (visible_words as u64 * 8).min(1500)
 }
 
 /// How far to scroll (positive: down) so that an element is comfortably in view, from its centre height

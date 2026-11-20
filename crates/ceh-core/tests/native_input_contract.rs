@@ -210,11 +210,11 @@ use ceh_core::input::reading_pause_ms;
 fn a_page_is_read_before_the_first_action_longer_when_it_has_more_text() {
     for seed in 0..200u64 {
         let empty = reading_pause_ms(seed, 0);
-        assert!((600..=1500).contains(&empty), "{empty}");
+        assert!((400..=1000).contains(&empty), "{empty}");
         let form = reading_pause_ms(seed, 100);
-        assert!((2100..=3000).contains(&form), "100 words add about 1.5 s, got {form}");
+        assert!((1200..=1800).contains(&form), "100 words add about 0.8 s, got {form}");
         let wall_of_text = reading_pause_ms(seed, 5000);
-        assert!(wall_of_text <= 1500 + 4000, "the words add at most 4 s, got {wall_of_text}");
+        assert!(wall_of_text <= 1000 + 1500, "the words add at most 1.5 s, got {wall_of_text}");
     }
     assert_eq!(reading_pause_ms(4, 40), reading_pause_ms(4, 40));
     assert_ne!(reading_pause_ms(4, 40), reading_pause_ms(5, 40));

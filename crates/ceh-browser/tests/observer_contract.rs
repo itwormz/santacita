@@ -167,3 +167,25 @@ fn rows_of_one_drain_keep_the_instants_of_their_events_and_metadata_is_drained_o
     assert_eq!(meta[0]["request_header_names"], json!(["accept"]));
     assert!(observer.take_network_meta().is_empty());
 }
+
+#[test]
+fn the_network_is_quiet_for_as_long_as_nothing_has_been_asked_or_answered() {
+    use ceh_browser::observer::PageObserver;
+    use serde_json::json;
+    use std::time::Duration;
+    let mut observer = PageObserver::new("main").unwrap();
+    let request = json!({"type":"event","method":"network.beforeRequestSent","params":{"context":"main","navigation":null,"request":{"request":"r1","method":"GET"}}});
+    let response = json!({"type":"event","method":"network.responseCompleted","params":{"context":"main","navigation":null,"request":{"request":"r1","method":"GET"},"response":{"status":200}}});
+    observer.ingest(&request).unwrap();
+    assert!(!observer.network_quiet());
+    assert_eq!(observer.network_quiet_for(), Duration::ZERO, "a request in flight is not quiet at all");
+    observer.ingest(&response).unwrap();
+    assert!(observer.network_quiet());
+    assert!(observer.network_quiet_for() < Duration::from_millis(40), "it was busy a moment ago");
+    std::thread::sleep(Duration::from_millis(60));
+    assert!(observer.network_quiet_for() >= Duration::from_millis(60), "and it stays quiet from then on");
+    // Another page's traffic does not count.
+    let other = json!({"type":"event","method":"network.beforeRequestSent","params":{"context":"other","request":{"request":"r2","method":"GET"}}});
+    observer.ingest(&other).unwrap();
+    assert!(observer.network_quiet_for() >= Duration::from_millis(60));
+}

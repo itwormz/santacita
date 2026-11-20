@@ -79,21 +79,21 @@ fn observe_without_network_knowledge_behaves_as_a_quiet_network() {
 fn a_wait_ends_at_its_floor_when_the_page_is_ready_and_the_network_is_quiet() {
  let first=page("first",PageKind::Province,RequestMethod::Get);let second=page("second",PageKind::Province,RequestMethod::Get);
  let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
- // the floor is 40% of the wait (at least 1.5 s): 2 s of 5 s, 3.2 s of 8 s
- assert_eq!(prep.observe_ready(&first,true,0,true,false).unwrap(),PreparationDecision::WaitUntil(2000),"the first look is at the floor");
- assert_eq!(prep.observe_ready(&first,true,1999,true,true).unwrap(),PreparationDecision::WaitUntil(2000),"never before the floor, even when ready");
- assert_eq!(prep.observe_ready(&first,true,2000,true,true).unwrap(),PreparationDecision::ReloadGet);
- prep.reload_sent(DispatchOutcome::Unknown,2001).unwrap();
- assert_eq!(prep.observe_ready(&second,true,3000,true,false).unwrap(),PreparationDecision::WaitUntil(6200));
- assert_eq!(prep.observe_ready(&second,true,6200,true,true).unwrap(),PreparationDecision::Continue);
+ // the floor is 25% of the wait (at least 1.5 s): 1.5 s of 5 s, 2 s of 8 s
+ assert_eq!(prep.observe_ready(&first,true,0,true,false).unwrap(),PreparationDecision::WaitUntil(1500),"the first look is at the floor");
+ assert_eq!(prep.observe_ready(&first,true,1499,true,true).unwrap(),PreparationDecision::WaitUntil(1500),"never before the floor, even when ready");
+ assert_eq!(prep.observe_ready(&first,true,1500,true,true).unwrap(),PreparationDecision::ReloadGet);
+ prep.reload_sent(DispatchOutcome::Unknown,1501).unwrap();
+ assert_eq!(prep.observe_ready(&second,true,3000,true,false).unwrap(),PreparationDecision::WaitUntil(5000));
+ assert_eq!(prep.observe_ready(&second,true,5000,true,true).unwrap(),PreparationDecision::Continue);
 }
 #[test]
 fn without_the_signal_or_with_a_busy_network_the_whole_wait_is_kept() {
  let first=page("first",PageKind::Province,RequestMethod::Get);
  let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
- assert_eq!(prep.observe_ready(&first,true,0,true,false).unwrap(),PreparationDecision::WaitUntil(2000));
+ assert_eq!(prep.observe_ready(&first,true,0,true,false).unwrap(),PreparationDecision::WaitUntil(1500));
  // the signal is asked again every 250 ms until the full wait is over
- assert_eq!(prep.observe_ready(&first,true,2000,true,false).unwrap(),PreparationDecision::WaitUntil(2250));
+ assert_eq!(prep.observe_ready(&first,true,1500,true,false).unwrap(),PreparationDecision::WaitUntil(1750));
  assert_eq!(prep.observe_ready(&first,true,4800,true,false).unwrap(),PreparationDecision::WaitUntil(5000));
  assert_eq!(prep.observe_ready(&first,true,5000,true,false).unwrap(),PreparationDecision::ReloadGet,"no signal: the old wait");
  let mut busy=SessionPreparation::new(5000,8000,45000).unwrap();
@@ -106,8 +106,8 @@ fn the_signal_is_only_wanted_between_the_floor_and_the_end_of_a_wait() {
  let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
  assert!(!prep.wants_signal(0),"nothing is waiting yet");
  prep.observe_ready(&first,true,0,true,false).unwrap();
- assert!(!prep.wants_signal(1999));
- assert!(prep.wants_signal(2000));
+ assert!(!prep.wants_signal(1499));
+ assert!(prep.wants_signal(1500));
  assert!(prep.wants_signal(4999));
  assert!(!prep.wants_signal(5000));
 }
@@ -116,8 +116,8 @@ fn a_pause_moves_the_floor_with_the_wait() {
  let first=page("first",PageKind::Province,RequestMethod::Get);
  let mut prep=SessionPreparation::new(5000,8000,45000).unwrap();
  prep.observe_ready(&first,true,0,true,false).unwrap();prep.pause(1000).unwrap();prep.resume(11000).unwrap();
- assert_eq!(prep.observe_ready(&first,true,11000,true,true).unwrap(),PreparationDecision::WaitUntil(12000),"1 s of the floor is left");
- assert_eq!(prep.observe_ready(&first,true,12000,true,true).unwrap(),PreparationDecision::ReloadGet);
+ assert_eq!(prep.observe_ready(&first,true,11000,true,true).unwrap(),PreparationDecision::WaitUntil(11500),"0.5 s of the floor is left");
+ assert_eq!(prep.observe_ready(&first,true,11500,true,true).unwrap(),PreparationDecision::ReloadGet);
 }
 
 #[test]
@@ -127,5 +127,5 @@ fn a_pause_before_the_first_page_was_seen_is_resumed_like_any_other() {
  prep.pause(253).unwrap();
  assert!(prep.observe_ready(&first,true,300,true,false).is_err(),"nothing is planned while paused");
  prep.resume(90000).unwrap();
- assert_eq!(prep.observe_ready(&first,true,90100,true,false).unwrap(),PreparationDecision::WaitUntil(92100),"the start wait begins when the page is seen, not before the pause");
+ assert_eq!(prep.observe_ready(&first,true,90100,true,false).unwrap(),PreparationDecision::WaitUntil(91600),"the start wait begins when the page is seen, not before the pause");
 }

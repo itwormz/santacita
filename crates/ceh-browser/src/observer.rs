@@ -23,6 +23,8 @@ pub struct PageObserver {
     passive: Option<crate::passive::ResponseQueue>,
     /// Requests of this context started and not yet completed or failed (the warm-up's `networkidle`).
     inflight: u32,
+    /// The last request or answer of this page, to tell how long the network has been quiet.
+    last_network: std::time::Instant,
     /// Appointment-site traffic rows for the diagnostics file, only while the journal is enabled.
     network: Option<NetworkTap>,
 }
@@ -48,6 +50,7 @@ impl PageObserver {
             pending_action: None,
             passive: None,
             inflight: 0,
+            last_network: std::time::Instant::now(),
             network: None,
         })
     }
@@ -83,12 +86,22 @@ impl PageObserver {
         }
         let ours = event["params"]["context"].as_str() == Some(self.context.as_str());
         match event["method"].as_str() {
-            Some("network.beforeRequestSent") if ours => self.inflight = self.inflight.saturating_add(1),
-            Some("network.responseCompleted") if ours => self.inflight = self.inflight.saturating_sub(1),
-            Some("browsingContext.navigationStarted") if ours => self.inflight = 0,
+            Some("network.beforeRequestSent") if ours => {
+                self.inflight = self.inflight.saturating_add(1);
+                self.last_network = std::time::Instant::now();
+            }
+            Some("network.responseCompleted") if ours => {
+                self.inflight = self.inflight.saturating_sub(1);
+                self.last_network = std::time::Instant::now();
+            }
+            Some("browsingContext.navigationStarted") if ours => {
+                self.inflight = 0;
+                self.last_network = std::time::Instant::now();
+            }
             Some("network.fetchError") => {
                 if ours {
                     self.inflight = self.inflight.saturating_sub(1);
+                    self.last_network = std::time::Instant::now();
                 }
                 return Ok(());
             }
@@ -119,6 +132,10 @@ impl PageObserver {
     /// No request of the page is in flight (Python waits for `networkidle` during the F5 warm-up).
     pub fn network_quiet(&self) -> bool {
         self.inflight == 0
+    }
+    /// How long nothing has been asked or answered on this page; zero while a request is in flight.
+    pub fn network_quiet_for(&self) -> std::time::Duration {
+        if self.inflight == 0 { self.last_network.elapsed() } else { std::time::Duration::ZERO }
     }
     /// Enable only after the debug/capture policy and collector lifecycle allow it.
     pub fn set_passive_collection(&mut self, enabled: bool) -> Result<(), ProtocolError> {

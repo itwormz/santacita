@@ -62,10 +62,9 @@ pub fn read_cookie_names(connection: &mut BidiConnection) -> Option<Value> {
     Some(Value::Array(all))
 }
 
-/// The site's protection script has finished its checks on the page: the cookie it sets after the check and one of
-/// the cookies its browser-side script keeps are present. Names only; if the site renames them, nothing is lost
-/// but the shortcut (the start wait then runs its full length).
+/// The protection script's cookie for the check is there (`TSPD_101`, set when its script has run on the page).
+/// Names only; if the site renames it, nothing is lost but the shortcut (the start wait then runs its full length).
+/// The device cookie `TSPD_101_DID` alone does not count, and `f5_cspm` only comes much later on this site.
 pub fn challenge_cookies_ready(names: &Value) -> bool {
-    let has = |wanted: &dyn Fn(&str) -> bool| names.as_array().into_iter().flatten().filter_map(|c| c["name"].as_str()).any(wanted);
-    has(&|n| n == "TSPD_101") && has(&|n| n == "f5_cspm" || n.starts_with("f5avr"))
+    names.as_array().into_iter().flatten().filter_map(|c| c["name"].as_str()).any(|n| n == "TSPD_101")
 }
