@@ -883,6 +883,11 @@ fn main() {
                 }
                 ceh_desktop::instance_lock::Acquire::Unavailable => {}
             }
+            // A panic on the window's thread aborts the app: its place is kept and reported at the next start.
+            ceh_desktop::crash_note::install(&root);
+            if let Ok(now) = ceh_desktop::current_time() {
+                let _ = ceh_desktop::crash_note::report_previous(&root, &std::env::var("HOME").unwrap_or_default(), now);
+            }
             let dark = bootstrap(&root, "ru")
                 .map(|data| data.preferences.dark)
                 .unwrap_or(true);

@@ -61,6 +61,7 @@ pub mod instance_lock;
 pub mod restart;
 pub mod session_report;
 pub mod session_timeline;
+pub mod crash_note;
 pub mod startup_report;
 /// Where the Python application kept its data folders on this system.
 pub fn legacy_support_dirs() -> Vec<std::path::PathBuf> {
