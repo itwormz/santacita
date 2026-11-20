@@ -495,7 +495,10 @@ fn search_snapshot(
 /// The preparation of a start (profile, secrets, notification channels) is not done on the thread that draws the
 /// window: a slow keychain or disk must not hold the button after the click.
 #[tauri::command]
-async fn search_start(window: WebviewWindow, id: String) -> Result<(), &'static str> {
+async fn search_start(
+    window: WebviewWindow,
+    id: String,
+) -> Result<(), &'static str> {
     authorize(&window)?;
     let app = window.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -647,7 +650,10 @@ async fn copy_text(
 /// Reset the browser session of profile `id` (Python `reset_session`): a running search of this profile
 /// restarts its pass, otherwise the app-owned browser profile is deleted. Returns what was done.
 #[tauri::command]
-async fn reset_session(window: WebviewWindow, id: String) -> Result<&'static str, &'static str> {
+async fn reset_session(
+    window: WebviewWindow,
+    id: String,
+) -> Result<&'static str, &'static str> {
     authorize(&window)?;
     let app = window.app_handle().clone();
     // Deleting a browser profile can take a while: not on the thread that draws the window.
