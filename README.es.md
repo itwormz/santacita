@@ -47,6 +47,21 @@ SantaCita es compatible con macOS (Apple Silicon e Intel), Windows 10 y 11 (x64)
 
 macOS: arrastre SantaCita a Applications. No está notarizada; si se bloquea, use Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente. Los paquetes no están firmados con un certificado de desarrollador de pago; compárelos con `SHA256SUMS` y el paquete Sigstore que se publica con cada versión. Windows: los paquetes no tienen firma de editor; SmartScreen puede requerir Más información → Ejecutar de todas formas. Linux: dé permiso de ejecución al AppImage (`chmod +x archivo.AppImage`). Un AppImage necesita FUSE 3 (`fusermount3`, paquete `fuse3`): suele venir preinstalado en los escritorios; si no, instálelo (`sudo apt install fuse3`, `sudo dnf install fuse3`, `sudo pacman -S fuse3`) o inicie el archivo con `--appimage-extract-and-run`. El Firefox propio de Ubuntu es un snap y no es compatible: instale Chrome desde su paquete `.deb` o Firefox desde el repositorio APT de Mozilla.
 
+## 🔐 Se necesita certificado o Cl@ve
+
+Hoy es prácticamente imposible conseguir una cita sin certificado digital o [Cl@ve](https://clave.gob.es). Si no tiene ninguno, obtenga primero uno: [certificado de persona física (FNMT)](https://www.sede.fnmt.gob.es/certificados/persona-fisica) o Cl@ve. El trámite es sencillo. El bot accede a la web precisamente de esta forma.
+
+## 🤖 Cómo funciona el bot
+
+El servicio limita estrictamente los intentos: actualmente **5 solicitudes de cita al día por NIE**. Después el NIE queda bloqueado y ese día ya no se puede conseguir cita. Por eso el bot no prueba el formulario a ciegas y gasta un intento solo cuando puede funcionar:
+
+1. Accede con el certificado y llega a la página de datos **sin introducir nada**.
+2. Revisa esa página periódicamente y espera a que desaparezca el mensaje de que no hay citas.
+3. Cuando el mensaje desaparece, **repite todo el recorrido** hasta la misma página para comprobar que no fue algo puntual.
+4. Si el mensaje de que no hay citas no ha vuelto, **solo entonces** introduce sus datos y continúa hasta la selección de cita.
+
+Así ninguna de las cinco solicitudes diarias se gasta en comprobaciones vacías.
+
 ## 🔄 Búsqueda y controles
 
 - Espera y actualiza según los ajustes mientras el formulario indica que no hay citas.
