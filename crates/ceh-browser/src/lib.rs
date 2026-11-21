@@ -230,6 +230,8 @@ pub mod report_state;
 
 #[cfg(feature = "bidi")]
 mod firefox_certificates;
+#[cfg(feature = "bidi")]
+pub use firefox_certificates::{register_helper, run_helper_if_requested};
 
 /// For the opt-in live tests: a browser that is not installed is reported as `SKIPPED` (never as a silent pass),
 /// and fails the test when `CEH_REQUIRE_BROWSERS` is set (a machine that is meant to have the browsers).

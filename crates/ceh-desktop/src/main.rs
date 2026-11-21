@@ -771,6 +771,12 @@ async fn startup_report_copy(
 static AFTER_UPDATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn main() {
+    // Started as the short-lived helper that imports the site certificate into a Firefox profile: do that and exit
+    // before anything else, so the browser's own libraries never enter the application itself.
+    ceh_browser::run_helper_if_requested();
+    if let Ok(executable) = std::env::current_exe() {
+        ceh_browser::register_helper(executable);
+    }
     // Just updated: the previous program is still shutting down; wait for it, and do not pass the marker on.
     if std::env::var_os("CEH_AFTER_UPDATE").is_some() {
         AFTER_UPDATE.store(true, std::sync::atomic::Ordering::Release);

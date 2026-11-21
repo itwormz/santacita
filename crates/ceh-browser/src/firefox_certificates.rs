@@ -2,6 +2,79 @@
 //! NSS comes from the same installed Firefox; only a CEH-owned, leased profile is opened.
 use crate::firefox::{FirefoxError, FirefoxInstallation, ProfileLease};
 const INTERMEDIATE: &[u8] = include_bytes!("../assets/rapidssl-tls-rsa-ca-g1.der");
+/// The browser's own libraries (`libmozglue` installs its memory allocator as the process default and cannot be
+/// taken out again) never enter the long-lived application: the import runs in a short-lived copy of the
+/// program, which the application's `main` registers here and which `run_helper_if_requested` serves.
+static HELPER: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+const HELPER_FLAG: &str = "--ceh-nss-import";
+const HELPER_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Tells the certificate import which executable to start as the helper. Without it (tests, tools) the import
+/// runs in the calling process, as before.
+pub fn register_helper(executable: std::path::PathBuf) {
+    let _ = HELPER.set(executable);
+}
+/// First call of a program that registered itself as the helper: when it was started as one, does the import,
+/// reports the outcome in the exit code and never returns; otherwise returns at once.
+pub fn run_helper_if_requested() {
+    let arguments: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if arguments.len() != 4 || arguments[1] != HELPER_FLAG {
+        return;
+    }
+    let result = import_in_process(std::path::Path::new(&arguments[2]), std::path::Path::new(&arguments[3]));
+    std::process::exit(exit_code(&result));
+}
+fn exit_code(result: &Result<usize, FirefoxError>) -> i32 {
+    match result {
+        Ok(_) => 0,
+        Err(FirefoxError::InvalidProfile) => 2,
+        Err(FirefoxError::InvalidInstallation) => 3,
+        Err(_) => 1,
+    }
+}
+fn from_exit(code: Option<i32>) -> Result<usize, FirefoxError> {
+    match code {
+        Some(0) => Ok(1),
+        Some(2) => Err(FirefoxError::InvalidProfile),
+        Some(3) => Err(FirefoxError::InvalidInstallation),
+        _ => Err(FirefoxError::Unavailable),
+    }
+}
+fn run_helper(
+    executable: &std::path::Path,
+    folder: &std::path::Path,
+    profile: &std::path::Path,
+    limit: std::time::Duration,
+) -> Result<usize, FirefoxError> {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(executable)
+        .arg(HELPER_FLAG)
+        .arg(folder)
+        .arg(profile)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| FirefoxError::Unavailable)?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return from_exit(status.code()),
+            Ok(None) if started.elapsed() < limit => std::thread::sleep(std::time::Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(FirefoxError::Unavailable);
+            }
+        }
+    }
+}
+pub(crate) fn prepare(profile: &ProfileLease, installation: &FirefoxInstallation) -> Result<usize, FirefoxError> {
+    let folder = installation.executable().parent().ok_or(FirefoxError::InvalidInstallation)?;
+    match HELPER.get() {
+        Some(executable) => run_helper(executable, folder, profile.path(), HELPER_LIMIT),
+        None => import_in_process(folder, profile.path()),
+    }
+}
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 static NSS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -13,17 +86,10 @@ struct CertTrust {
     object_signing: u32,
 }
 #[cfg(target_os = "macos")]
-pub(crate) fn prepare(
-    profile: &ProfileLease,
-    installation: &FirefoxInstallation,
-) -> Result<usize, FirefoxError> {
+fn import_in_process(folder: &std::path::Path, profile: &std::path::Path) -> Result<usize, FirefoxError> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let _lock = NSS_LOCK.lock().map_err(|_| FirefoxError::Unavailable)?;
-    let folder = installation
-        .executable()
-        .parent()
-        .ok_or(FirefoxError::InvalidInstallation)?;
-    let profile_name = CString::new([b"sql:", profile.path().as_os_str().as_bytes()].concat())
+    let profile_name = CString::new([b"sql:", profile.as_os_str().as_bytes()].concat())
         .map_err(|_| FirefoxError::InvalidProfile)?;
     // Library names/locations belong to the validated installation, never to a UI path.
     unsafe {
@@ -43,17 +109,10 @@ pub(crate) fn prepare(
 /// Windows Firefox does not fetch a missing intermediate either, and a new profile has no preloaded copy:
 /// without this the site opens on "Warning: Security Risk" and the search cannot start.
 #[cfg(target_os = "windows")]
-pub(crate) fn prepare(
-    profile: &ProfileLease,
-    installation: &FirefoxInstallation,
-) -> Result<usize, FirefoxError> {
+fn import_in_process(folder: &std::path::Path, profile: &std::path::Path) -> Result<usize, FirefoxError> {
     use std::ffi::CString;
     let _lock = NSS_LOCK.lock().map_err(|_| FirefoxError::Unavailable)?;
-    let folder = installation
-        .executable()
-        .parent()
-        .ok_or(FirefoxError::InvalidInstallation)?;
-    let profile_name = CString::new(format!("sql:{}", nss_profile_path(profile.path())?))
+    let profile_name = CString::new(format!("sql:{}", nss_profile_path(profile)?))
         .map_err(|_| FirefoxError::InvalidProfile)?;
     // nss3.dll needs mozglue.dll and its other neighbours: resolve them from the installation folder.
     unsafe {
@@ -157,17 +216,10 @@ unsafe fn import_intermediate(
 /// Linux Firefox does not fetch the missing intermediate either. Mozilla's own build carries NSS next to the
 /// executable; a distribution's package uses the system NSS, which opens the same `cert9.db` profile format.
 #[cfg(target_os = "linux")]
-pub(crate) fn prepare(
-    profile: &ProfileLease,
-    installation: &FirefoxInstallation,
-) -> Result<usize, FirefoxError> {
+fn import_in_process(folder: &std::path::Path, profile: &std::path::Path) -> Result<usize, FirefoxError> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let _lock = NSS_LOCK.lock().map_err(|_| FirefoxError::Unavailable)?;
-    let folder = installation
-        .executable()
-        .parent()
-        .ok_or(FirefoxError::InvalidInstallation)?;
-    let profile_name = CString::new([b"sql:", profile.path().as_os_str().as_bytes()].concat())
+    let profile_name = CString::new([b"sql:", profile.as_os_str().as_bytes()].concat())
         .map_err(|_| FirefoxError::InvalidProfile)?;
     unsafe {
         // Mozilla's own build has one combined libnss3 that needs its mozglue loaded first, as on macOS.
@@ -198,10 +250,7 @@ pub(crate) fn prepare(
     }
 }
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-pub(crate) fn prepare(
-    _profile: &ProfileLease,
-    _installation: &FirefoxInstallation,
-) -> Result<usize, FirefoxError> {
+fn import_in_process(_folder: &std::path::Path, _profile: &std::path::Path) -> Result<usize, FirefoxError> {
     let _ = INTERMEDIATE;
     Ok(0)
 }
@@ -233,5 +282,43 @@ mod tests {
         let _ = browser.stop();
         // No state value in the message: it only says whether the profile has the intermediate.
         assert!(ready, "the site's intermediate was not added to the new profile");
+    }
+
+    /// The helper process reports its outcome in the exit code, and the caller turns it back into the same error.
+    #[test]
+    fn the_helper_exit_code_round_trips_every_outcome() {
+        use super::{exit_code, from_exit};
+        use crate::firefox::FirefoxError;
+        assert_eq!(exit_code(&Ok(1)), 0);
+        assert!(matches!(from_exit(Some(0)), Ok(1)));
+        for (error, code) in [(FirefoxError::InvalidProfile, 2), (FirefoxError::InvalidInstallation, 3), (FirefoxError::Unavailable, 1)] {
+            assert_eq!(exit_code(&Err(error)), code);
+        }
+        assert!(matches!(from_exit(Some(2)), Err(FirefoxError::InvalidProfile)));
+        assert!(matches!(from_exit(Some(3)), Err(FirefoxError::InvalidInstallation)));
+        assert!(matches!(from_exit(Some(1)), Err(FirefoxError::Unavailable)));
+        assert!(matches!(from_exit(None), Err(FirefoxError::Unavailable)), "killed by a signal");
+        assert!(matches!(from_exit(Some(77)), Err(FirefoxError::Unavailable)));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_that_succeeds_fails_or_hangs_is_reported_as_such() {
+        use super::run_helper;
+        use crate::firefox::FirefoxError;
+        use std::{path::Path, time::{Duration, Instant}};
+        let folder = Path::new("/nonexistent/firefox");
+        let profile = Path::new("/nonexistent/profile");
+        let long = Duration::from_secs(10);
+        assert!(matches!(run_helper(Path::new("/usr/bin/true"), folder, profile, long), Ok(1)));
+        assert!(matches!(run_helper(Path::new("/usr/bin/false"), folder, profile, long), Err(FirefoxError::Unavailable)));
+        assert!(matches!(run_helper(Path::new("/nonexistent/helper"), folder, profile, long), Err(FirefoxError::Unavailable)));
+        let script = tempfile::tempdir().unwrap();
+        let hanging = script.path().join("helper.sh");
+        std::fs::write(&hanging, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&hanging, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let started = Instant::now();
+        let hung = run_helper(&hanging, folder, profile, Duration::from_millis(300));
+        assert!(matches!(hung, Err(FirefoxError::Unavailable)));
+        assert!(started.elapsed() < Duration::from_secs(5), "a helper that never ends is stopped at the limit");
     }
 }
