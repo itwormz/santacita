@@ -211,6 +211,9 @@ pub mod recovery_controls;
 pub mod launch;
 
 #[cfg(feature = "bidi")]
+mod spawn;
+
+#[cfg(feature = "bidi")]
 pub mod firefox;
 #[cfg(feature = "bidi")]
 pub mod firefox_control;

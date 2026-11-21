@@ -428,7 +428,7 @@ use serde_json::json;
 use std::{
     io::{Read, Write},
     net::SocketAddr,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc,
@@ -437,7 +437,7 @@ use std::{
 };
 /// Only used by the owned browser worker, not by UI code. No attach to personal sessions.
 pub struct OwnedFirefox {
-    child: Option<Child>,
+    child: Option<crate::spawn::BrowserChild>,
     profile: Option<ProfileLease>,
     connection: Option<BidiConnection>,
     context: String,
@@ -529,13 +529,9 @@ impl OwnedFirefox {
                 command.env_remove(name);
             }
         }
-        command
-            .arg("about:blank")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|_| FirefoxError::Unavailable)?;
-        let stderr = child.stderr.take().ok_or(FirefoxError::Unavailable)?;
+        command.arg("about:blank");
+        let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::Unavailable)?;
+        let stderr = child.take_stderr().ok_or(FirefoxError::Unavailable)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let mut stderr = stderr;
@@ -693,11 +689,8 @@ impl OwnedFirefox {
         crate::chromium::seed_preferences(profile.path()).map_err(|_| FirefoxError::InvalidProfile)?;
         let mut command = Command::new(installation.executable());
         command
-            .args(crate::chromium::launch_arguments(profile.path(), crate::launch::TargetOs::current()))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let child = command.spawn().map_err(|_| FirefoxError::Unavailable)?;
+            .args(crate::chromium::launch_arguments(profile.path(), crate::launch::TargetOs::current()));
+        let child = crate::spawn::spawn(command, crate::spawn::Stderr::Null).map_err(|_| FirefoxError::Unavailable)?;
         let mut owned = Self {
             child: Some(child),
             profile: Some(profile),
@@ -806,7 +799,7 @@ impl OwnedFirefox {
         self.restart_ms
     }
     pub fn process_id(&self) -> Option<u32> {
-        self.child.as_ref().map(Child::id)
+        self.child.as_ref().map(crate::spawn::BrowserChild::id)
     }
     pub fn context(&self) -> &str {
         &self.context
