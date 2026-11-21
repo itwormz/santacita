@@ -13,9 +13,9 @@ use std::{path::Path, sync::atomic::AtomicBool, time::Duration};
 const SITES: [(&str, &str, u64, &str); 5] = [
     (
         "local",
-        "about:blank",
+        "https://example.com/",
         1,
-        r#"JSON.stringify({webdriver: navigator.webdriver, hasWebdriver: 'webdriver' in navigator, ownProp: Object.getOwnPropertyNames(navigator), protoDesc: Object.getOwnPropertyDescriptor(Navigator.prototype,'webdriver') ? 'getter' : 'none', chromeKeys: window.chrome ? Object.keys(window.chrome) : null, outer: [outerWidth, outerHeight], inner: [innerWidth, innerHeight], screen: [screen.width, screen.height, screen.availWidth, screen.availHeight], dpr: devicePixelRatio, cores: navigator.hardwareConcurrency, mem: navigator.deviceMemory, langs: navigator.languages, plugins: navigator.plugins.length})"#,
+        r#"(() => { const code = "(() => { const c = document.createElement('canvas'); c.width = 200; c.height = 40; const x = c.getContext('2d'); x.font = '16px Arial'; x.fillStyle = '#c33'; x.fillText('Cwm fjordbank glyphs vext quiz', 4, 24); let h = 0; const u = c.toDataURL(); for (let i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) | 0; document.documentElement.setAttribute('data-main', JSON.stringify({noise: globalThis.__ceh_noise, hash: h, ts: Function.prototype.toString.call(HTMLCanvasElement.prototype.toDataURL), ts2: Function.prototype.toString.call(Function.prototype.toString)})); })()"; const el = document.createElement('script'); el.textContent = code; document.documentElement.appendChild(el); el.remove(); return JSON.stringify({main: document.documentElement.getAttribute('data-main'), webdriver: navigator.webdriver, outer: [outerWidth, outerHeight], inner: [innerWidth, innerHeight], dpr: devicePixelRatio, cores: navigator.hardwareConcurrency}); })()"#,
     ),
     (
         "sannysoft",
@@ -76,6 +76,14 @@ fn main() {
         };
         let samples = [0.9, next(), next(), next()];
         println!("arrange_window({samples:?}) -> {:?}", browser.arrange_window(samples));
+    }
+    if let Some(path) = std::env::var_os("CEH_PRELOAD_JS") {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(7, |d| d.subsec_nanos());
+        let source = std::fs::read_to_string(path).expect("preload script").replace("__SEED__", &nanos.to_string());
+        let added = browser
+            .connection()
+            .call("script.addPreloadScript", serde_json::json!({"functionDeclaration": format!("() => {{ {source} }}")}));
+        println!("preload script: {}", if added.is_ok() { "added".into() } else { format!("{added:?}") });
     }
     let context = browser.context().to_owned();
     for (id, url, wait, script) in SITES {
