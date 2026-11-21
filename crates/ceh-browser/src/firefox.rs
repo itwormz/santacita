@@ -428,7 +428,7 @@ use serde_json::json;
 use std::{
     io::{Read, Write},
     net::SocketAddr,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc,
@@ -437,7 +437,7 @@ use std::{
 };
 /// Only used by the owned browser worker, not by UI code. No attach to personal sessions.
 pub struct OwnedFirefox {
-    child: Option<Child>,
+    child: Option<crate::spawn::BrowserChild>,
     profile: Option<ProfileLease>,
     connection: Option<BidiConnection>,
     context: String,
@@ -529,13 +529,9 @@ impl OwnedFirefox {
                 command.env_remove(name);
             }
         }
-        command
-            .arg("about:blank")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|_| FirefoxError::Unavailable)?;
-        let stderr = child.stderr.take().ok_or(FirefoxError::Unavailable)?;
+        command.arg("about:blank");
+        let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::Unavailable)?;
+        let stderr = child.take_stderr().ok_or(FirefoxError::Unavailable)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let mut stderr = stderr;
@@ -693,11 +689,8 @@ impl OwnedFirefox {
         crate::chromium::seed_preferences(profile.path()).map_err(|_| FirefoxError::InvalidProfile)?;
         let mut command = Command::new(installation.executable());
         command
-            .args(crate::chromium::launch_arguments(profile.path(), crate::launch::TargetOs::current()))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let child = command.spawn().map_err(|_| FirefoxError::Unavailable)?;
+            .args(crate::chromium::launch_arguments(profile.path(), crate::launch::TargetOs::current()));
+        let child = crate::spawn::spawn(command, crate::spawn::Stderr::Null).map_err(|_| FirefoxError::Unavailable)?;
         let mut owned = Self {
             child: Some(child),
             profile: Some(profile),
@@ -805,8 +798,39 @@ impl OwnedFirefox {
     pub fn remote_control_restart_ms(&self) -> Option<u64> {
         self.restart_ms
     }
+    /// Moves the freshly opened window to a size and place that differs from session to session (see
+    /// `ceh_core::window_plan`). Not essential: the caller carries on with the window as it opened when this fails.
+    pub fn arrange_window(&mut self, samples: [f64; 4]) -> Result<ceh_core::window_plan::WindowRect, FirefoxError> {
+        use ceh_core::window_plan::{Screen, plan_window};
+        let context = self.context.clone();
+        let connection = self.connection.as_mut().ok_or(FirefoxError::Unavailable)?;
+        let facts = connection
+            .call(
+                "script.evaluate",
+                json!({"expression": "JSON.stringify([screen.availLeft||0,screen.availTop||0,screen.availWidth,screen.availHeight])",
+                       "target": {"context": context}, "awaitPromise": false}),
+            )
+            .map_err(|_| FirefoxError::Unavailable)?;
+        let numbers: Vec<i64> = serde_json::from_str(facts["result"]["value"].as_str().unwrap_or("[]")).map_err(|_| FirefoxError::Unavailable)?;
+        let [left, top, width, height] = numbers[..] else { return Err(FirefoxError::Unavailable) };
+        if width <= 0 || height <= 0 {
+            return Err(FirefoxError::Unavailable);
+        }
+        let (left, top) = (i32::try_from(left).map_err(|_| FirefoxError::Unavailable)?, i32::try_from(top).map_err(|_| FirefoxError::Unavailable)?);
+        let (width, height) = (u32::try_from(width).map_err(|_| FirefoxError::Unavailable)?, u32::try_from(height).map_err(|_| FirefoxError::Unavailable)?);
+        let plan = plan_window(Screen { left, top, width, height }, samples).ok_or(FirefoxError::Unavailable)?;
+        let windows = connection.call("browser.getClientWindows", json!({})).map_err(|_| FirefoxError::Unavailable)?;
+        let window = windows["clientWindows"][0]["clientWindow"].as_str().ok_or(FirefoxError::Unavailable)?.to_owned();
+        connection
+            .call(
+                "browser.setClientWindowState",
+                json!({"clientWindow": window, "state": "normal", "x": plan.x, "y": plan.y, "width": plan.width, "height": plan.height}),
+            )
+            .map_err(|_| FirefoxError::Unavailable)?;
+        Ok(plan)
+    }
     pub fn process_id(&self) -> Option<u32> {
-        self.child.as_ref().map(Child::id)
+        self.child.as_ref().map(crate::spawn::BrowserChild::id)
     }
     pub fn context(&self) -> &str {
         &self.context

@@ -47,6 +47,24 @@ SantaCita supports macOS (Apple Silicon and Intel), Windows 10 and 11 (x64) and 
 
 macOS: drag SantaCita into Applications. The app is not notarized; if blocked, use System Settings → Privacy & Security → Open Anyway. The packages are not signed with a paid developer certificate; check them against `SHA256SUMS` and the Sigstore bundle published with each release. Windows: packages have no publisher signature; SmartScreen may require More info → Run anyway. Linux: make the AppImage executable (`chmod +x file.AppImage`). An AppImage needs FUSE 3 (`fusermount3`, package `fuse3`): it is preinstalled on most desktops; otherwise install it (`sudo apt install fuse3`, `sudo dnf install fuse3`, `sudo pacman -S fuse3`) or start the file with `--appimage-extract-and-run`. Ubuntu's own Firefox is a snap and is not supported: install Chrome from its `.deb` package or Firefox from Mozilla's APT repository.
 
+## 🔐 A certificate or Cl@ve is required
+
+Right now it is practically impossible to get a cita without a digital certificate or [Cl@ve](https://clave.gob.es). If you have neither, get one first: a [personal certificate (FNMT)](https://www.sede.fnmt.gob.es/certificados/persona-fisica) or Cl@ve. The procedure is simple. The bot signs in to the site exactly this way.
+
+## 🤖 How the bot works
+
+The service strictly limits attempts: currently **5 cita requests per day per NIE**. After that the NIE is blocked and no cita can be obtained that day. So the bot does not try the form blindly and spends an attempt only when it can succeed:
+
+1. Signs in with the certificate and reaches the data-entry page **without entering anything**.
+2. Checks that page periodically and waits for the "no appointments" message to go away.
+3. When the message is gone, **walks the whole path again** to the same page to make sure it was not a fluke.
+4. If "no appointments" has not come back, **only then** enters your data and goes on to the cita selection.
+
+This way none of the five daily requests is wasted on empty checks.
+
+This is how the bot works with the default settings (*Recheck availability* is on in the profile). With that setting off, the bot enters your data as soon as the "no appointments" message goes away, without the repeat pass. And if the applicant-form option is also set to enter and continue, it enters your data even while the message is still shown, so that empty check can use one of the five daily requests.
+
+
 ## 🔄 Search and controls
 
 - Wait and refresh according to your settings while the applicant form reports no appointments.

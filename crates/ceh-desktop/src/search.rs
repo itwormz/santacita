@@ -671,6 +671,9 @@ fn run_session(
             OwnedFirefox::start_chromium(&installation, lease, cancelled).map_err(|error| failed(error, "browser_start_failed"))?
         }
     };
+    // Every session opens its window at its own size and place: a window that is always the same is one more thing
+    // a banned session can be recognised by. The window stays as it opened when this does not work.
+    let _ = browser.arrange_window([unit_sample(), unit_sample(), unit_sample(), unit_sample()]);
     update(state, |s| {
         s.browser_pid = browser.process_id();
         s.warning = (browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred)

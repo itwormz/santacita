@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.6
+
+- Stop macOS from showing "SantaCita was prevented from modifying apps on your Mac" when a browser starts. macOS counted SantaCita as responsible for everything the browser it had started did, including its accesses to its own application files, and refused them from time to time. The browser is now started so that it answers for itself.
+- Import the site's intermediate certificate into the Firefox profile in a short helper process instead of inside the app. Firefox's own libraries (they bring their own memory allocator) are no longer loaded into SantaCita. Nothing changes for Chrome, Brave, Edge and Chromium, which do not need this step.
+- Open the browser window of every session at its own size and place instead of always the same: a window that never changes is one more thing a session can be recognized by. Some sessions fill the free area of the screen, the others take 70–97 % of its width and 72–97 % of its height and are never smaller than 1024 × 700.
+- Explain in the README why a digital certificate or Cl@ve is needed (getting a cita without one is practically impossible) and how the bot works: the site allows 5 requests per NIE a day, so the bot signs in and waits on the data page without entering anything, repeats the whole path when "no appointments" goes away, and enters your data only when the message does not come back.
+
 ## 0.4.5
 
 - Fix the crash when you press *Browser* on macOS 13 and older: bringing the browser window forward used calls that exist only on macOS 14, and the app closed. The app now checks that the system has them, and an error in a system call no longer ends the app.

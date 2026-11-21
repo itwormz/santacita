@@ -447,6 +447,40 @@ impl CdpWire {
                 let shot = self.page("Page.captureScreenshot", json!({"format":"png"}), deadline)?;
                 Ok(json!({"data":shot["data"]}))
             }
+            // The window of the page's tab, in the BiDi shape Firefox answers natively (`clientWindow` is the id).
+            "browser.getClientWindows" => {
+                let window = self.browser("Browser.getWindowForTarget", json!({"targetId":self.target}), deadline)?;
+                Ok(json!({"clientWindows":[client_window(&window["windowId"], &window["bounds"])]}))
+            }
+            "browser.setClientWindowState" => {
+                let id = params["clientWindow"].as_str().and_then(|s| s.parse::<i64>().ok()).ok_or(ProtocolError::InvalidData)?;
+                // The requested state is forwarded; a rectangle only belongs to the `normal` state.
+                let state = params["state"].as_str().unwrap_or("normal");
+                if !matches!(state, "normal" | "maximized" | "minimized" | "fullscreen") {
+                    return Err(ProtocolError::InvalidData);
+                }
+                if state != "normal" {
+                    self.browser("Browser.setWindowBounds", json!({"windowId":id,"bounds":{"windowState":state}}), deadline)?;
+                } else {
+                    let mut geometry = serde_json::Map::new();
+                    for (from, to) in [("x", "left"), ("y", "top"), ("width", "width"), ("height", "height")] {
+                        if let Some(value) = params.get(from).and_then(Value::as_i64) {
+                            geometry.insert(to.into(), json!(value));
+                        }
+                    }
+                    // Chromium keeps restoring and resizing apart: a maximized, minimized or full-screen window is
+                    // brought back to normal first, and only then given its rectangle.
+                    let current = self.browser("Browser.getWindowForTarget", json!({"targetId":self.target}), deadline)?;
+                    if current["bounds"]["windowState"].as_str().is_some_and(|s| s != "normal") {
+                        self.browser("Browser.setWindowBounds", json!({"windowId":id,"bounds":{"windowState":"normal"}}), deadline)?;
+                    }
+                    let mut bounds = geometry;
+                    bounds.insert("windowState".into(), json!("normal"));
+                    self.browser("Browser.setWindowBounds", json!({"windowId":id,"bounds":bounds}), deadline)?;
+                }
+                let window = self.browser("Browser.getWindowForTarget", json!({"targetId":self.target}), deadline)?;
+                Ok(client_window(&window["windowId"], &window["bounds"]))
+            }
             "browsingContext.locateNodes" => self.locate(params, deadline),
             "script.evaluate" => self.script(params, deadline, true),
             "script.callFunction" => self.script(params, deadline, false),
@@ -682,4 +716,14 @@ impl CdpWire {
         self.pump(Duration::from_millis(15));
         Ok(json!({}))
     }
+}
+
+/// One browser window as BiDi reports it.
+fn client_window(id: &Value, bounds: &Value) -> Value {
+    json!({
+        "clientWindow": id.as_i64().map_or_else(String::new, |n| n.to_string()),
+        "state": bounds["windowState"].as_str().unwrap_or("normal"),
+        "x": bounds["left"], "y": bounds["top"], "width": bounds["width"], "height": bounds["height"],
+        "active": true
+    })
 }

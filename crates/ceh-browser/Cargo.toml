@@ -103,5 +103,8 @@ regex.workspace = true
 name = "measure"
 required-features = ["bidi"]
 
+[target."cfg(target_os = \"macos\")".dependencies]
+libc = "=0.2.191"
+
 [target."cfg(windows)".dependencies]
 winreg = "=0.56.0"
