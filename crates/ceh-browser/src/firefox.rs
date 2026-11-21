@@ -798,6 +798,35 @@ impl OwnedFirefox {
     pub fn remote_control_restart_ms(&self) -> Option<u64> {
         self.restart_ms
     }
+    /// Moves the freshly opened window to a size and place that differs from session to session (see
+    /// `ceh_core::window_plan`). Not essential: the caller carries on with the window as it opened when this fails.
+    pub fn arrange_window(&mut self, samples: [f64; 4]) -> Result<ceh_core::window_plan::WindowRect, FirefoxError> {
+        use ceh_core::window_plan::{Screen, plan_window};
+        let context = self.context.clone();
+        let connection = self.connection.as_mut().ok_or(FirefoxError::Unavailable)?;
+        let facts = connection
+            .call(
+                "script.evaluate",
+                json!({"expression": "JSON.stringify([screen.availLeft||0,screen.availTop||0,screen.availWidth,screen.availHeight])",
+                       "target": {"context": context}, "awaitPromise": false}),
+            )
+            .map_err(|_| FirefoxError::Unavailable)?;
+        let numbers: Vec<i64> = serde_json::from_str(facts["result"]["value"].as_str().unwrap_or("[]")).map_err(|_| FirefoxError::Unavailable)?;
+        let [left, top, width, height] = numbers[..] else { return Err(FirefoxError::Unavailable) };
+        if width <= 0 || height <= 0 {
+            return Err(FirefoxError::Unavailable);
+        }
+        let plan = plan_window(Screen { left: left as i32, top: top as i32, width: width as u32, height: height as u32 }, samples);
+        let windows = connection.call("browser.getClientWindows", json!({})).map_err(|_| FirefoxError::Unavailable)?;
+        let window = windows["clientWindows"][0]["clientWindow"].as_str().ok_or(FirefoxError::Unavailable)?.to_owned();
+        connection
+            .call(
+                "browser.setClientWindowState",
+                json!({"clientWindow": window, "state": "normal", "x": plan.x, "y": plan.y, "width": plan.width, "height": plan.height}),
+            )
+            .map_err(|_| FirefoxError::Unavailable)?;
+        Ok(plan)
+    }
     pub fn process_id(&self) -> Option<u32> {
         self.child.as_ref().map(crate::spawn::BrowserChild::id)
     }

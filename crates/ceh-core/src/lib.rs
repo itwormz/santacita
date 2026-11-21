@@ -12,6 +12,7 @@ pub mod recognition;
 pub mod recovery;
 pub mod statistics;
 pub mod timings;
+pub mod window_plan;
 
 pub mod preparation;
 
