@@ -816,7 +816,9 @@ impl OwnedFirefox {
         if width <= 0 || height <= 0 {
             return Err(FirefoxError::Unavailable);
         }
-        let plan = plan_window(Screen { left: left as i32, top: top as i32, width: width as u32, height: height as u32 }, samples);
+        let (left, top) = (i32::try_from(left).map_err(|_| FirefoxError::Unavailable)?, i32::try_from(top).map_err(|_| FirefoxError::Unavailable)?);
+        let (width, height) = (u32::try_from(width).map_err(|_| FirefoxError::Unavailable)?, u32::try_from(height).map_err(|_| FirefoxError::Unavailable)?);
+        let plan = plan_window(Screen { left, top, width, height }, samples).ok_or(FirefoxError::Unavailable)?;
         let windows = connection.call("browser.getClientWindows", json!({})).map_err(|_| FirefoxError::Unavailable)?;
         let window = windows["clientWindows"][0]["clientWindow"].as_str().ok_or(FirefoxError::Unavailable)?.to_owned();
         connection

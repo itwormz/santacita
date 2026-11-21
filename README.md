@@ -62,6 +62,9 @@ The service strictly limits attempts: currently **5 cita requests per day per NI
 
 This way none of the five daily requests is wasted on empty checks.
 
+This is how the default setting works (the profile's applicant-form option set to wait on "no appointments"). With the option set to enter your data and continue, the bot enters it even while the message is still shown, and such an empty check can use one of the five daily requests.
+
+
 ## 🔄 Search and controls
 
 - Wait and refresh according to your settings while the applicant form reports no appointments.

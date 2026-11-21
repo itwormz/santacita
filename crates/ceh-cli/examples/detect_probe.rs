@@ -74,6 +74,15 @@ fn main() {
             seed ^= seed << 17;
             (seed % 10_000) as f64 / 10_000.0
         };
+        if std::env::var_os("CEH_MAXIMIZE").is_some() {
+            // Start from a maximized window to see that the plan restores it before sizing it.
+            let windows = browser.connection().call("browser.getClientWindows", serde_json::json!({}));
+            if let Some(id) = windows.ok().and_then(|w| w["clientWindows"][0]["clientWindow"].as_str().map(str::to_owned)) {
+                let state = browser.connection().call("browser.setClientWindowState", serde_json::json!({"clientWindow": id, "state": "maximized"}));
+                println!("maximized first -> {:?}", state.map(|w| w["state"].clone()));
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        }
         let samples = [0.9, next(), next(), next()];
         println!("arrange_window({samples:?}) -> {:?}", browser.arrange_window(samples));
     }
@@ -103,17 +112,29 @@ fn main() {
             "script.evaluate",
             serde_json::json!({"expression": script, "target": {"context": context}, "awaitPromise": false}),
         ) {
+            // A page script that threw answers with the exception and no value: keep the reason in the file.
+            Ok(value) if value["type"] == "exception" => format!("EXCEPTION {}", value["exceptionDetails"]),
             Ok(value) => value["result"]["value"].as_str().unwrap_or("?").to_owned(),
             Err(error) => format!("evaluate failed: {error:?}"),
         };
         std::fs::write(out.join(format!("{id}.txt")), &text).expect("write text");
-        if let Ok(shot) = browser.connection().call(
+        // A picture left from an earlier run would pass for this run's: remove it before the capture.
+        let picture = out.join(format!("{id}.png.b64"));
+        let _ = std::fs::remove_file(&picture);
+        match browser.connection().call(
             "browsingContext.captureScreenshot",
             serde_json::json!({"context": context, "origin": "document"}),
-        ) && let Some(data) = shot["data"].as_str()
-        {
-            // The picture is kept as base64 text (no decoder is linked here): `base64 -D` turns it into the png.
-            let _ = std::fs::write(out.join(format!("{id}.png.b64")), data);
+        ) {
+            Ok(shot) => match shot["data"].as_str() {
+                // The picture is kept as base64 text (no decoder is linked here): `base64 -D` turns it into the png.
+                Some(data) => {
+                    if let Err(error) = std::fs::write(&picture, data) {
+                        println!("   screenshot not saved: {error}");
+                    }
+                }
+                None => println!("   screenshot has no data"),
+            },
+            Err(error) => println!("   screenshot failed: {error:?}"),
         }
         let flagged: Vec<&str> = text.lines().filter(|l| l.starts_with("FAIL")).collect();
         println!("   {} characters saved, {} flagged lines", text.len(), flagged.len());

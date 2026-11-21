@@ -62,6 +62,9 @@ El servicio limita estrictamente los intentos: actualmente **5 solicitudes de ci
 
 Así ninguna de las cinco solicitudes diarias se gasta en comprobaciones vacías.
 
+Así funciona el ajuste por defecto (la opción del formulario del solicitante en esperar mientras no haya citas). Con la opción de introducir los datos y continuar, el bot los introduce aunque el mensaje siga visible, y esa comprobación vacía puede gastar una de las cinco solicitudes diarias.
+
+
 ## 🔄 Búsqueda y controles
 
 - Espera y actualiza según los ajustes mientras el formulario indica que no hay citas.
