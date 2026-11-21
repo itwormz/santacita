@@ -62,7 +62,7 @@ The service strictly limits attempts: currently **5 cita requests per day per NI
 
 This way none of the five daily requests is wasted on empty checks.
 
-This is how the default setting works (the profile's applicant-form option set to wait on "no appointments"). With the option set to enter your data and continue, the bot enters it even while the message is still shown, and such an empty check can use one of the five daily requests.
+This is how the bot works with the default settings (*Recheck availability* is on in the profile). With that setting off, the bot enters your data as soon as the "no appointments" message goes away, without the repeat pass. And if the applicant-form option is also set to enter and continue, it enters your data even while the message is still shown, so that empty check can use one of the five daily requests.
 
 
 ## 🔄 Search and controls

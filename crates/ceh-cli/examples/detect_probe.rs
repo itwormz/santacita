@@ -100,6 +100,15 @@ fn main() {
             continue;
         }
         println!("== {engine}: {id} ({url})");
+        // A picture left from an earlier run would pass for this run's: remove it first, and when that is not possible
+        // leave this page out instead of saving new text beside an old picture.
+        let picture = out.join(format!("{id}.png.b64"));
+        if let Err(error) = std::fs::remove_file(&picture)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            println!("   older screenshot could not be removed, page skipped: {error}");
+            continue;
+        }
         let navigated = browser
             .connection()
             .call("browsingContext.navigate", serde_json::json!({"context": context, "url": url, "wait": "none"}));
@@ -118,9 +127,6 @@ fn main() {
             Err(error) => format!("evaluate failed: {error:?}"),
         };
         std::fs::write(out.join(format!("{id}.txt")), &text).expect("write text");
-        // A picture left from an earlier run would pass for this run's: remove it before the capture.
-        let picture = out.join(format!("{id}.png.b64"));
-        let _ = std::fs::remove_file(&picture);
         match browser.connection().call(
             "browsingContext.captureScreenshot",
             serde_json::json!({"context": context, "origin": "document"}),
