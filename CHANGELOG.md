@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.7
+
+- Update the libraries because an error was found in one of them (`url`, RUSTSEC-2026-0592). SantaCita is not expected to be affected by it; the update is made so that the dependency check passes and the release carries the fixed version. The interface libraries (`wry`, `tao`, `rfd`, `num-bigint`) are updated at the same time, with no behaviour changes expected.
+
 ## 0.4.6
 
 - Stop macOS from showing "SantaCita was prevented from modifying apps on your Mac" when a browser starts. macOS counted SantaCita as responsible for everything the browser it had started did, including its accesses to its own application files, and refused them from time to time. The browser is now started so that it answers for itself.
