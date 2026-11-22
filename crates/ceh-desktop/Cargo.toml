@@ -35,7 +35,7 @@ chrono.workspace = true
 url = "=2.5.8"
 tauri = { version = "=2.12.7", optional = true, default-features = false, features = ["wry", "compression"] }
 
-rfd = { version = "=0.17.2", optional = true }
+rfd = { version = "=0.18.0", optional = true }
 arboard = { version = "=3.7.0", optional = true }
 png = "=0.18.1"
 tempfile = "=3.27.0"
