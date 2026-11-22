@@ -27,7 +27,7 @@ webview-spike = ["dep:wry", "dep:tao"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 wry = { version = "=0.57.2", optional = true }
-tao = { version = "=0.37.2", optional = true }
+tao = { version = "=0.37.3", optional = true }
 
 [[example]]
 name = "webview_spike"
