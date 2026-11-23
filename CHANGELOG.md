@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.8
+
+- Stop the window from asking for the same statistics again while the previous answer is still being computed; this removes the high CPU load in a long search.
+- Store active time as one row per hour of work instead of one per few seconds, so the statistics file no longer grows fast in a search that runs for days; the old rows are merged when the app starts.
+- Shrink a statistics file that the merge leaves mostly empty, and trim its journal, in the background at launch (the first start on a large file can take up to a minute).
+- Rewrite the README: what the program is, how the bot works, features, installation and limits by system.
+- Update a library of the window (`cookie`, RUSTSEC-2026-0594) because an error was found in it. SantaCita is not expected to be affected by it.
+
 ## 0.4.7
 
 - Update the libraries because an error was found in one of them (`url`, RUSTSEC-2026-0592). SantaCita is not expected to be affected by it; the update is made so that the dependency check passes and the release carries the fixed version. The interface libraries (`wry`, `tao`, `rfd`, `num-bigint`) are updated at the same time, with no behaviour changes expected.
