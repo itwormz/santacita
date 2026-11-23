@@ -129,6 +129,48 @@ fn merging_old_rows_keeps_the_same_bound_on_the_gaps() {
     assert!((total(&db) - before).abs() < 1e-6);
 }
 
+/// Raw heartbeats the way the review modelled them: seven gaps of 3 ms, then six overlaps of 3 ms. The whole-row
+/// drift of all of them is 3 ms, but a moment in the middle would carry 21 ms of gaps.
+fn insert_gap_then_overlap(db: &rusqlite::Connection) {
+    let mut start = chrono::DateTime::from_timestamp_millis(BASE).unwrap();
+    for beat in 0..13 {
+        let end = start + chrono::Duration::seconds(5);
+        db.execute(
+            "INSERT INTO active(profile,session,start,end,seconds) VALUES ('fixture','s',?1,?2,5.0)",
+            rusqlite::params![
+                start.to_rfc3339_opts(chrono::SecondsFormat::Micros, false),
+                end.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+            ],
+        )
+        .unwrap();
+        start = if beat < 7 { end + chrono::Duration::milliseconds(3) } else { end - chrono::Duration::milliseconds(3) };
+    }
+}
+
+#[test]
+fn gaps_that_cancel_later_do_not_hide_inside_a_row_when_old_rows_are_merged() {
+    let db = database();
+    insert_gap_then_overlap(&db);
+    let mut db = db;
+    ceh_store::writer::compact_active(&mut db).unwrap();
+    assert!(rows(&db) >= 2, "21 ms of gaps cannot sit in one row: {} rows", rows(&db));
+    assert!(worst_drift(&db) <= 0.010 + 1e-6);
+    assert!((total(&db) - 65.0).abs() < 1e-6);
+}
+
+#[test]
+fn gaps_that_cancel_later_do_not_hide_inside_a_row_when_heartbeats_are_written() {
+    let mut db = database();
+    let mut writer = StatisticsWriter::new(&mut db);
+    let mut end = BASE;
+    for beat in 0..13 {
+        end += 5_000 + if beat < 7 { 3 } else { -3 };
+        writer.add_active(&scope("s"), 5.0, end).unwrap();
+    }
+    assert!(rows(&db) >= 2, "{} rows", rows(&db));
+    assert!(worst_drift(&db) <= 0.010 + 1e-6);
+}
+
 #[test]
 fn old_one_row_per_heartbeat_data_is_merged_without_losing_time() {
     let mut db = database();

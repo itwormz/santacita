@@ -490,14 +490,21 @@ fn activity_days(db: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 /// What a start does for the size of the file: merges the per-heartbeat active time that older versions wrote
-/// (nothing is rewritten once it is merged, so no marker is kept), and gives the journal (WAL) back when nothing
-/// holds it (a journal that cannot be reset keeps growing).
+/// (once), and gives the journal (WAL) back when nothing holds it (a journal that cannot be reset keeps growing).
 fn tidy_storage(db: &mut Connection) -> Result<(), StoreError> {
     let _one_at_a_time = TIDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     tidy_storage_locked(db)
 }
 fn tidy_storage_locked(db: &mut Connection) -> Result<(), StoreError> {
-    crate::writer::compact_active(db)?;
+    // The rows of older versions (one per heartbeat) are merged once, when the file is first opened by this
+    // version: from then on rows are only extended by the writer, which checks every step. Merging rows that are
+    // already merged again would not know the gaps inside them. `user_version` is kept for it because the
+    // `metadata` table is part of the storage contract.
+    let merged: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if merged < 1 {
+        crate::writer::compact_active(db)?;
+        db.execute_batch("PRAGMA user_version=1")?;
+    }
     // Best effort and short: a reader that is still open makes this a no-op, never a wait.
     db.busy_timeout(Duration::from_millis(500))?;
     let _ = db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
@@ -797,6 +804,7 @@ mod tests {
         }
         let seconds = |db: &Connection| -> f64 { db.query_row("SELECT SUM(seconds) FROM active", [], |r| r.get(0)).unwrap() };
         let rows = |db: &Connection| -> i64 { db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap() };
+        db.execute_batch("PRAGMA user_version=0").unwrap(); // a file of an older version
         let before = seconds(&db);
         drop(db);
         assert!(migrate_paths(&options, 1_793_361_700_000).unwrap().already_ready);
@@ -832,6 +840,7 @@ mod tests {
             .unwrap();
             start = end;
         }
+        db.execute_batch("PRAGMA user_version=0").unwrap(); // a file of an older version
         drop(db);
         tidy_existing(&options.database).unwrap();
         let db = Connection::open(&options.database).unwrap();
@@ -867,6 +876,7 @@ mod tests {
             start = end;
         }
         db.execute_batch("COMMIT").unwrap();
+        db.execute_batch("PRAGMA user_version=0").unwrap(); // a file of an older version
         drop(db);
         let size = |path: &Path| fs::metadata(path).unwrap().len();
         let before = {
@@ -899,6 +909,7 @@ mod tests {
             )
             .unwrap();
         }
+        db.execute_batch("PRAGMA user_version=0").unwrap(); // a file of an older version
         // Merging rewrites the rows; make that fail, as a full disk or a stuck lock would, and start as a search does.
         let mut db = db;
         db.execute_batch("PRAGMA query_only=ON").unwrap();
@@ -908,6 +919,27 @@ mod tests {
         db.execute_batch("PRAGMA query_only=OFF").unwrap();
         let rows: i64 = db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap();
         assert_eq!(rows, 20, "nothing was half merged");
+    }
+    #[test]
+    fn rows_that_are_already_merged_are_not_merged_again() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let mut db = Connection::open(&options.database).unwrap();
+        // Two rows a merge left (their inner gaps are not known any more), one right after the other.
+        for (start, end, seconds) in [("12:00:00", "12:10:00.009", 600.0), ("12:10:00.009", "12:20:00.001", 599.992)] {
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,?3)",
+                params![format!("2026-10-30T{start}+00:00"), format!("2026-10-30T{end}+00:00"), seconds],
+            )
+            .unwrap();
+        }
+        tidy_storage(&mut db).unwrap();
+        let rows: i64 = db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 2, "the merge of old rows ran once, when the file was first opened");
+        let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 1);
     }
     #[test]
     fn backup_name_appends_suffix_without_changing_extensionless_names() {
