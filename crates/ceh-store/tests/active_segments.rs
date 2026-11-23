@@ -171,6 +171,30 @@ fn gaps_that_cancel_later_do_not_hide_inside_a_row_when_heartbeats_are_written()
     assert!(worst_drift(&db) <= 0.010 + 1e-6);
 }
 
+fn user_version(db: &rusqlite::Connection) -> i64 {
+    db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap()
+}
+
+#[test]
+fn the_marker_of_the_merge_is_written_by_the_merge_itself() {
+    // A merge that finds nothing to do still marks the file, and one that cannot finish marks nothing: the marker is
+    // part of the transaction of the merge, so a crash cannot leave rows merged and the marker at zero.
+    let mut db = database();
+    assert_eq!(user_version(&db), 0);
+    ceh_store::writer::compact_active(&mut db).unwrap();
+    assert_eq!(user_version(&db), 1, "an empty table is marked");
+    let mut db = database();
+    insert_gap_then_overlap(&db);
+    db.execute_batch("PRAGMA query_only=ON").unwrap(); // the merge cannot write
+    assert!(ceh_store::writer::compact_active(&mut db).is_err());
+    db.execute_batch("PRAGMA query_only=OFF").unwrap();
+    assert_eq!(user_version(&db), 0, "a failed merge leaves the file unmarked");
+    assert_eq!(rows(&db), 13, "and the rows untouched");
+    ceh_store::writer::compact_active(&mut db).unwrap();
+    assert_eq!(user_version(&db), 1);
+    assert!(rows(&db) < 13);
+}
+
 #[test]
 fn old_one_row_per_heartbeat_data_is_merged_without_losing_time() {
     let mut db = database();

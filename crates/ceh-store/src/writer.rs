@@ -66,7 +66,9 @@ fn format_time(value: DateTime<Utc>) -> String {
     )
 }
 /// Merges the one-row-per-heartbeat active time that earlier versions wrote into long segments, with the same
-/// rule as `add_active`. Returns how many rows were removed; the total of seconds does not change.
+/// rule as `add_active`, and marks the file (`PRAGMA user_version=1`) in the same transaction. Returns how many rows
+/// were removed; the total of seconds does not change. It is meant to run once per file, over raw heartbeats: the gaps
+/// inside rows that are already merged are not known.
 pub fn compact_active(db: &mut Connection) -> Result<usize, StoreError> {
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut merged: Vec<Segment> = Vec::new();
@@ -100,6 +102,9 @@ pub fn compact_active(db: &mut Connection) -> Result<usize, StoreError> {
         }
         drop(insert);
     }
+    // The file is marked in the same transaction: once the rows are merged the marker is there, and a crash cannot
+    // leave one without the other. `user_version` is used because the `metadata` table is a storage contract.
+    tx.execute_batch("PRAGMA user_version=1")?;
     tx.commit()?;
     Ok(before.saturating_sub(merged.len()))
 }

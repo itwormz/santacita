@@ -502,8 +502,7 @@ fn tidy_storage_locked(db: &mut Connection) -> Result<(), StoreError> {
     // `metadata` table is part of the storage contract.
     let merged: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if merged < 1 {
-        crate::writer::compact_active(db)?;
-        db.execute_batch("PRAGMA user_version=1")?;
+        crate::writer::compact_active(db)?; // marks the file in its own transaction
     }
     // Best effort and short: a reader that is still open makes this a no-op, never a wait.
     db.busy_timeout(Duration::from_millis(500))?;
