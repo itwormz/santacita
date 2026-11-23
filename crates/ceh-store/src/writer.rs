@@ -34,52 +34,74 @@ fn name<T: serde::Serialize>(value: &T) -> Result<String, StoreError> {
 }
 /// Segments of active time that follow each other within this many milliseconds are one segment. Two clocks leave
 /// a few microseconds of gap or overlap (on a real database 99.8 % of the heartbeats join within 1.5 ms); a paused
-/// or manual phase, or a late heartbeat, leaves a longer gap and starts a new row, so the time before any moment
-/// inside a row is exact to a few milliseconds.
+/// or manual phase, or a late heartbeat, leaves a longer gap and starts a new row.
 const MERGE_TOLERANCE_MS: i64 = 5;
-/// Whether a segment starting at `start` continues the one `[last_start, last_end]`. A segment stays inside the UTC
-/// hour it started in, so a day boundary or a long stretch is never hidden in one row.
-fn continues(last_start: DateTime<Utc>, last_end: DateTime<Utc>, start: DateTime<Utc>) -> bool {
-    start >= last_start
-        && (start - last_end).abs() <= chrono::Duration::milliseconds(MERGE_TOLERANCE_MS)
-        && last_start.format("%Y-%m-%dT%H").to_string() == start.format("%Y-%m-%dT%H").to_string()
+/// The gaps and overlaps inside one row may not add up to more than this: the length of a row and the seconds
+/// counted in it differ by at most this much, so the time before any moment inside a row is exact to it.
+const MERGE_DRIFT_MS: f64 = 10.0;
+/// A stretch of active time: the seconds counted between `start` and `end` of one session.
+struct Segment {
+    profile: String,
+    session: String,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    seconds: f64,
+}
+impl Segment {
+    /// Whether `next` continues this segment: it follows within the tolerance, moves the end forward, starts in the
+    /// same UTC hour (a day boundary or a long stretch is never hidden in one row) and the row stays exact.
+    fn joins(&self, next: &Segment) -> bool {
+        next.start >= self.start
+            && next.end > self.end
+            && (next.start - self.end).abs() <= chrono::Duration::milliseconds(MERGE_TOLERANCE_MS)
+            && self.start.format("%Y-%m-%dT%H").to_string() == next.start.format("%Y-%m-%dT%H").to_string()
+            && ((next.end - self.start).num_microseconds().unwrap_or(i64::MAX) as f64 / 1e6 - (self.seconds + next.seconds)).abs() * 1000.0
+                <= MERGE_DRIFT_MS
+    }
+}
+fn format_time(value: DateTime<Utc>) -> String {
+    value.to_rfc3339_opts(
+        if value.timestamp_subsec_micros() == 0 { SecondsFormat::Secs } else { SecondsFormat::Micros },
+        false,
+    )
 }
 /// Merges the one-row-per-heartbeat active time that earlier versions wrote into long segments, with the same
 /// rule as `add_active`. Returns how many rows were removed; the total of seconds does not change.
 pub fn compact_active(db: &mut Connection) -> Result<usize, StoreError> {
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let before: i64 = tx.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0))?;
-    tx.execute_batch(
-        "CREATE TEMP TABLE active_merged AS
-         WITH ordered AS (
-             SELECT profile,session,start,end,seconds,
-                    LAG(end) OVER w AS previous_end,
-                    LAG(substr(start,1,13)) OVER w AS previous_hour
-             FROM active WINDOW w AS (PARTITION BY profile,session ORDER BY start,end)
-         ), marked AS (
-             SELECT *, CASE WHEN previous_end IS NULL
-                              OR abs(julianday(start)-julianday(previous_end))*86400.0 > 0.005
-                              OR substr(start,1,13) != previous_hour
-                            THEN 1 ELSE 0 END AS new_segment
-             FROM ordered
-         ), numbered AS (
-             SELECT *, SUM(new_segment) OVER (PARTITION BY profile,session ORDER BY start,end ROWS UNBOUNDED PRECEDING) AS segment
-             FROM marked
-         )
-         SELECT profile,session,MIN(start) AS start,MAX(end) AS end,SUM(seconds) AS seconds
-         FROM numbered GROUP BY profile,session,segment;",
-    )?;
-    let after: i64 = tx.query_row("SELECT COUNT(*) FROM active_merged", [], |r| r.get(0))?;
-    if after < before {
-        tx.execute("DELETE FROM active", [])?;
-        tx.execute(
-            "INSERT INTO active(profile,session,start,end,seconds) SELECT profile,session,start,end,seconds FROM active_merged ORDER BY profile,session,start",
-            [],
-        )?;
+    let mut merged: Vec<Segment> = Vec::new();
+    let mut before = 0usize;
+    {
+        let mut statement = tx.prepare("SELECT profile,session,start,end,seconds FROM active ORDER BY profile,session,start,end")?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let next = Segment {
+                profile: row.get(0)?,
+                session: row.get(1)?,
+                start: parse_time(&row.get::<_, String>(2)?)?,
+                end: parse_time(&row.get::<_, String>(3)?)?,
+                seconds: row.get(4)?,
+            };
+            before += 1;
+            match merged.last_mut() {
+                Some(last) if last.profile == next.profile && last.session == next.session && last.joins(&next) => {
+                    last.end = next.end;
+                    last.seconds += next.seconds;
+                }
+                _ => merged.push(next),
+            }
+        }
     }
-    tx.execute_batch("DROP TABLE active_merged")?;
+    if merged.len() < before {
+        tx.execute("DELETE FROM active", [])?;
+        let mut insert = tx.prepare("INSERT INTO active(profile,session,start,end,seconds) VALUES (?1,?2,?3,?4,?5)")?;
+        for segment in &merged {
+            insert.execute(params![segment.profile, segment.session, format_time(segment.start), format_time(segment.end), segment.seconds])?;
+        }
+        drop(insert);
+    }
     tx.commit()?;
-    Ok(before.saturating_sub(after).max(0) as usize)
+    Ok(before.saturating_sub(merged.len()))
 }
 fn activity_days(
     db: &Connection,
@@ -473,16 +495,7 @@ impl<'a> StatisticsWriter<'a> {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         activity_days(&tx, scope, start, end)?;
-        let format = |value: DateTime<Utc>| {
-            value.to_rfc3339_opts(
-                if value.timestamp_subsec_micros() == 0 {
-                    SecondsFormat::Secs
-                } else {
-                    SecondsFormat::Micros
-                },
-                false,
-            )
-        };
+        let format = format_time;
         // A heartbeat that continues the session's last segment extends it: a search that runs for weeks would
         // otherwise add a row every few seconds, and every statistics call reads all of them.
         let lower = start - chrono::Duration::hours(1) - chrono::Duration::milliseconds(MERGE_TOLERANCE_MS);
@@ -493,11 +506,18 @@ impl<'a> StatisticsWriter<'a> {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
+        let this = Segment { profile: scope.profile.as_str().to_owned(), session: scope.session.as_str().to_owned(), start, end, seconds };
         if let Some((id, last_start, last_end, last_seconds)) = last {
-            let (last_start, last_end) = (parse_time(&last_start)?, parse_time(&last_end)?);
+            let previous = Segment {
+                profile: this.profile.clone(),
+                session: this.session.clone(),
+                start: parse_time(&last_start)?,
+                end: parse_time(&last_end)?,
+                seconds: last_seconds,
+            };
             // A heartbeat that does not move the end forward (the wall clock was corrected back) is not a
             // continuation: it is kept as its own row, as before, and its seconds are not lost.
-            if continues(last_start, last_end, start) && end > last_end {
+            if previous.joins(&this) {
                 tx.execute(
                     "UPDATE active SET end=?1,seconds=?2 WHERE id=?3",
                     params![format(end), last_seconds + seconds, id],

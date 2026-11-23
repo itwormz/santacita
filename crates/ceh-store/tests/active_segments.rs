@@ -78,6 +78,57 @@ fn a_heartbeat_whose_wall_clock_went_back_still_counts() {
     assert!((total(&db) - 35.0).abs() < 1e-6, "the five seconds are kept: {}", total(&db));
 }
 
+/// The largest difference, over all rows, between the length of a row and the seconds counted in it.
+fn worst_drift(db: &rusqlite::Connection) -> f64 {
+    let mut statement = db.prepare("SELECT start,end,seconds FROM active").unwrap();
+    statement
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, f64>(2)?)))
+        .unwrap()
+        .map(|row| {
+            let (start, end, seconds) = row.unwrap();
+            let span = chrono::DateTime::parse_from_rfc3339(&end).unwrap() - chrono::DateTime::parse_from_rfc3339(&start).unwrap();
+            (span.num_microseconds().unwrap() as f64 / 1e6 - seconds).abs()
+        })
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn small_gaps_do_not_add_up_inside_a_row() {
+    // 500 heartbeats of five seconds, each starting 2 ms after the previous one ended: every gap is within 5 ms,
+    // but together they are a second. A row must not hide more than 10 ms of them.
+    let mut db = database();
+    let mut writer = StatisticsWriter::new(&mut db);
+    for step in 1..=500 {
+        writer.add_active(&scope("s"), 5.0, BASE + 5_002 * step).unwrap();
+    }
+    assert!(rows(&db) > 1, "the heartbeats are split before the gaps add up");
+    assert!(worst_drift(&db) <= 0.010 + 1e-6, "a row hides {} s of gaps", worst_drift(&db));
+    assert!((total(&db) - 2_500.0).abs() < 1e-6, "no time is lost by splitting");
+}
+
+#[test]
+fn merging_old_rows_keeps_the_same_bound_on_the_gaps() {
+    let mut db = database();
+    let mut start = chrono::DateTime::from_timestamp_millis(BASE).unwrap();
+    for _ in 0..500 {
+        let end = start + chrono::Duration::seconds(5);
+        db.execute(
+            "INSERT INTO active(profile,session,start,end,seconds) VALUES ('fixture','s',?1,?2,5.0)",
+            rusqlite::params![
+                start.to_rfc3339_opts(chrono::SecondsFormat::Micros, false),
+                end.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+            ],
+        )
+        .unwrap();
+        start = end + chrono::Duration::milliseconds(2);
+    }
+    let before = total(&db);
+    ceh_store::writer::compact_active(&mut db).unwrap();
+    assert!(rows(&db) > 1 && rows(&db) < 200, "{} rows", rows(&db));
+    assert!(worst_drift(&db) <= 0.010 + 1e-6, "a row hides {} s of gaps", worst_drift(&db));
+    assert!((total(&db) - before).abs() < 1e-6);
+}
+
 #[test]
 fn old_one_row_per_heartbeat_data_is_merged_without_losing_time() {
     let mut db = database();
