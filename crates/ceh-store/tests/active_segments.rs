@@ -196,6 +196,21 @@ fn the_marker_of_the_merge_is_written_by_the_merge_itself() {
 }
 
 #[test]
+fn a_row_the_writer_extended_marks_the_file_so_a_failed_merge_is_not_retried_over_it() {
+    // The merge of old rows failed (the file is still unmarked) and a search runs: the writer builds merged rows.
+    // A retry of the merge later would merge those rows again, so extending a row marks the file.
+    let mut db = database();
+    assert_eq!(user_version(&db), 0);
+    let mut writer = StatisticsWriter::new(&mut db);
+    writer.add_active(&scope("s"), 5.0, BASE + 5_000).unwrap();
+    assert_eq!(user_version(&db), 0, "a lone heartbeat is a raw row: nothing to protect yet");
+    let mut writer = StatisticsWriter::new(&mut db);
+    writer.add_active(&scope("s"), 5.0, BASE + 10_000).unwrap(); // extends the row
+    assert_eq!(rows(&db), 1);
+    assert_eq!(user_version(&db), 1, "the file has a merged row now");
+}
+
+#[test]
 fn old_one_row_per_heartbeat_data_is_merged_without_losing_time() {
     let mut db = database();
     // The way every earlier version wrote it: a row per heartbeat, with the small overlap of two clocks.

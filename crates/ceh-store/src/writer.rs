@@ -527,6 +527,9 @@ impl<'a> StatisticsWriter<'a> {
                     "UPDATE active SET end=?1,seconds=?2 WHERE id=?3",
                     params![format(end), last_seconds + seconds, id],
                 )?;
+                // A file that has a merged row is marked in the same transaction: a merge of old rows that failed
+                // earlier must not be retried over rows whose inner gaps it does not know.
+                tx.execute_batch("PRAGMA user_version=1")?;
                 tx.commit()?;
                 return Ok(());
             }
