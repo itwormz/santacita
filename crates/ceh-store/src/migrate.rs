@@ -494,6 +494,9 @@ fn activity_days(db: &Connection) -> Result<(), StoreError> {
 /// holds it (a journal that cannot be reset keeps growing).
 fn tidy_storage(db: &mut Connection) -> Result<(), StoreError> {
     let _one_at_a_time = TIDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    tidy_storage_locked(db)
+}
+fn tidy_storage_locked(db: &mut Connection) -> Result<(), StoreError> {
     crate::writer::compact_active(db)?;
     // Best effort and short: a reader that is still open makes this a no-op, never a wait.
     db.busy_timeout(Duration::from_millis(500))?;
@@ -506,7 +509,11 @@ fn tidy_storage(db: &mut Connection) -> Result<(), StoreError> {
 static TIDY: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Tidies a statistics database that already exists and is ready, without migrating or creating anything. For the
 /// application to call in the background when it starts, so that the first merge of a large file does not delay a search.
+/// A file that the merge left mostly empty (64 MiB or more of free pages) is rebuilt so that it shrinks.
 pub fn tidy_existing(database: &Path) -> Result<(), StoreError> {
+    tidy_existing_with(database, 64 << 20)
+}
+fn tidy_existing_with(database: &Path, shrink_from_free_bytes: i64) -> Result<(), StoreError> {
     if !fs::symlink_metadata(database).is_ok_and(|meta| meta.file_type().is_file()) {
         return Ok(());
     }
@@ -515,7 +522,20 @@ pub fn tidy_existing(database: &Path) -> Result<(), StoreError> {
     if marker(&db, READY)?.as_deref() != Some("1") {
         return Ok(());
     }
-    tidy_storage(&mut db)
+    let _one_at_a_time = TIDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    tidy_storage_locked(&mut db)?;
+    let page_size: i64 = db.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+    let pages: i64 = db.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+    let free: i64 = db.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+    // Half or more of the file is free: the rebuilt copy needs at most the other half again, so a disk that held
+    // the file holds this too. A failed rebuild leaves the file as it was.
+    if free * page_size >= shrink_from_free_bytes
+        && free * 2 >= pages
+        && db.execute_batch("VACUUM").is_ok()
+    {
+        let _ = db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    }
+    Ok(())
 }
 pub fn migrate_paths(
     options: &MigrationOptions,
@@ -759,7 +779,7 @@ mod tests {
         let mut options = scratch.options();
         options.legacy_json = None;
         migrate_paths(&options, 1_793_361_600_000).unwrap();
-        let mut db = Connection::open(&options.database).unwrap();
+        let db = Connection::open(&options.database).unwrap();
         let mut start = DateTime::<Utc>::from_timestamp_millis(1_793_361_600_000).unwrap();
         for _ in 0..600 {
             let end = start + chrono::Duration::microseconds(5_016_000);
@@ -822,6 +842,46 @@ mod tests {
         let db = Connection::open(&foreign).unwrap();
         let tables: i64 = db.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table'", [], |r| r.get(0)).unwrap();
         assert_eq!(tables, 1, "a file that is not a ready statistics database is not touched");
+    }
+    #[test]
+    fn a_file_that_is_mostly_free_space_after_the_merge_is_shrunk() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        let mut start = DateTime::<Utc>::from_timestamp_millis(1_793_361_600_000).unwrap();
+        db.execute_batch("BEGIN").unwrap();
+        for _ in 0..20_000 {
+            let end = start + chrono::Duration::seconds(5);
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,5)",
+                params![
+                    start.to_rfc3339_opts(chrono::SecondsFormat::Micros, false),
+                    end.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+                ],
+            )
+            .unwrap();
+            start = end;
+        }
+        db.execute_batch("COMMIT").unwrap();
+        drop(db);
+        let size = |path: &Path| fs::metadata(path).unwrap().len();
+        let before = {
+            let db = Connection::open(&options.database).unwrap();
+            db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).unwrap();
+            size(&options.database)
+        };
+        // Below the limit nothing is rebuilt; above it the file shrinks and keeps the data.
+        tidy_existing_with(&options.database, 1 << 40).unwrap();
+        let kept_size = size(&options.database);
+        tidy_existing_with(&options.database, 4096).unwrap();
+        let after = size(&options.database);
+        assert!(kept_size > before / 2, "no rebuild below the limit: {kept_size} of {before}");
+        assert!(after < before / 4, "the file shrank from {before} to {after}");
+        let db = Connection::open(&options.database).unwrap();
+        let (rows, seconds): (i64, f64) = db.query_row("SELECT COUNT(*),SUM(seconds) FROM active", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert!(rows <= 30 && (seconds - 100_000.0).abs() < 1e-6, "{rows} rows, {seconds} s");
     }
     #[test]
     fn backup_name_appends_suffix_without_changing_extensionless_names() {

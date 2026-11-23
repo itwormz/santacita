@@ -52,7 +52,6 @@ fn a_gap_a_new_hour_or_another_session_starts_a_new_row() {
     writer.add_active(&scope("s"), 5.0, BASE + 17_000).unwrap(); // 2 s gap: the phase was manual or paused
     writer.add_active(&scope("other"), 5.0, BASE + 22_000).unwrap(); // not this session's segment
     writer.add_active(&scope("s"), 5.0, BASE + 3_605_000).unwrap(); // past the hour of the row's start
-    drop(writer);
     assert_eq!(rows(&db), 4);
     assert!((total(&db) - 25.0).abs() < 1e-6);
 }
@@ -65,7 +64,6 @@ fn the_same_heartbeat_written_twice_counts_once() {
     writer.add_active(&scope("s"), 5.0, BASE + 10_000).unwrap();
     writer.add_active(&scope("s"), 5.0, BASE + 10_000).unwrap();
     writer.add_active(&scope("s"), 5.0, BASE + 5_000).unwrap();
-    drop(writer);
     assert_eq!(rows(&db), 1);
     assert!((total(&db) - 10.0).abs() < 1e-6);
 }
