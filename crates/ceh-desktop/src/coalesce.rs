@@ -9,7 +9,7 @@ use std::{
 };
 
 type Slot<V> = Arc<Mutex<Option<(Instant, V)>>>;
-/// More distinct keys than this clear the table; keys are a profile and a period chosen by a person.
+/// More distinct keys than this clear the finished entries; keys are a profile and a period chosen by a person.
 const MAX_KEYS: usize = 64;
 
 pub struct Coalesce<K, V> {
@@ -27,7 +27,9 @@ impl<K: Hash + Eq, V: Clone> Coalesce<K, V> {
         let slot = {
             let mut slots = self.slots.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             if slots.len() >= MAX_KEYS && !slots.contains_key(&key) {
-                slots.clear();
+                // Only slots nobody holds go: a computation that is running keeps its slot, so the asks that
+                // follow still share it.
+                slots.retain(|_, slot| Arc::strong_count(slot) > 1);
             }
             slots.entry(key).or_default().clone()
         };
@@ -80,6 +82,28 @@ mod tests {
         assert_eq!(table.get("a", Duration::from_millis(20), compute), 3, "too old");
     }
 
+    #[test]
+    fn a_computation_in_flight_keeps_its_slot_when_the_table_is_full() {
+        let table = Arc::new(Coalesce::<usize, usize>::default());
+        let runs = Arc::new(AtomicUsize::new(0));
+        let slow = {
+            let (table, runs) = (table.clone(), runs.clone());
+            std::thread::spawn(move || {
+                table.get(0, Duration::from_secs(5), || {
+                    std::thread::sleep(Duration::from_millis(300));
+                    runs.fetch_add(1, Ordering::SeqCst) + 1
+                })
+            })
+        };
+        std::thread::sleep(Duration::from_millis(50)); // key 0 is being computed
+        for key in 1..=(MAX_KEYS * 2) {
+            let _ = table.get(key, Duration::from_secs(5), || key);
+        }
+        let again = table.get(0, Duration::from_secs(5), || runs.fetch_add(1, Ordering::SeqCst) + 1);
+        assert_eq!(slow.join().unwrap(), 1);
+        assert_eq!(again, 1, "the second ask took the answer of the running computation");
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
     #[test]
     fn a_failed_computation_is_shared_too_and_the_table_stays_bounded() {
         let table = Coalesce::<usize, Result<u8, &'static str>>::default();

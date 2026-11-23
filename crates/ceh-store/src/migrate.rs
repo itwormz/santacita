@@ -580,7 +580,8 @@ fn migrate_connection(
         validate_schema(db, true)?;
         // Additive tables introduced after a database was marked ready (idempotent CREATE IF NOT EXISTS).
         db.execute_batch(include_str!("schema.sql"))?;
-        tidy_storage(db)?;
+        // Maintenance of the file size never decides whether the statistics are usable.
+        let _ = tidy_storage(db);
         return Ok(MigrationResult {
             already_ready: true,
             backup: None,
@@ -724,7 +725,8 @@ fn migrate_connection(
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL")?;
-    tidy_storage(db)?;
+    // The migration is committed: maintenance of the file size cannot undo it or fail it.
+    let _ = tidy_storage(db);
     Ok(MigrationResult {
         already_ready: false,
         backup,
@@ -882,6 +884,30 @@ mod tests {
         let db = Connection::open(&options.database).unwrap();
         let (rows, seconds): (i64, f64) = db.query_row("SELECT COUNT(*),SUM(seconds) FROM active", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert!(rows <= 30 && (seconds - 100_000.0).abs() < 1e-6, "{rows} rows, {seconds} s");
+    }
+    #[test]
+    fn a_failed_tidy_does_not_fail_the_start() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        for second in 0..20 {
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,1)",
+                params![format!("2026-10-30T12:00:{second:02}+00:00"), format!("2026-10-30T12:00:{:02}+00:00", second + 1)],
+            )
+            .unwrap();
+        }
+        // Merging rewrites the rows; make that fail, as a full disk or a stuck lock would, and start as a search does.
+        let mut db = db;
+        db.execute_batch("PRAGMA query_only=ON").unwrap();
+        assert!(tidy_storage(&mut db).is_err(), "the failure is real");
+        let result = migrate_connection(&options, 1_793_361_700_000, &mut db, true).unwrap();
+        assert!(result.already_ready, "the statistics stay usable when the tidy fails");
+        db.execute_batch("PRAGMA query_only=OFF").unwrap();
+        let rows: i64 = db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 20, "nothing was half merged");
     }
     #[test]
     fn backup_name_appends_suffix_without_changing_extensionless_names() {

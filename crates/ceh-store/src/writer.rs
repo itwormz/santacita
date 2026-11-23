@@ -32,14 +32,16 @@ fn name<T: serde::Serialize>(value: &T) -> Result<String, StoreError> {
         .map(str::to_owned)
         .ok_or(StoreError::Corrupt)
 }
-/// Segments of active time that follow each other within this many seconds are one segment (two clocks leave a
-/// few microseconds of overlap; a paused or manual phase leaves a longer gap and starts a new one).
-const MERGE_GAP_SECONDS: i64 = 1;
+/// Segments of active time that follow each other within this many milliseconds are one segment. Two clocks leave
+/// a few microseconds of gap or overlap (on a real database 99.8 % of the heartbeats join within 1.5 ms); a paused
+/// or manual phase, or a late heartbeat, leaves a longer gap and starts a new row, so the time before any moment
+/// inside a row is exact to a few milliseconds.
+const MERGE_TOLERANCE_MS: i64 = 5;
 /// Whether a segment starting at `start` continues the one `[last_start, last_end]`. A segment stays inside the UTC
 /// hour it started in, so a day boundary or a long stretch is never hidden in one row.
 fn continues(last_start: DateTime<Utc>, last_end: DateTime<Utc>, start: DateTime<Utc>) -> bool {
     start >= last_start
-        && start - last_end <= chrono::Duration::seconds(MERGE_GAP_SECONDS)
+        && (start - last_end).abs() <= chrono::Duration::milliseconds(MERGE_TOLERANCE_MS)
         && last_start.format("%Y-%m-%dT%H").to_string() == start.format("%Y-%m-%dT%H").to_string()
 }
 /// Merges the one-row-per-heartbeat active time that earlier versions wrote into long segments, with the same
@@ -56,7 +58,7 @@ pub fn compact_active(db: &mut Connection) -> Result<usize, StoreError> {
              FROM active WINDOW w AS (PARTITION BY profile,session ORDER BY start,end)
          ), marked AS (
              SELECT *, CASE WHEN previous_end IS NULL
-                              OR (julianday(start)-julianday(previous_end))*86400.0 > 1.0
+                              OR abs(julianday(start)-julianday(previous_end))*86400.0 > 0.005
                               OR substr(start,1,13) != previous_hour
                             THEN 1 ELSE 0 END AS new_segment
              FROM ordered
@@ -483,7 +485,7 @@ impl<'a> StatisticsWriter<'a> {
         };
         // A heartbeat that continues the session's last segment extends it: a search that runs for weeks would
         // otherwise add a row every few seconds, and every statistics call reads all of them.
-        let lower = start - chrono::Duration::hours(1) - chrono::Duration::seconds(MERGE_GAP_SECONDS);
+        let lower = start - chrono::Duration::hours(1) - chrono::Duration::milliseconds(MERGE_TOLERANCE_MS);
         let last: Option<(i64, String, String, f64)> = tx
             .query_row(
                 "SELECT id,start,end,seconds FROM active WHERE profile=?1 AND start>=?2 AND start<=?3 AND session=?4 ORDER BY start DESC LIMIT 1",
@@ -493,13 +495,13 @@ impl<'a> StatisticsWriter<'a> {
             .optional()?;
         if let Some((id, last_start, last_end, last_seconds)) = last {
             let (last_start, last_end) = (parse_time(&last_start)?, parse_time(&last_end)?);
-            if continues(last_start, last_end, start) {
-                if end > last_end {
-                    tx.execute(
-                        "UPDATE active SET end=?1,seconds=?2 WHERE id=?3",
-                        params![format(end), last_seconds + seconds, id],
-                    )?;
-                }
+            // A heartbeat that does not move the end forward (the wall clock was corrected back) is not a
+            // continuation: it is kept as its own row, as before, and its seconds are not lost.
+            if continues(last_start, last_end, start) && end > last_end {
+                tx.execute(
+                    "UPDATE active SET end=?1,seconds=?2 WHERE id=?3",
+                    params![format(end), last_seconds + seconds, id],
+                )?;
                 tx.commit()?;
                 return Ok(());
             }

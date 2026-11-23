@@ -57,15 +57,25 @@ fn a_gap_a_new_hour_or_another_session_starts_a_new_row() {
 }
 
 #[test]
-fn the_same_heartbeat_written_twice_counts_once() {
+fn a_small_gap_starts_a_new_row_so_the_time_before_an_event_stays_exact() {
     let mut db = database();
     let mut writer = StatisticsWriter::new(&mut db);
     writer.add_active(&scope("s"), 5.0, BASE + 5_000).unwrap();
-    writer.add_active(&scope("s"), 5.0, BASE + 10_000).unwrap();
-    writer.add_active(&scope("s"), 5.0, BASE + 10_000).unwrap();
-    writer.add_active(&scope("s"), 5.0, BASE + 5_000).unwrap();
-    assert_eq!(rows(&db), 1);
-    assert!((total(&db) - 10.0).abs() < 1e-6);
+    writer.add_active(&scope("s"), 4.9, BASE + 10_000).unwrap(); // starts 100 ms after the last end: not contiguous
+    writer.add_active(&scope("s"), 5.0, BASE + 15_000).unwrap(); // contiguous with the second one
+    assert_eq!(rows(&db), 2, "a gap of 100 ms is not hidden inside a row");
+    assert!((total(&db) - 14.9).abs() < 1e-6);
+}
+
+#[test]
+fn a_heartbeat_whose_wall_clock_went_back_still_counts() {
+    let mut db = database();
+    let mut writer = StatisticsWriter::new(&mut db);
+    for step in 1..=6 {
+        writer.add_active(&scope("s"), 5.0, BASE + 5_000 * step).unwrap(); // one row up to +30 s
+    }
+    writer.add_active(&scope("s"), 5.0, BASE + 20_000).unwrap(); // the clock was corrected back
+    assert!((total(&db) - 35.0).abs() < 1e-6, "the five seconds are kept: {}", total(&db));
 }
 
 #[test]
