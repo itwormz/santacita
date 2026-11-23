@@ -21,31 +21,16 @@
 
 </p>
 
-Nueva aplicación en Rust, Tauri y Svelte.
+**💜 Apoyar el desarrollo**
 
-SantaCita 0.4 y posteriores es una aplicación ligera y rápida escrita en Rust que funciona con el navegador que ya tiene instalado. Como no incluye ninguno, con algunas configuraciones pueden surgir problemas. En ese caso, pruebe la versión anterior, la [0.3.8](https://github.com/itwormz/santacita/releases/tag/v0.3.8), que incluye su propio navegador Camoufox.
+Si la aplicación te ha ayudado, agradecería una donación para apoyar su desarrollo y mantenimiento.
 
-Las versiones anteriores a la 0.4.0 son una aplicación en Python; su código permanece en la rama [`ceh-python`](https://github.com/itwormz/santacita/tree/ceh-python).
+[![Apoyar en GitHub](https://img.shields.io/badge/Apoyar%20en%20GitHub-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/itwormz)
+[![Donar con criptomonedas](https://img.shields.io/badge/Donar%20con%20criptomonedas-5b5bd6)](https://nowpayments.io/donation/itworm)
 
-## 🚀 Inicio rápido
+SantaCita es una aplicación de escritorio que ayuda a conseguir cita para Toma de huellas / TIE y Autorización de regreso. Abre sola la web de citas, la vigila, introduce sus datos cuando hace falta y le lleva hasta la pantalla de selección de cita, respetando los límites del sitio. La fecha, la hora, el CAPTCHA y la confirmación de la reserva los hace usted.
 
-1. Abra [Releases](https://github.com/itwormz/santacita/releases) y descargue la última versión de SantaCita para su sistema.
-2. Instale la aplicación y seleccione un navegador instalado: Chrome, Brave, Edge, Chromium o Firefox. El navegador no se incluye; los perfiles nuevos empiezan con el primer navegador basado en Chromium que se encuentre (primero Chrome) y con Firefox si no hay ninguno.
-3. Cree un perfil con provincia, trámite, autenticación y datos del solicitante. Inicie la búsqueda y autentíquese en el navegador.
-4. Cuando reciba un aviso, elija oficina o termine la reserva. **Fecha, hora, CAPTCHA y confirmación final siguen siendo manuales.**
-
-SantaCita abre un perfil separado del navegador seleccionado; no utiliza su perfil habitual ni sus pestañas. Edge solo es compatible en Windows. En Linux no se admiten las versiones snap de Firefox y Chromium; utilice una instalación que no sea snap.
-
-SantaCita es compatible con macOS (Apple Silicon e Intel), Windows 10 y 11 (x64) y Linux (x64).
-
-| Sistema | Archivo |
-| --- | --- |
-| macOS Apple Silicon | `SantaCita-<versión>-macOS-Apple-Silicon.dmg` |
-| macOS Intel | `SantaCita-<versión>-macOS-Intel.dmg` |
-| Windows x64 | `SantaCita-<versión>-windows-x64.msi` o `-portable.zip` |
-| Linux x64 | `SantaCita-<versión>-x86_64.AppImage` |
-
-macOS: arrastre SantaCita a Applications. No está notarizada; si se bloquea, use Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente. Los paquetes no están firmados con un certificado de desarrollador de pago; compárelos con `SHA256SUMS` y el paquete Sigstore que se publica con cada versión. Windows: los paquetes no tienen firma de editor; SmartScreen puede requerir Más información → Ejecutar de todas formas. Linux: dé permiso de ejecución al AppImage (`chmod +x archivo.AppImage`). Un AppImage necesita FUSE 3 (`fusermount3`, paquete `fuse3`): suele venir preinstalado en los escritorios; si no, instálelo (`sudo apt install fuse3`, `sudo dnf install fuse3`, `sudo pacman -S fuse3`) o inicie el archivo con `--appimage-extract-and-run`. El Firefox propio de Ubuntu es un snap y no es compatible: instale Chrome desde su paquete `.deb` o Firefox desde el repositorio APT de Mozilla.
+La aplicación funciona con el navegador que ya tiene instalado en el ordenador.
 
 ## 🔐 Se necesita certificado o Cl@ve
 
@@ -62,44 +47,134 @@ El servicio limita estrictamente los intentos: actualmente **5 solicitudes de ci
 
 Así ninguna de las cinco solicitudes diarias se gasta en comprobaciones vacías.
 
-Así funciona el bot con los ajustes por defecto (en el perfil está activado volver a comprobar la disponibilidad). Con ese ajuste desactivado, el bot introduce los datos en cuanto desaparece el mensaje de que no hay citas, sin repetir el recorrido. Y si además la opción del formulario del solicitante es introducir los datos y continuar, los introduce aunque el mensaje siga visible, y esa comprobación vacía puede gastar una de las cinco solicitudes diarias.
+## 🚀 Inicio rápido
 
+1. Descargue la última versión para su sistema desde [Releases](https://github.com/itwormz/santacita/releases) e instálela (véase «Instalación» más abajo).
+2. Cree un perfil: provincia, trámite, forma de acceso y datos del solicitante.
+3. Inicie la búsqueda y acceda a la web en el navegador que se abre.
+4. Cuando aparezca una cita, elija oficina y termine la reserva usted mismo. **Fecha, hora, CAPTCHA y confirmación de la reserva siguen siendo manuales.**
 
-## 🔄 Búsqueda y controles
+## ✨ Funciones
 
-- Espera y actualiza según los ajustes mientras el formulario indica que no hay citas.
-- Cuando desaparece el mensaje, empieza un nuevo recorrido desde la autenticación y vuelve a comprobar.
-- Selecciona automáticamente una única oficina disponible; si hay varias, pide su elección.
-- Pausa, reanudación y continuación tras elegir fecha desde la aplicación. Los tiempos y la protección contra bloqueos se aplican durante la búsqueda; los demás cambios del perfil, en el siguiente inicio.
-- Las estadísticas y el registro se conservan entre búsquedas. Puede añadir una reserva confirmada al calendario y compartir sus estadísticas.
+- 👤 [Perfiles](#-perfiles) · 🌐 [Navegadores](#-navegadores)
+- 🔎 Búsqueda: [cómo funciona](#-búsqueda) · 🎮 [control](#-control) · 🛡️ [protección contra bloqueos](#-protección-contra-bloqueos)
+- 📊 [Estadísticas y registro](#-estadísticas-y-registro) · 🔔 [Notificaciones](#-notificaciones) · 🩺 [Diagnóstico](#-diagnóstico)
+- 🗂️ [Importar datos](#-importar-datos) · ⬆️ [Actualizaciones](#-actualizaciones)
 
-## 🔔 Notificaciones
+### 👤 Perfiles
 
-Los perfiles admiten sonido, Telegram y webhook. Telegram se configura con token de bot, destinatarios y eventos: acceso, elección de oficina, elección de cita, búsqueda detenida (también una página que el bot no reconoce). El webhook requiere dirección HTTPS y eventos; cabeceras y plantilla son opcionales.
+Un perfil es una búsqueda ya preparada: provincia, trámite, forma de acceso (certificado o Cl@ve), datos del solicitante, tiempos, protección y notificaciones. Puede crear varios perfiles y cambiar entre ellos.
 
-Los secretos se guardan en el almacén de credenciales del sistema. macOS puede pedir la contraseña del Llavero para acceder al token de Telegram.
+### 🌐 Navegadores
 
-## 🗂️ Importar datos
+SantaCita abre un perfil separado en su navegador: sus pestañas y datos habituales no se tocan.
 
-Al iniciarse por primera vez, SantaCita busca la aplicación Python instalada y copia perfiles, estadísticas, logros y registros. Los originales se conservan; SantaCita usa una carpeta de datos `SantaCita` independiente. La importación desde Ajustes añade datos que faltan sin sustituir sus perfiles actuales.
+- Windows: Chrome, Brave, Edge, Chromium, Firefox.
+- macOS: Chrome, Brave, Chromium, Firefox.
+- Linux: Chrome, Brave, Chromium, Firefox. No se admiten las versiones snap.
 
-Cierre Python antes de importar. Debe autenticarse de nuevo en el navegador. La carpeta portable antigua no se detecta automáticamente: conserve su carpeta `data` y use una copia separada para migrar.
+Un perfil nuevo usa el primer navegador basado en Chromium que se encuentre (primero Chrome) y Firefox si no hay ninguno.
 
-**Windows portable:** extraiga el ZIP completo. `portable.flag` guarda los datos en la carpeta `data` junto al programa. Para migrar datos portable anteriores, copie la antigua carpeta `data` a la nueva carpeta portable antes del primer inicio y conserve el original.
+### 🔎 Búsqueda
 
-## ⬆️ Actualizaciones
+- El bot abre la web, accede y llega al formulario del solicitante; después espera a que desaparezca el mensaje de que no hay citas y actualiza la página con las pausas que haya fijado.
+- Cuando aparece una cita, introduce sus datos y sigue hasta la selección. Si hay una sola oficina disponible, la elige él; si hay varias, le pide que elija.
+- La fecha, la hora, el CAPTCHA y la confirmación de la reserva siempre quedan en sus manos.
 
-Comprobación en Acerca de, o automáticamente al iniciar y una vez al día. **Ofrecer versiones beta** incluye versiones estables y las betas de versiones posteriores (0.5.0 y superiores); está desactivado por defecto y se importa desde Python 0.3.8.
+Cómo reacciona el bot al mensaje de que no hay citas se ajusta en el perfil:
 
-La descarga e instalación requieren su acción. Se verifican SHA256 y la procedencia Sigstore de la compilación, también antes de instalar. Un fallo de verificación bloquea la instalación. Windows portable sustituye el programa y se reinicia conservando `data`.
+- **Volver a comprobar la disponibilidad** (activado por defecto). Cuando el mensaje desaparece, el bot repite el recorrido y introduce los datos solo si el mensaje no ha vuelto. Si se desactiva, los introduce enseguida.
+- **En el formulario del solicitante.** *Esperar con «no hay citas»* (por defecto): no se introducen datos mientras se vea el mensaje. *Introducir y continuar*: se introducen aunque el mensaje siga visible, y esa comprobación vacía puede gastar una de las cinco solicitudes diarias.
+- **Tras «no hay citas».** Empezar una nueva ronda o volver mediante Salir.
+
+### 🎮 Control
+
+- Pausar, reanudar y volver a la búsqueda después de elegir la fecha.
+- El botón *Navegador* trae la ventana del navegador al primer plano.
+- Los tiempos y la protección contra bloqueos se aplican al instante durante la búsqueda; los demás cambios del perfil, en el siguiente inicio.
+
+### 🛡️ Protección contra bloqueos
+
+- La escritura sigue un ritmo humano (la velocidad se fija en el perfil).
+- Cada sesión abre la ventana del navegador con su propio tamaño y posición.
+- Si la web no abre o se rechaza la sesión, la aplicación reinicia el navegador con un perfil limpio y continúa la búsqueda.
+
+### 📊 Estadísticas y registro
+
+Las estadísticas, el registro y los logros se conservan entre búsquedas. Puede añadir una reserva confirmada al calendario y compartir las estadísticas de la búsqueda.
+
+### 🔔 Notificaciones
+
+El bot avisa cuando hace falta su acción o la búsqueda se ha detenido.
+
+**Cómo se entrega**
+
+- 🔊 **Sonido.** Una señal en el ordenador cuando hace falta su acción o la búsqueda se detuvo con un error.
+- ✈️ **Telegram.** Un mensaje en el chat: requiere token de bot y destinatarios.
+- 🔗 **Webhook.** Una petición a su dirección HTTPS; las cabeceras y la plantilla son opcionales.
+
+**De qué avisa** (en Telegram y webhook, los eventos se eligen en el perfil)
+
+- **Acceso:** hay que acceder a la web.
+- **Elección de oficina:** hay varias y debe elegir usted.
+- **Elección de cita:** se ha encontrado una cita, el resto es manual.
+- **Búsqueda detenida:** la búsqueda se detuvo por un error.
+- **Página desconocida:** el bot lleva un minuto en una página que no reconoce. Desactivado por defecto; un mensaje por página.
+
+Los secretos se guardan en el almacén de credenciales del sistema.
+
+### 🩺 Diagnóstico
+
+El *informe de diagnóstico* reúne información sobre el funcionamiento de la aplicación para resolver problemas. Qué contiene y cómo quitarle los datos personales: [Diagnóstico y privacidad](docs/PRIVACY.md).
+
+### 🗂️ Importar datos
+
+Al iniciarse por primera vez, SantaCita busca la aplicación Python instalada y copia sus perfiles, estadísticas, logros y registros. Los originales se conservan; SantaCita guarda los suyos en una carpeta `SantaCita` independiente. Importar de nuevo desde Ajustes añade los datos que falten y no sustituye sus perfiles actuales.
+
+Cierre Python antes de importar. Tendrá que acceder de nuevo en el navegador. La carpeta portable antigua no se detecta automáticamente: conserve su carpeta `data` y use una copia.
+
+**🪟 Windows portable.** Extraiga el ZIP completo. El archivo `portable.flag` guarda los datos en la carpeta `data` junto al programa. Para traer datos portable anteriores, copie la antigua carpeta `data` a la nueva carpeta portable antes del primer inicio y conserve el original.
+
+### ⬆️ Actualizaciones
+
+Se comprueban en Acerca de, al iniciar y una vez al día. La descarga y la instalación se inician con un botón. Antes de instalar se verifican SHA256 y la procedencia Sigstore de la compilación; un paquete que no la supera no se instala. Windows portable sustituye el programa y se reinicia conservando `data`.
+
+El ajuste *Ofrecer versiones beta* añade a las estables las betas de versiones posteriores (0.5.0 y superiores). Está desactivado por defecto y se importa desde Python 0.3.8.
+
+## 📥 Instalación
+
+SantaCita funciona en macOS (Apple Silicon e Intel), Windows 10 y 11 (x64) y Linux (x64).
+
+| Sistema | Archivo |
+| --- | --- |
+| macOS Apple Silicon | `SantaCita-<versión>-macOS-Apple-Silicon.dmg` |
+| macOS Intel | `SantaCita-<versión>-macOS-Intel.dmg` |
+| Windows x64 | `SantaCita-<versión>-windows-x64.msi` o `-portable.zip` |
+| Linux x64 | `SantaCita-<versión>-x86_64.AppImage` |
+
+**🍎 macOS.** Abra el DMG y arrastre SantaCita a Aplicaciones. La aplicación no está notarizada; si se bloquea, abra Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente.
+
+**🪟 Windows.** Ejecute el MSI (instala WebView2 por sí mismo si hace falta) o extraiga el ZIP portable completo. SmartScreen puede requerir Más información → Ejecutar de todas formas.
+
+**🐧 Linux.** Dé permiso de ejecución al AppImage (`chmod +x archivo.AppImage`) y ejecútelo. Necesita `fuse3`; si falta, instálelo (`sudo apt install fuse3`, `sudo dnf install fuse3`, `sudo pacman -S fuse3`) o inicie el archivo con `--appimage-extract-and-run`. El navegador no debe ser un snap: use Chrome desde su paquete `.deb` o Firefox desde el repositorio APT de Mozilla.
+
+## 🕰️ Si la versión nueva no le sirve
+
+Las versiones anteriores a la 0.4.0 estaban escritas en Python e incluían su propio navegador Camoufox; su código permanece en la rama [`ceh-python`](https://github.com/itwormz/santacita/tree/ceh-python). Si la 0.4 y posteriores no funcionan con su navegador, puede usar temporalmente la [0.3.8](https://github.com/itwormz/santacita/releases/tag/v0.3.8).
 
 ## ⚠️ Limitaciones
 
-- Requiere un navegador compatible instalado y acceso al almacén de credenciales para las notificaciones configuradas.
-- Windows usa WebView2. El instalador MSI lo instala solo si falta (hace falta acceso a la red; volver a ejecutar el MSI repara un intento fallido). Si no funciona, y para el ZIP portable, instale [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-- Requisitos de Linux: escritorio gráfico, glibc 2.35 o superior (Ubuntu 22.04, Debian 12, Fedora 36 y posteriores), `fuse3` para el AppImage, las bibliotecas Mesa GL/EGL, un llavero Secret Service (gnome-keyring o KWallet) para las credenciales de notificaciones y un navegador que no sea snap. Probado en contenedores con Ubuntu 22.04, Fedora 37, Kali y Arch; la GPU real, Wayland, la bandeja y las notificaciones aún no están verificados. En Wayland nativo puede ser necesario abrir la ventana del navegador manualmente.
+**🌍 Todos los sistemas**
+
+- Hace falta un navegador instalado; las notificaciones necesitan el almacén de credenciales del sistema.
 - Pueden producirse errores del sitio, límites HTTP 429 y nuevas autenticaciones. No se garantiza obtener cita.
-- [Diagnóstico y privacidad](docs/PRIVACY.md). Elimine datos personales antes de compartir informes.
+- [Diagnóstico y privacidad](docs/PRIVACY.md). Elimine los datos personales antes de compartir informes.
+
+**🍎 macOS.** El sistema puede pedir la contraseña del Llavero cuando la aplicación necesita el token de Telegram.
+
+**🪟 Windows.** Usa WebView2. El MSI lo instala por sí mismo (hace falta acceso a la red; volver a ejecutar el MSI repara un intento fallido). Para el ZIP portable, instale [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+
+**🐧 Linux.** Requiere escritorio gráfico, glibc 2.35 o superior (Ubuntu 22.04, Debian 12, Fedora 36 y posteriores), las bibliotecas Mesa GL/EGL y un llavero Secret Service (gnome-keyring o KWallet). Probado en contenedores con Ubuntu 22.04, Fedora 37, Kali y Arch; la GPU real, Wayland, la bandeja y las notificaciones aún no están verificados. En Wayland nativo puede ser necesario abrir la ventana del navegador manualmente.
 
 ## 🎯 Finalidad
 
@@ -147,19 +222,12 @@ Rust, Tauri 2, Svelte 5 y TypeScript. SQLite y perfiles YAML compatibles. Contro
 
 [Compilación y pruebas](docs/BUILD.md)
 
-**💜 Apoyar el desarrollo**
-
-Si la aplicación te ha ayudado, agradecería una donación para apoyar su desarrollo y mantenimiento.
-
-[![Apoyar en GitHub](https://img.shields.io/badge/Apoyar%20en%20GitHub-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/itwormz)
-[![Donar con criptomonedas](https://img.shields.io/badge/Donar%20con%20criptomonedas-5b5bd6)](https://nowpayments.io/donation/itworm)
-
 ## 💜 Agradecimientos
 
 Gracias por ayudar a difundir el proyecto:
 
-- <a href="https://t.me/bcn_today"><img src="docs/images/bcn_today.png" width="32" height="32" alt=""> BCN Today</a>
-- <a href="https://t.me/spain_pass"><img src="docs/images/spain_pass.png" width="32" height="32" alt=""> Испанский Паспорт</a>
+- <a href="https://t.me/bcn_today"><img src="docs/images/bcn_today.png" width="20" height="20" alt=""> BCN Today</a>
+- <a href="https://t.me/spain_pass"><img src="docs/images/spain_pass.png" width="20" height="20" alt=""> Испанский Паспорт</a>
 
 ## 📄 Licencia
 

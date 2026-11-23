@@ -489,6 +489,55 @@ fn activity_days(db: &Connection) -> Result<(), StoreError> {
     }
     Ok(())
 }
+/// What a start does for the size of the file: merges the per-heartbeat active time that older versions wrote
+/// (once), and gives the journal (WAL) back when nothing holds it (a journal that cannot be reset keeps growing).
+fn tidy_storage(db: &mut Connection) -> Result<(), StoreError> {
+    let _one_at_a_time = TIDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    tidy_storage_locked(db)
+}
+fn tidy_storage_locked(db: &mut Connection) -> Result<(), StoreError> {
+    // The rows of older versions (one per heartbeat) are merged once: `compact_active` leaves a file that is already
+    // marked alone, and decides that with the write lock held (a writer may mark the file at any moment).
+    crate::writer::compact_active(db)?;
+    // Best effort and short: a reader that is still open makes this a no-op, never a wait.
+    db.busy_timeout(Duration::from_millis(500))?;
+    let _ = db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    db.busy_timeout(Duration::from_secs(30))?;
+    Ok(())
+}
+/// One tidy at a time in the process: the one at the start of the application and the one a search makes must
+/// not fight over the write lock of a large file.
+static TIDY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// Tidies a statistics database that already exists and is ready, without migrating or creating anything. For the
+/// application to call in the background when it starts, so that the first merge of a large file does not delay a search.
+/// A file that the merge left mostly empty (64 MiB or more of free pages) is rebuilt so that it shrinks.
+pub fn tidy_existing(database: &Path) -> Result<(), StoreError> {
+    tidy_existing_with(database, 64 << 20)
+}
+fn tidy_existing_with(database: &Path, shrink_from_free_bytes: i64) -> Result<(), StoreError> {
+    if !fs::symlink_metadata(database).is_ok_and(|meta| meta.file_type().is_file()) {
+        return Ok(());
+    }
+    let mut db = Connection::open(database)?;
+    db.busy_timeout(Duration::from_secs(30))?;
+    if marker(&db, READY)?.as_deref() != Some("1") {
+        return Ok(());
+    }
+    let _one_at_a_time = TIDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    tidy_storage_locked(&mut db)?;
+    let page_size: i64 = db.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+    let pages: i64 = db.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+    let free: i64 = db.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+    // Half or more of the file is free: the rebuilt copy needs at most the other half again, so a disk that held
+    // the file holds this too. A failed rebuild leaves the file as it was.
+    if free * page_size >= shrink_from_free_bytes
+        && free * 2 >= pages
+        && db.execute_batch("VACUUM").is_ok()
+    {
+        let _ = db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    }
+    Ok(())
+}
 pub fn migrate_paths(
     options: &MigrationOptions,
     now_millis: i64,
@@ -532,6 +581,8 @@ fn migrate_connection(
         validate_schema(db, true)?;
         // Additive tables introduced after a database was marked ready (idempotent CREATE IF NOT EXISTS).
         db.execute_batch(include_str!("schema.sql"))?;
+        // Maintenance of the file size never decides whether the statistics are usable.
+        let _ = tidy_storage(db);
         return Ok(MigrationResult {
             already_ready: true,
             backup: None,
@@ -675,6 +726,8 @@ fn migrate_connection(
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL")?;
+    // The migration is committed: maintenance of the file size cannot undo it or fail it.
+    let _ = tidy_storage(db);
     Ok(MigrationResult {
         already_ready: false,
         backup,
@@ -722,6 +775,165 @@ mod tests {
         let db = Connection::open(path).unwrap();
         db.execute_batch("CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT);INSERT INTO metadata VALUES ('schema_version','1');CREATE TABLE retained(value TEXT);INSERT INTO retained VALUES ('keep');").unwrap();
         db
+    }
+    #[test]
+    fn a_start_merges_the_old_active_rows_and_empties_the_journal() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        let mut start = DateTime::<Utc>::from_timestamp_millis(1_793_361_600_000).unwrap();
+        for _ in 0..600 {
+            let end = start + chrono::Duration::microseconds(5_016_000);
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,5.016)",
+                params![
+                    start.to_rfc3339_opts(chrono::SecondsFormat::Micros, false),
+                    end.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+                ],
+            )
+            .unwrap();
+            start = end - chrono::Duration::microseconds(35);
+        }
+        let seconds = |db: &Connection| -> f64 { db.query_row("SELECT SUM(seconds) FROM active", [], |r| r.get(0)).unwrap() };
+        let rows = |db: &Connection| -> i64 { db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap() };
+        db.execute_batch("PRAGMA user_version=0").unwrap(); // a file of an older version
+        let before = seconds(&db);
+        drop(db);
+        assert!(migrate_paths(&options, 1_793_361_700_000).unwrap().already_ready);
+        let db = Connection::open(&options.database).unwrap();
+        assert!(rows(&db) <= 3, "600 heartbeats are about 50 minutes: {} rows", rows(&db));
+        assert!((seconds(&db) - before).abs() < 1e-6);
+        drop(db);
+        migrate_paths(&options, 1_793_361_800_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        assert!(rows(&db) <= 3, "a second start changes nothing");
+        let wal = options.database.with_extension("sqlite3-wal");
+        assert!(!wal.exists() || fs::metadata(&wal).unwrap().len() == 0, "the journal is emptied");
+    }
+    #[test]
+    fn tidying_an_existing_database_merges_rows_and_leaves_a_missing_or_foreign_file_alone() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        tidy_existing(&options.database).unwrap();
+        assert!(!options.database.exists(), "a database that is not there is not created");
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        let mut start = DateTime::<Utc>::from_timestamp_millis(1_793_361_600_000).unwrap();
+        for _ in 0..300 {
+            let end = start + chrono::Duration::microseconds(5_000_000);
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,5)",
+                params![
+                    start.to_rfc3339_opts(chrono::SecondsFormat::Micros, false),
+                    end.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+                ],
+            )
+            .unwrap();
+            start = end;
+        }
+        db.execute_batch("PRAGMA user_version=0").unwrap(); // a file of an older version
+        drop(db);
+        tidy_existing(&options.database).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        let rows: i64 = db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap();
+        assert!(rows <= 2, "{rows}");
+        drop(db);
+        let foreign = scratch.0.join("foreign.sqlite3");
+        Connection::open(&foreign).unwrap().execute_batch("CREATE TABLE other(value TEXT)").unwrap();
+        tidy_existing(&foreign).unwrap();
+        let db = Connection::open(&foreign).unwrap();
+        let tables: i64 = db.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table'", [], |r| r.get(0)).unwrap();
+        assert_eq!(tables, 1, "a file that is not a ready statistics database is not touched");
+    }
+    #[test]
+    fn a_file_that_is_mostly_free_space_after_the_merge_is_shrunk() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        let mut start = DateTime::<Utc>::from_timestamp_millis(1_793_361_600_000).unwrap();
+        db.execute_batch("BEGIN").unwrap();
+        for _ in 0..20_000 {
+            let end = start + chrono::Duration::seconds(5);
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,5)",
+                params![
+                    start.to_rfc3339_opts(chrono::SecondsFormat::Micros, false),
+                    end.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+                ],
+            )
+            .unwrap();
+            start = end;
+        }
+        db.execute_batch("COMMIT").unwrap();
+        db.execute_batch("PRAGMA user_version=0").unwrap(); // a file of an older version
+        drop(db);
+        let size = |path: &Path| fs::metadata(path).unwrap().len();
+        let before = {
+            let db = Connection::open(&options.database).unwrap();
+            db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).unwrap();
+            size(&options.database)
+        };
+        // Below the limit nothing is rebuilt; above it the file shrinks and keeps the data.
+        tidy_existing_with(&options.database, 1 << 40).unwrap();
+        let kept_size = size(&options.database);
+        tidy_existing_with(&options.database, 4096).unwrap();
+        let after = size(&options.database);
+        assert!(kept_size > before / 2, "no rebuild below the limit: {kept_size} of {before}");
+        assert!(after < before / 4, "the file shrank from {before} to {after}");
+        let db = Connection::open(&options.database).unwrap();
+        let (rows, seconds): (i64, f64) = db.query_row("SELECT COUNT(*),SUM(seconds) FROM active", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert!(rows <= 30 && (seconds - 100_000.0).abs() < 1e-6, "{rows} rows, {seconds} s");
+    }
+    #[test]
+    fn a_failed_tidy_does_not_fail_the_start() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        for second in 0..20 {
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,1)",
+                params![format!("2026-10-30T12:00:{second:02}+00:00"), format!("2026-10-30T12:00:{:02}+00:00", second + 1)],
+            )
+            .unwrap();
+        }
+        db.execute_batch("PRAGMA user_version=0").unwrap(); // a file of an older version
+        // Merging rewrites the rows; make that fail, as a full disk or a stuck lock would, and start as a search does.
+        let mut db = db;
+        db.execute_batch("PRAGMA query_only=ON").unwrap();
+        assert!(tidy_storage(&mut db).is_err(), "the failure is real");
+        let result = migrate_connection(&options, 1_793_361_700_000, &mut db, true).unwrap();
+        assert!(result.already_ready, "the statistics stay usable when the tidy fails");
+        db.execute_batch("PRAGMA query_only=OFF").unwrap();
+        let rows: i64 = db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 20, "nothing was half merged");
+    }
+    #[test]
+    fn rows_that_are_already_merged_are_not_merged_again() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let mut db = Connection::open(&options.database).unwrap();
+        // Two rows a merge left (their inner gaps are not known any more), one right after the other.
+        for (start, end, seconds) in [("12:00:00", "12:10:00.009", 600.0), ("12:10:00.009", "12:20:00.001", 599.992)] {
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,?3)",
+                params![format!("2026-10-30T{start}+00:00"), format!("2026-10-30T{end}+00:00"), seconds],
+            )
+            .unwrap();
+        }
+        tidy_storage(&mut db).unwrap();
+        let rows: i64 = db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 2, "the merge of old rows ran once, when the file was first opened");
+        let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 1);
     }
     #[test]
     fn backup_name_appends_suffix_without_changing_extensionless_names() {

@@ -1,6 +1,7 @@
 //! Trusted desktop view models; no browser starts or native secrets read here.
 pub mod achievement_exports;
 pub mod appointment;
+pub mod coalesce;
 pub mod history;
 pub mod journal_log;
 pub mod notification_worker;

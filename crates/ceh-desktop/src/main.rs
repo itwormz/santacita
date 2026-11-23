@@ -12,7 +12,12 @@ struct DesktopRuntime {
     exports: std::sync::Arc<ceh_desktop::achievement_exports::NativeExports>,
     notifications: std::sync::Arc<ceh_desktop::notification_actions::Actions>,
     update: ceh_desktop::update_job::UpdateJob,
+    /// The window asks for the same statistics every few seconds from several places: one computation at a time.
+    statistics: std::sync::Arc<ceh_desktop::coalesce::Coalesce<String, StatisticsAnswer>>,
 }
+type StatisticsAnswer = Result<serde_json::Value, &'static str>;
+/// An answer this young is shared; the window refreshes every five seconds.
+const STATISTICS_MAX_AGE: std::time::Duration = std::time::Duration::from_millis(1500);
 fn authorize(window: &WebviewWindow) -> Result<(), &'static str> {
     let url = window.url().map_err(|_| "untrusted_window")?;
     if trusted_origin(window.label(), url.as_str()) {
@@ -55,12 +60,18 @@ async fn profile_statistics(
     window: WebviewWindow,
     runtime: State<'_, DesktopRuntime>,
     id: String,
-) -> Result<Option<ceh_store::statistics::Dashboard>, &'static str> {
+) -> StatisticsAnswer {
     authorize(&window)?;
     let root = runtime.root.clone();
-    tauri::async_runtime::spawn_blocking(move || ceh_desktop::profile_statistics(&root, &id))
-        .await
-        .map_err(|_| "statistics_unavailable")?
+    let table = runtime.statistics.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        table.get(format!("statistics:{id}"), STATISTICS_MAX_AGE, || {
+            ceh_desktop::profile_statistics(&root, &id)
+                .and_then(|data| serde_json::to_value(data).map_err(|_| "statistics_unavailable"))
+        })
+    })
+    .await
+    .map_err(|_| "statistics_unavailable")?
 }
 #[tauri::command]
 async fn profile_history(
@@ -68,11 +79,15 @@ async fn profile_history(
     runtime: State<'_, DesktopRuntime>,
     id: String,
     selection: ceh_desktop::history::HistoryRange,
-) -> Result<Option<ceh_store::statistics::HistorySnapshot>, &'static str> {
+) -> StatisticsAnswer {
     authorize(&window)?;
     let root = runtime.root.clone();
+    let table = runtime.statistics.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        ceh_desktop::history::profile_history(&root, &id, &selection)
+        table.get(format!("history:{id}:{selection:?}"), STATISTICS_MAX_AGE, || {
+            ceh_desktop::history::profile_history(&root, &id, &selection)
+                .and_then(|data| serde_json::to_value(data).map_err(|_| "statistics_unavailable"))
+        })
     })
     .await
     .map_err(|_| "statistics_unavailable")?
@@ -905,6 +920,12 @@ fn main() {
             if let Ok(now) = ceh_desktop::current_time() {
                 let _ = ceh_desktop::crash_note::report_previous(&root, &std::env::var("HOME").unwrap_or_default(), now);
             }
+            // The first merge of a large statistics file (older versions wrote a row every heartbeat) takes seconds on a
+            // slow disk: it is done here, in the background, and not while a search starts.
+            let database = root.join("data/profile-statistics.sqlite3");
+            let _ = std::thread::Builder::new()
+                .name("ceh-storage".into())
+                .spawn(move || { let _ = ceh_store::migrate::tidy_existing(&database); });
             let dark = bootstrap(&root, "ru")
                 .map(|data| data.preferences.dark)
                 .unwrap_or(true);
@@ -916,6 +937,7 @@ fn main() {
                 exports: std::sync::Arc::new(Default::default()),
                 notifications: std::sync::Arc::new(Default::default()),
                 update: Default::default(),
+                statistics: Default::default(),
             });
             let compact =
                 cfg!(debug_assertions) && std::env::var_os("CEH_PREVIEW_COMPACT").is_some();

@@ -3,6 +3,7 @@ import type {NotificationDraft,NotificationEditorData} from './notifications';
 import type {TimelineRow} from './timeline';
 import type {Timings} from './timings';
 import {invoke,isTauri} from '@tauri-apps/api/core';
+import {sharedRequest} from './shared-request';
 import {version} from '../package.json';
 export interface ProfileSummary {id:string;label:string;procedure:string;province:string;valid:boolean}
 export interface Preferences {dark:boolean;diagnostics:boolean;sound:boolean;language:string;automatic_updates:boolean;beta_updates:boolean}
@@ -31,11 +32,11 @@ export interface OfficeAppearance {time:string;session_id:string}
 export interface OfficeHistory {label:string;count:number|null;last_seen:string|null;appearances:OfficeAppearance[]}
 export interface StatisticsDashboard {all:Record<string,unknown>;today:Record<string,unknown>;offices:OfficeHistory[]}
 /** Missing history is null; read failures remain errors and never turn into zero totals. */
-export async function loadStatistics(id:string):Promise<StatisticsDashboard|null>{if(!isTauri())throw new Error('native_required');return invoke('profile_statistics',{id});}
+export async function loadStatistics(id:string):Promise<StatisticsDashboard|null>{if(!isTauri())throw new Error('native_required');return sharedRequest(`statistics:${id}`,()=>invoke<StatisticsDashboard|null>('profile_statistics',{id}));}
 
 export type HistoryRange={period:'all'}|{period:'today'}|{period:'range';start:string;end:string};
 export interface HistorySnapshot {offices:OfficeHistory[];bounds:{start:string|null;end:string|null};timeline:TimelineRow[]}
-export async function loadHistory(id:string,selection:HistoryRange):Promise<HistorySnapshot|null>{if(!isTauri())throw new Error('native_required');return invoke('profile_history',{id,selection});}
+export async function loadHistory(id:string,selection:HistoryRange):Promise<HistorySnapshot|null>{if(!isTauri())throw new Error('native_required');return sharedRequest(`history:${id}:${JSON.stringify(selection)}`,()=>invoke<HistorySnapshot|null>('profile_history',{id,selection}));}
 
 export interface SelectionSummary {seconds:number;observed_seconds:number;gap_seconds:number;restored_seconds:number;counts:Record<string,number>;offices:string[];start:string|null;end:string|null}
 export async function loadSelection(id:string,selection:HistoryRange,ids:string[]):Promise<SelectionSummary|null>{if(!isTauri())throw new Error('native_required');return invoke('profile_selection',{id,selection,ids});}
@@ -84,7 +85,7 @@ export async function copyStartupReport(id:string):Promise<void>{return invoke('
 export async function latestStartupReport():Promise<string|null>{return invoke('startup_report_latest');}
 export async function loadBrowsers():Promise<InstalledBrowser[]>{return invoke('installed_browsers');}
 export async function loadJournalHistory(id:string):Promise<SearchRow[]>{return invoke('journal_history',{id});}
-export async function loadBudget(id:string):Promise<BudgetSummary|null>{return invoke('appointment_budget',{id});}
+export async function loadBudget(id:string):Promise<BudgetSummary|null>{return sharedRequest(`budget:${id}`,()=>invoke<BudgetSummary|null>('appointment_budget',{id}));}
 export async function setDailyTarget(target:number|null,id:string|null=null):Promise<void>{return invoke('appointment_daily_target',{id,target});}
 export async function setDistributionToday(disabled:boolean):Promise<void>{return invoke('appointment_distribution',{disabled});}
 export async function tryAppointmentNow():Promise<void>{return invoke('appointment_try_now');}
