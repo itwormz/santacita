@@ -493,12 +493,29 @@ fn activity_days(db: &Connection) -> Result<(), StoreError> {
 /// (nothing is rewritten once it is merged, so no marker is kept), and gives the journal (WAL) back when nothing
 /// holds it (a journal that cannot be reset keeps growing).
 fn tidy_storage(db: &mut Connection) -> Result<(), StoreError> {
+    let _one_at_a_time = TIDY.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     crate::writer::compact_active(db)?;
     // Best effort and short: a reader that is still open makes this a no-op, never a wait.
     db.busy_timeout(Duration::from_millis(500))?;
     let _ = db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
     db.busy_timeout(Duration::from_secs(30))?;
     Ok(())
+}
+/// One tidy at a time in the process: the one at the start of the application and the one a search makes must
+/// not fight over the write lock of a large file.
+static TIDY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// Tidies a statistics database that already exists and is ready, without migrating or creating anything. For the
+/// application to call in the background when it starts, so that the first merge of a large file does not delay a search.
+pub fn tidy_existing(database: &Path) -> Result<(), StoreError> {
+    if !fs::symlink_metadata(database).is_ok_and(|meta| meta.file_type().is_file()) {
+        return Ok(());
+    }
+    let mut db = Connection::open(database)?;
+    db.busy_timeout(Duration::from_secs(30))?;
+    if marker(&db, READY)?.as_deref() != Some("1") {
+        return Ok(());
+    }
+    tidy_storage(&mut db)
 }
 pub fn migrate_paths(
     options: &MigrationOptions,
@@ -770,6 +787,41 @@ mod tests {
         assert!(rows(&db) <= 3, "a second start changes nothing");
         let wal = options.database.with_extension("sqlite3-wal");
         assert!(!wal.exists() || fs::metadata(&wal).unwrap().len() == 0, "the journal is emptied");
+    }
+    #[test]
+    fn tidying_an_existing_database_merges_rows_and_leaves_a_missing_or_foreign_file_alone() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        tidy_existing(&options.database).unwrap();
+        assert!(!options.database.exists(), "a database that is not there is not created");
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        let mut start = DateTime::<Utc>::from_timestamp_millis(1_793_361_600_000).unwrap();
+        for _ in 0..300 {
+            let end = start + chrono::Duration::microseconds(5_000_000);
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,5)",
+                params![
+                    start.to_rfc3339_opts(chrono::SecondsFormat::Micros, false),
+                    end.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+                ],
+            )
+            .unwrap();
+            start = end;
+        }
+        drop(db);
+        tidy_existing(&options.database).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        let rows: i64 = db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap();
+        assert!(rows <= 2, "{rows}");
+        drop(db);
+        let foreign = scratch.0.join("foreign.sqlite3");
+        Connection::open(&foreign).unwrap().execute_batch("CREATE TABLE other(value TEXT)").unwrap();
+        tidy_existing(&foreign).unwrap();
+        let db = Connection::open(&foreign).unwrap();
+        let tables: i64 = db.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table'", [], |r| r.get(0)).unwrap();
+        assert_eq!(tables, 1, "a file that is not a ready statistics database is not touched");
     }
     #[test]
     fn backup_name_appends_suffix_without_changing_extensionless_names() {

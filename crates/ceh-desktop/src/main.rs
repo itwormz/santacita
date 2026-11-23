@@ -920,6 +920,12 @@ fn main() {
             if let Ok(now) = ceh_desktop::current_time() {
                 let _ = ceh_desktop::crash_note::report_previous(&root, &std::env::var("HOME").unwrap_or_default(), now);
             }
+            // The first merge of a large statistics file (older versions wrote a row every heartbeat) takes seconds on a
+            // slow disk: it is done here, in the background, and not while a search starts.
+            let database = root.join("data/profile-statistics.sqlite3");
+            let _ = std::thread::Builder::new()
+                .name("ceh-storage".into())
+                .spawn(move || { let _ = ceh_store::migrate::tidy_existing(&database); });
             let dark = bootstrap(&root, "ru")
                 .map(|data| data.preferences.dark)
                 .unwrap_or(true);
