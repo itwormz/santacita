@@ -211,6 +211,23 @@ fn a_row_the_writer_extended_marks_the_file_so_a_failed_merge_is_not_retried_ove
 }
 
 #[test]
+fn a_file_that_is_marked_when_the_merge_looks_is_left_alone() {
+    // The merge decides inside its own transaction: whoever marked the file just before it (a writer that extended a
+    // row between the check of the caller and the start of the merge) wins, and rows already merged stay as they are.
+    let mut db = database();
+    for (start, end, seconds) in [("12:00:00", "12:10:00.009", 600.0), ("12:10:00.009", "12:20:00.001", 599.992)] {
+        db.execute(
+            "INSERT INTO active(profile,session,start,end,seconds) VALUES ('fixture','s',?1,?2,?3)",
+            rusqlite::params![format!("2026-10-30T{start}+00:00"), format!("2026-10-30T{end}+00:00"), seconds],
+        )
+        .unwrap();
+    }
+    db.execute_batch("PRAGMA user_version=1").unwrap();
+    assert_eq!(ceh_store::writer::compact_active(&mut db).unwrap(), 0);
+    assert_eq!(rows(&db), 2, "two merged rows are not merged again");
+}
+
+#[test]
 fn old_one_row_per_heartbeat_data_is_merged_without_losing_time() {
     let mut db = database();
     // The way every earlier version wrote it: a row per heartbeat, with the small overlap of two clocks.
