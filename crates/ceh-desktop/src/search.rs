@@ -779,6 +779,9 @@ fn run_owned(
     let mut db = rusqlite::Connection::open(database).map_err(|_| "statistics_unavailable")?;
     db.busy_timeout(Duration::from_secs(2))
         .map_err(|_| "statistics_unavailable")?;
+    // When the journal (WAL) is reset it is cut back to this size instead of keeping the largest size it ever had.
+    db.execute_batch("PRAGMA journal_size_limit=67108864")
+        .map_err(|_| "statistics_unavailable")?;
     let mut budget_store = ceh_store::appointment_budget::BudgetStore::open(&root.join("data"), profile)
         .map_err(|_| "appointment_budget_unavailable")?;
     let mut budget = budget_store.load().map_err(|_| "appointment_budget_unavailable")?;

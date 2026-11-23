@@ -489,6 +489,17 @@ fn activity_days(db: &Connection) -> Result<(), StoreError> {
     }
     Ok(())
 }
+/// What a start does for the size of the file: merges the per-heartbeat active time that older versions wrote
+/// (nothing is rewritten once it is merged, so no marker is kept), and gives the journal (WAL) back when nothing
+/// holds it (a journal that cannot be reset keeps growing).
+fn tidy_storage(db: &mut Connection) -> Result<(), StoreError> {
+    crate::writer::compact_active(db)?;
+    // Best effort and short: a reader that is still open makes this a no-op, never a wait.
+    db.busy_timeout(Duration::from_millis(500))?;
+    let _ = db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    db.busy_timeout(Duration::from_secs(30))?;
+    Ok(())
+}
 pub fn migrate_paths(
     options: &MigrationOptions,
     now_millis: i64,
@@ -532,6 +543,7 @@ fn migrate_connection(
         validate_schema(db, true)?;
         // Additive tables introduced after a database was marked ready (idempotent CREATE IF NOT EXISTS).
         db.execute_batch(include_str!("schema.sql"))?;
+        tidy_storage(db)?;
         return Ok(MigrationResult {
             already_ready: true,
             backup: None,
@@ -675,6 +687,7 @@ fn migrate_connection(
     }
     tx.commit()?;
     db.execute_batch("PRAGMA journal_mode=WAL")?;
+    tidy_storage(db)?;
     Ok(MigrationResult {
         already_ready: false,
         backup,
@@ -722,6 +735,41 @@ mod tests {
         let db = Connection::open(path).unwrap();
         db.execute_batch("CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT);INSERT INTO metadata VALUES ('schema_version','1');CREATE TABLE retained(value TEXT);INSERT INTO retained VALUES ('keep');").unwrap();
         db
+    }
+    #[test]
+    fn a_start_merges_the_old_active_rows_and_empties_the_journal() {
+        let scratch = Scratch::new();
+        let mut options = scratch.options();
+        options.legacy_json = None;
+        migrate_paths(&options, 1_793_361_600_000).unwrap();
+        let mut db = Connection::open(&options.database).unwrap();
+        let mut start = DateTime::<Utc>::from_timestamp_millis(1_793_361_600_000).unwrap();
+        for _ in 0..600 {
+            let end = start + chrono::Duration::microseconds(5_016_000);
+            db.execute(
+                "INSERT INTO active(profile,session,start,end,seconds) VALUES ('p','s',?1,?2,5.016)",
+                params![
+                    start.to_rfc3339_opts(chrono::SecondsFormat::Micros, false),
+                    end.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+                ],
+            )
+            .unwrap();
+            start = end - chrono::Duration::microseconds(35);
+        }
+        let seconds = |db: &Connection| -> f64 { db.query_row("SELECT SUM(seconds) FROM active", [], |r| r.get(0)).unwrap() };
+        let rows = |db: &Connection| -> i64 { db.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0)).unwrap() };
+        let before = seconds(&db);
+        drop(db);
+        assert!(migrate_paths(&options, 1_793_361_700_000).unwrap().already_ready);
+        let db = Connection::open(&options.database).unwrap();
+        assert!(rows(&db) <= 3, "600 heartbeats are about 50 minutes: {} rows", rows(&db));
+        assert!((seconds(&db) - before).abs() < 1e-6);
+        drop(db);
+        migrate_paths(&options, 1_793_361_800_000).unwrap();
+        let db = Connection::open(&options.database).unwrap();
+        assert!(rows(&db) <= 3, "a second start changes nothing");
+        let wal = options.database.with_extension("sqlite3-wal");
+        assert!(!wal.exists() || fs::metadata(&wal).unwrap().len() == 0, "the journal is emptied");
     }
     #[test]
     fn backup_name_appends_suffix_without_changing_extensionless_names() {

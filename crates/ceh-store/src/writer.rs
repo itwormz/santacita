@@ -32,6 +32,53 @@ fn name<T: serde::Serialize>(value: &T) -> Result<String, StoreError> {
         .map(str::to_owned)
         .ok_or(StoreError::Corrupt)
 }
+/// Segments of active time that follow each other within this many seconds are one segment (two clocks leave a
+/// few microseconds of overlap; a paused or manual phase leaves a longer gap and starts a new one).
+const MERGE_GAP_SECONDS: i64 = 1;
+/// Whether a segment starting at `start` continues the one `[last_start, last_end]`. A segment stays inside the UTC
+/// hour it started in, so a day boundary or a long stretch is never hidden in one row.
+fn continues(last_start: DateTime<Utc>, last_end: DateTime<Utc>, start: DateTime<Utc>) -> bool {
+    start >= last_start
+        && start - last_end <= chrono::Duration::seconds(MERGE_GAP_SECONDS)
+        && last_start.format("%Y-%m-%dT%H").to_string() == start.format("%Y-%m-%dT%H").to_string()
+}
+/// Merges the one-row-per-heartbeat active time that earlier versions wrote into long segments, with the same
+/// rule as `add_active`. Returns how many rows were removed; the total of seconds does not change.
+pub fn compact_active(db: &mut Connection) -> Result<usize, StoreError> {
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let before: i64 = tx.query_row("SELECT COUNT(*) FROM active", [], |r| r.get(0))?;
+    tx.execute_batch(
+        "CREATE TEMP TABLE active_merged AS
+         WITH ordered AS (
+             SELECT profile,session,start,end,seconds,
+                    LAG(end) OVER w AS previous_end,
+                    LAG(substr(start,1,13)) OVER w AS previous_hour
+             FROM active WINDOW w AS (PARTITION BY profile,session ORDER BY start,end)
+         ), marked AS (
+             SELECT *, CASE WHEN previous_end IS NULL
+                              OR (julianday(start)-julianday(previous_end))*86400.0 > 1.0
+                              OR substr(start,1,13) != previous_hour
+                            THEN 1 ELSE 0 END AS new_segment
+             FROM ordered
+         ), numbered AS (
+             SELECT *, SUM(new_segment) OVER (PARTITION BY profile,session ORDER BY start,end ROWS UNBOUNDED PRECEDING) AS segment
+             FROM marked
+         )
+         SELECT profile,session,MIN(start) AS start,MAX(end) AS end,SUM(seconds) AS seconds
+         FROM numbered GROUP BY profile,session,segment;",
+    )?;
+    let after: i64 = tx.query_row("SELECT COUNT(*) FROM active_merged", [], |r| r.get(0))?;
+    if after < before {
+        tx.execute("DELETE FROM active", [])?;
+        tx.execute(
+            "INSERT INTO active(profile,session,start,end,seconds) SELECT profile,session,start,end,seconds FROM active_merged ORDER BY profile,session,start",
+            [],
+        )?;
+    }
+    tx.execute_batch("DROP TABLE active_merged")?;
+    tx.commit()?;
+    Ok(before.saturating_sub(after).max(0) as usize)
+}
 fn activity_days(
     db: &Connection,
     scope: &EventScope,
@@ -434,6 +481,29 @@ impl<'a> StatisticsWriter<'a> {
                 false,
             )
         };
+        // A heartbeat that continues the session's last segment extends it: a search that runs for weeks would
+        // otherwise add a row every few seconds, and every statistics call reads all of them.
+        let lower = start - chrono::Duration::hours(1) - chrono::Duration::seconds(MERGE_GAP_SECONDS);
+        let last: Option<(i64, String, String, f64)> = tx
+            .query_row(
+                "SELECT id,start,end,seconds FROM active WHERE profile=?1 AND start>=?2 AND start<=?3 AND session=?4 ORDER BY start DESC LIMIT 1",
+                params![scope.profile.as_str(), lower.to_rfc3339_opts(SecondsFormat::Micros, false), format(start), scope.session.as_str()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        if let Some((id, last_start, last_end, last_seconds)) = last {
+            let (last_start, last_end) = (parse_time(&last_start)?, parse_time(&last_end)?);
+            if continues(last_start, last_end, start) {
+                if end > last_end {
+                    tx.execute(
+                        "UPDATE active SET end=?1,seconds=?2 WHERE id=?3",
+                        params![format(end), last_seconds + seconds, id],
+                    )?;
+                }
+                tx.commit()?;
+                return Ok(());
+            }
+        }
         tx.execute("INSERT OR IGNORE INTO active(profile,session,start,end,seconds) VALUES (?1,?2,?3,?4,?5)",params![scope.profile.as_str(),scope.session.as_str(),format(start),format(end),seconds])?;
         tx.commit()?;
         Ok(())
