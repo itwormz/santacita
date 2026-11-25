@@ -10,6 +10,16 @@ pub enum FirefoxError {
     InvalidProfile,
     ProfileBusy,
     Unavailable,
+    /// The operating system would not run the browser's program.
+    LaunchFailed,
+    /// The browser ended on its own before it announced its control address.
+    ExitedEarly,
+    /// The browser output ended without a control address while the browser still ran.
+    NoEndpoint,
+    /// The browser announced its control address, but the app could not connect to it.
+    ConnectFailed,
+    /// Connected, but the browser did not set up the control session.
+    SessionFailed,
     StartupTimeout,
     CertificateCache,
     Cancelled,
@@ -24,6 +34,11 @@ impl FirefoxError {
             Self::InvalidProfile => "invalid_profile",
             Self::ProfileBusy => "profile_busy",
             Self::Unavailable => "unavailable",
+            Self::LaunchFailed => "launch_failed",
+            Self::ExitedEarly => "exited_early",
+            Self::NoEndpoint => "no_endpoint",
+            Self::ConnectFailed => "connect_failed",
+            Self::SessionFailed => "session_failed",
             Self::StartupTimeout => "startup_timeout",
             Self::CertificateCache => "certificate_cache",
             Self::Cancelled => "cancelled",
@@ -530,7 +545,7 @@ impl OwnedFirefox {
             }
         }
         command.arg("about:blank");
-        let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::Unavailable)?;
+        let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::LaunchFailed)?;
         let stderr = child.take_stderr().ok_or(FirefoxError::Unavailable)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
@@ -584,7 +599,7 @@ impl OwnedFirefox {
                 .map_err(|_| FirefoxError::Unavailable)?
                 .is_some()
             {
-                return Err(StartFailure::Fail(FirefoxError::Unavailable));
+                return Err(StartFailure::Fail(FirefoxError::ExitedEarly));
             }
             if Instant::now() >= deadline {
                 return Err(StartFailure::Fail(FirefoxError::StartupTimeout));
@@ -595,18 +610,27 @@ impl OwnedFirefox {
                     break;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(_) => return Err(StartFailure::Fail(FirefoxError::Unavailable)),
+                // The output ended: a browser that ended with it is an early exit, only one that still runs is not.
+                Err(_) => {
+                    for _ in 0..5 {
+                        if owned.child.as_mut().and_then(|child| child.try_wait().ok()).is_some_and(|status| status.is_some()) {
+                            return Err(StartFailure::Fail(FirefoxError::ExitedEarly));
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    return Err(StartFailure::Fail(FirefoxError::NoEndpoint));
+                }
             }
         }
         let mut first = Some(BidiConnection::connect(owned.endpoint, Duration::from_secs(5))
-            .map_err(|_| FirefoxError::Unavailable)?);
+            .map_err(|_| FirefoxError::ConnectFailed)?);
         let session = first.as_mut().ok_or(FirefoxError::Unavailable)?
             .call_before(
                 "session.new",
                 json!({"capabilities":{"alwaysMatch":{"acceptInsecureCerts":false}}}),
                 deadline,
             )
-            .map_err(|_| FirefoxError::Unavailable)?;
+            .map_err(|_| FirefoxError::SessionFailed)?;
         if session["capabilities"]["browserName"] != "firefox"
             || session["capabilities"]["acceptInsecureCerts"] != false
         {
@@ -645,23 +669,23 @@ impl OwnedFirefox {
                 // After the switch the agent is new: authenticate again before anything else.
                 connection
                     .call_before("session.new", json!({"capabilities":{"alwaysMatch":{"acceptInsecureCerts":false}}}), deadline)
-                    .map_err(|_| FirefoxError::Unavailable)?;
+                    .map_err(|_| FirefoxError::SessionFailed)?;
             }
         }
         let mut connection = first.take().ok_or(FirefoxError::Unavailable)?;
-        connection.call_before("session.subscribe",json!({"events":["network.beforeRequestSent","network.responseCompleted","network.fetchError","browsingContext.load","browsingContext.navigationStarted"]}),deadline).map_err(|_|FirefoxError::Unavailable)?;
+        connection.call_before("session.subscribe",json!({"events":["network.beforeRequestSent","network.responseCompleted","network.fetchError","browsingContext.load","browsingContext.navigationStarted"]}),deadline).map_err(|_|FirefoxError::SessionFailed)?;
         if owned.webdriver_mode == crate::firefox_control::WebdriverMode::Mask {
-            connection.call_before("script.addPreloadScript", json!({"functionDeclaration":crate::firefox_control::WEBDRIVER_MASK_V2}), deadline).map_err(|_| FirefoxError::Unavailable)?;
+            connection.call_before("script.addPreloadScript", json!({"functionDeclaration":crate::firefox_control::WEBDRIVER_MASK_V2}), deadline).map_err(|_| FirefoxError::SessionFailed)?;
         }
         let tree = connection
             .call_before("browsingContext.getTree", json!({}), deadline)
-            .map_err(|_| FirefoxError::Unavailable)?;
+            .map_err(|_| FirefoxError::SessionFailed)?;
         owned.context = tree["contexts"]
             .as_array()
             .filter(|v| v.len() == 1)
             .and_then(|v| v[0]["context"].as_str())
             .filter(|s| !s.is_empty() && s.len() <= 512)
-            .ok_or(FirefoxError::Unavailable)?
+            .ok_or(FirefoxError::SessionFailed)?
             .into();
         if cancelled.load(Ordering::Acquire) {
             return Err(StartFailure::Fail(FirefoxError::Cancelled));
@@ -690,7 +714,7 @@ impl OwnedFirefox {
         let mut command = Command::new(installation.executable());
         command
             .args(crate::chromium::launch_arguments(profile.path(), crate::launch::TargetOs::current()));
-        let child = crate::spawn::spawn(command, crate::spawn::Stderr::Null).map_err(|_| FirefoxError::Unavailable)?;
+        let child = crate::spawn::spawn(command, crate::spawn::Stderr::Null).map_err(|_| FirefoxError::LaunchFailed)?;
         let mut owned = Self {
             child: Some(child),
             profile: Some(profile),
@@ -710,7 +734,7 @@ impl OwnedFirefox {
                 return Err(FirefoxError::Cancelled);
             }
             if owned.child.as_mut().ok_or(FirefoxError::Unavailable)?.try_wait().map_err(|_| FirefoxError::Unavailable)?.is_some() {
-                return Err(FirefoxError::Unavailable);
+                return Err(FirefoxError::ExitedEarly);
             }
             if Instant::now() >= deadline {
                 return Err(FirefoxError::StartupTimeout);
@@ -726,7 +750,7 @@ impl OwnedFirefox {
             match BidiConnection::connect_cdp(owned.endpoint, &path, Duration::from_secs(5)) {
                 Ok(connection) => break connection,
                 Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(200)),
-                Err(_) => return Err(FirefoxError::Unavailable),
+                Err(_) => return Err(FirefoxError::ConnectFailed),
             }
         };
         connection.call_before("session.new", json!({"capabilities":{}}), deadline).map_err(|_| FirefoxError::Unavailable)?;
