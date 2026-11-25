@@ -1020,7 +1020,7 @@ fn run_owned(
                     return Ok(SessionEnd::Finished);
                 }
             }
-            publish_budget(state, &mut budget, crate::current_time()?, &appointment_policy, observer.hot_retry())?;
+            publish_budget(state, &mut budget, crate::current_time()?, appointment_policy, observer.hot_retry())?;
             let paused = driver.control().mode() == ControlMode::Paused;
             if paused {
                 // A pause ends the hold being timed: after it the one-minute count starts again.
@@ -1041,7 +1041,7 @@ fn run_owned(
             }
             if !paused && !manual {
                 let budget_now = crate::current_time()?;
-                let ready = budget.next_submission(budget_now, &appointment_policy, observer.hot_retry());
+                let ready = budget.next_submission(budget_now, appointment_policy, observer.hot_retry());
                 let delay = (ready - budget_now).num_milliseconds().max(0) as u64;
                 driver.set_appointment_schedule(mono().saturating_add(delay), appointment_policy.confirm_new_round);
                 driver.sample_waits(unit_sample(), unit_sample()).map_err(|_| "profile_invalid")?;
@@ -1121,7 +1121,7 @@ fn run_owned(
                         kind: before.observation.kind,
                         operation_code: before.observation.operation_code,
                     };
-                    let mut changed = observer.observe(&page, &mut budget, budget_now, &appointment_policy);
+                    let mut changed = observer.observe(&page, &mut budget, budget_now, appointment_policy);
                     if before.observation.kind == PageKind::Office {
                         changed |= observer.offices_seen(&mut budget, budget_now, before.offices.clone());
                     }
@@ -1243,7 +1243,7 @@ fn run_owned(
                 let submits_appointment = effects.iter().any(|effect| matches!(effect, FlowEffect::Activate { action: ActionKind::Request, .. }));
                 let mut prior_budget = if submits_appointment {
                     let prior = (budget.clone(), observer.clone());
-                    observer.request_sent(&mut budget, crate::current_time()?, &appointment_policy);
+                    observer.request_sent(&mut budget, crate::current_time()?, appointment_policy);
                     budget_store.save(&budget).map_err(|_| "appointment_budget_unavailable")?;
                     Some(prior)
                 } else {
@@ -1330,7 +1330,7 @@ fn run_owned(
                             next.load().map_err(|_| "appointment_budget_unavailable")?,
                         );
                         let now = crate::current_time()?;
-                        budget.carry_today_choices_from(&before, now, &appointment_policy);
+                        budget.carry_today_choices_from(&before, now, appointment_policy);
                         next.save(&budget).map_err(|_| "appointment_budget_unavailable")?;
                         let previous = std::mem::replace(&mut budget_store, next);
                         if initial_budget_store.is_none() {
