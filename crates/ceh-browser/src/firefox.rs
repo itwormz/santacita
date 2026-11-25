@@ -26,6 +26,41 @@ pub(crate) fn tail_line(raw: &str) -> String {
     let line: String = raw.chars().filter(|c| !c.is_control()).collect();
     line.trim().chars().take(TAIL_LINE_CHARS).collect()
 }
+/// Reads what a browser writes on its error output until it ends: the last lines go to `tail` (for the report of a
+/// failed start), and, when `endpoint` is given, the line that announces the WebDriver address is passed on once.
+fn pump_stderr(stderr: impl Read + Send + 'static, tail: Tail, endpoint: Option<mpsc::SyncSender<SocketAddr>>) {
+    std::thread::spawn(move || {
+        let mut stderr = stderr;
+        let mut buf = [0u8; 4096];
+        let mut pending = Vec::new();
+        let mut reported = false;
+        while let Ok(count) = stderr.read(&mut buf) {
+            if count == 0 {
+                break;
+            }
+            for byte in &buf[..count] {
+                if *byte == b'\n' {
+                    push_tail(&tail, &String::from_utf8_lossy(&pending));
+                    if !reported
+                        && let Some(sender) = &endpoint
+                        && let Ok(line) = std::str::from_utf8(&pending)
+                        && let Some(address) = parse_endpoint(line)
+                    {
+                        let _ = sender.try_send(address);
+                        reported = true;
+                    }
+                    pending.clear();
+                } else if pending.len() < 8192 {
+                    pending.push(*byte);
+                }
+            }
+        }
+        // A browser that ends in the middle of a line leaves its last words without a line break.
+        if !pending.is_empty() {
+            push_tail(&tail, &String::from_utf8_lossy(&pending));
+        }
+    });
+}
 fn push_tail(tail: &Tail, raw: &str) {
     let line = tail_line(raw);
     if line.is_empty() {
@@ -626,36 +661,7 @@ impl OwnedFirefox {
         let (sender, receiver) = mpsc::sync_channel(1);
         let tail = Tail::default();
         START_TAIL.with(|cell| *cell.borrow_mut() = Some(tail.clone()));
-        std::thread::spawn(move || {
-            let mut stderr = stderr;
-            let mut buf = [0u8; 4096];
-            let mut pending = Vec::new();
-            let mut reported = false;
-            while let Ok(count) = stderr.read(&mut buf) {
-                if count == 0 {
-                    break;
-                }
-                for byte in &buf[..count] {
-                    if *byte == b'\n' {
-                        push_tail(&tail, &String::from_utf8_lossy(&pending));
-                        if !reported
-                            && let Ok(line) = std::str::from_utf8(&pending)
-                            && let Some(address) = parse_endpoint(line)
-                        {
-                            let _ = sender.try_send(address);
-                            reported = true;
-                        }
-                        pending.clear();
-                    } else if pending.len() < 8192 {
-                        pending.push(*byte);
-                    }
-                }
-            }
-            // A browser that ends in the middle of a line leaves its last words without a line break.
-            if !pending.is_empty() {
-                push_tail(&tail, &String::from_utf8_lossy(&pending));
-            }
-        });
+        pump_stderr(stderr, tail, Some(sender));
         let mut owned = Self {
             child: Some(child),
             profile: Some(profile),
@@ -805,7 +811,11 @@ impl OwnedFirefox {
         let mut command = Command::new(installation.executable());
         command
             .args(crate::chromium::launch_arguments(profile.path(), crate::launch::TargetOs::current()));
-        let child = crate::spawn::spawn(command, crate::spawn::Stderr::Null).map_err(|_| FirefoxError::LaunchFailed)?;
+        let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::LaunchFailed)?;
+        // Chromium announces its port in a file, not on this output; the output is read for the report of a failure.
+        let tail = Tail::default();
+        START_TAIL.with(|cell| *cell.borrow_mut() = Some(tail.clone()));
+        pump_stderr(child.take_stderr().ok_or(FirefoxError::Unavailable)?, tail, None);
         let mut owned = Self {
             child: Some(child),
             profile: Some(profile),
