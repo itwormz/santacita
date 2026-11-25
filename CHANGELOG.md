@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.4.9
+
+### New
+
+- When the browser does not start, the report now says at which step it failed and carries the exit status, the browser version, the time it took and the last lines the browser wrote, so a failure like "browser unavailable" on Windows can be understood from it.
+
+### Fixes
+
+- A problem report no longer keeps the name of a Windows or Linux account folder, nor values after `token=`, `secret=`, `api_key=` or `Bearer`.
+- Statistics no longer show an error when a search writes to the file at the same moment; they wait up to two seconds, and a damaged old row no longer breaks the statistics of today.
+- An update check gives up on a server that does not answer after a minute, not after an hour.
+- A search the system could not start is no longer shown as running.
+- The window and the notifications use the same text for the same phrase (English and Spanish).
+- The statistics panel and the search history ask for their data once when opened.
+- Two switches meant for development previews no longer work in release builds.
+
 ## 0.4.8
 
 - Stop the window from asking for the same statistics again while the previous answer is still being computed; this removes the high CPU load in a long search.
