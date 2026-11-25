@@ -651,6 +651,10 @@ impl OwnedFirefox {
                     }
                 }
             }
+            // A browser that ends in the middle of a line leaves its last words without a line break.
+            if !pending.is_empty() {
+                push_tail(&tail, &String::from_utf8_lossy(&pending));
+            }
         });
         let mut owned = Self {
             child: Some(child),

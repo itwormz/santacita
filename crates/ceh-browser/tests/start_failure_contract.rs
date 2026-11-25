@@ -77,3 +77,12 @@ fn a_very_long_line_is_cut_and_an_empty_one_is_not_kept() {
     assert_eq!(detail.stderr_tail.last().unwrap(), &"x".repeat(160));
     assert!(detail.stderr_tail.iter().all(|line| !line.is_empty()));
 }
+#[test]
+fn the_last_words_of_a_browser_that_wrote_no_final_line_break_are_kept() {
+    let _ = take_start_detail();
+    let script = "echo first >&2\nprintf 'fatal: no display' >&2\nexit 1";
+    assert!(matches!(start_with_script(script, true), Err(FirefoxError::ExitedEarly)));
+    let detail = take_start_detail().unwrap();
+    let last = detail.stderr_tail.last().map(String::as_str);
+    assert_eq!(last, Some("fatal: no display"), "{:?}", detail.stderr_tail);
+}
