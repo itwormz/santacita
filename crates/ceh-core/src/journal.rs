@@ -106,7 +106,7 @@ fn expected(from: PageKind, to: PageKind) -> bool {
         ApplicantNoSlots => matches!(to, Applicant | ApplicantNoSlots),
         Applicant => matches!(to, RequestMenu | Office | Contact | Booking) || no_slots(to),
         RequestMenu | Office => {
-            matches!(to, Office | Contact | Booking) && (from != Office || to != Office)
+            (matches!(to, Office | Contact | Booking) && (from != Office || to != Office))
                 || no_slots(to)
         }
         Contact => to == Booking || no_slots(to),
@@ -457,5 +457,26 @@ impl PageJournal {
             _ => {}
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use PageKind::*;
+
+    /// Pins the reading of the menu and office rule: the guard (not Office to Office) binds the page kinds, and a
+    /// page without appointments is reachable from both whatever the guard says.
+    #[test]
+    fn the_menu_and_the_office_lead_to_each_other_but_an_office_does_not_repeat_itself() {
+        assert!(expected(RequestMenu, Office) && expected(RequestMenu, Contact) && expected(RequestMenu, Booking));
+        assert!(expected(Office, Contact) && expected(Office, Booking));
+        assert!(!expected(Office, Office));
+        assert!(!expected(RequestMenu, Auth) && !expected(Office, Province));
+        for from in [RequestMenu, Office] {
+            for to in [RequestNoSlots, RequestNoSlotsRestart, PostContactNoSlots] {
+                assert!(expected(from, to), "{from:?} to {to:?}");
+            }
+        }
     }
 }
