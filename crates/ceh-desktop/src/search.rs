@@ -61,7 +61,8 @@ enum LiveCommand {
     ManualRestart,
     /// The person asked to continue searching after the booking handoff.
     Resume,
-    Timings(ceh_core::timings::AssistTimings),
+    /// Boxed: the timings are many times larger than every other command.
+    Timings(Box<ceh_core::timings::AssistTimings>),
 }
 struct Message {
     command: Control,
@@ -184,7 +185,7 @@ impl SearchController {
         }
         let timings = loaded.timings.ok_or("profile_invalid")?;
         let policy = loaded.appointment_policy.ok_or("profile_invalid")?;
-        self.send_live(LiveCommand::Timings(timings))?;
+        self.send_live(LiveCommand::Timings(Box::new(timings)))?;
         self.send_live(LiveCommand::Budget(BudgetCommand::ApplyPolicy(policy)))
     }
     /// A new browser session with a cleared profile (Python `restart`: `ручной перезапуск`, immediate).
@@ -1000,9 +1001,9 @@ fn run_owned(
                             contact_typing: unit_sample(),
                                         typing: unit_sample(),
                         };
-                        if driver.apply_timings(next.clone(), samples).is_ok() {
+                        if driver.apply_timings((*next).clone(), samples).is_ok() {
                             presenter.set_alert_interval((next.alert_seconds()*1000.).ceil() as u64);
-                            *timings = next;
+                            *timings = *next;
                         }
                     }
                 }
