@@ -357,7 +357,10 @@ impl SearchController {
                     s.revision = s.revision.wrapping_add(1);
                 }
             })
-            .map_err(|_| "search_unavailable")?;
+            .map_err(|_| {
+                withdraw_failed_start(&self.state, "search_unavailable");
+                "search_unavailable"
+            })?;
         *handle = Some(Handle {
             sender,
             live,
@@ -365,6 +368,16 @@ impl SearchController {
             cancelled,
         });
         Ok(())
+    }
+}
+/// The state is set to running before the search thread exists; when the system refuses the thread, nothing runs,
+/// and the person must not be left looking at a search that never started.
+fn withdraw_failed_start(state: &Mutex<SearchSnapshot>, code: &'static str) {
+    if let Ok(mut s) = state.lock() {
+        s.active = false;
+        s.error = Some(code);
+        s.attention = true;
+        s.revision = s.revision.wrapping_add(1);
     }
 }
 impl Drop for SearchController {
@@ -1876,4 +1889,19 @@ mod report_saving_tests {
 /// True when the step does nothing but accept the cookie banner.
 pub(crate) fn only_cookie_banner(effects: &[FlowEffect]) -> bool {
     !effects.is_empty() && effects.iter().all(|effect| matches!(effect, FlowEffect::AcceptCookies { .. }))
+}
+
+#[cfg(test)]
+mod failed_start_tests {
+    use super::*;
+    #[test]
+    fn a_search_whose_thread_could_not_be_started_is_not_left_running() {
+        let state = Mutex::new(SearchSnapshot { profile: Some("p".into()), active: true, revision: 4, ..Default::default() });
+        withdraw_failed_start(&state, "search_unavailable");
+        let after = state.lock().unwrap();
+        assert!(!after.active, "the start never ran, so nothing may be shown as running");
+        assert_eq!(after.error, Some("search_unavailable"));
+        assert!(after.attention);
+        assert_eq!(after.revision, 5);
+    }
 }
