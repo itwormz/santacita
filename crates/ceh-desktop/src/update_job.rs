@@ -27,6 +27,10 @@ struct Inner {
     error: Option<&'static str>,
     path: Option<PathBuf>,
 }
+/// The state is plain data, so a thread that died holding the lock leaves nothing half-written worth refusing.
+fn lock(state: &Mutex<Inner>) -> std::sync::MutexGuard<'_, Inner> {
+    state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 #[derive(Clone, Default)]
 pub struct UpdateJob {
     inner: Arc<Mutex<Inner>>,
@@ -37,12 +41,12 @@ impl UpdateJob {
         Self::default()
     }
     pub fn status(&self) -> Status {
-        let inner = self.inner.lock().expect("update state");
+        let inner = lock(&self.inner);
         Status { phase: inner.phase.unwrap_or(Phase::Idle), percent: inner.percent, error: inner.error }
     }
     /// The verified package, only while a finished download is current.
     pub fn install_path(&self) -> Option<PathBuf> {
-        let inner = self.inner.lock().expect("update state");
+        let inner = lock(&self.inner);
         (inner.phase == Some(Phase::Ready)).then(|| inner.path.clone()).flatten()
     }
     pub fn cancel(&self) {
@@ -54,7 +58,7 @@ impl UpdateJob {
         F: FnOnce(&AtomicBool, &mut dyn FnMut(u8)) -> Result<PathBuf, UpdateError> + Send + 'static,
     {
         {
-            let mut inner = self.inner.lock().expect("update state");
+            let mut inner = lock(&self.inner);
             if inner.phase == Some(Phase::Downloading) {
                 return false;
             }
@@ -69,7 +73,7 @@ impl UpdateJob {
                     inner.percent = percent;
                 }
             });
-            let mut inner = state.lock().expect("update state");
+            let mut inner = lock(&state);
             match result {
                 Ok(path) => {
                     inner.phase = Some(Phase::Ready);
@@ -89,7 +93,7 @@ impl UpdateJob {
         true
     }
     pub fn clear_ready(&self) {
-        let mut inner=self.inner.lock().expect("update state");
+        let mut inner=lock(&self.inner);
         if inner.phase!=Some(Phase::Downloading){*inner=Inner::default();}
     }
     /// Download and verify the latest release for this system into `dir`.
@@ -98,5 +102,25 @@ impl UpdateJob {
     }
     pub fn start_channel(&self,current:&'static str,dir:PathBuf,include_beta:bool)->bool{
         self.start_with(move |cancel,progress|ceh_services::updates::download_channel(current,&dir,cancel,progress,include_beta))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_poisoned_state_lock_does_not_take_the_update_screen_down() {
+        let job = UpdateJob::new();
+        let inner = job.inner.clone();
+        let _ = std::thread::spawn(move || {
+            let _held = inner.lock().unwrap();
+            panic!("a thread died holding the update state");
+        })
+        .join();
+        assert_eq!(job.status().phase, Phase::Idle);
+        assert!(job.install_path().is_none());
+        job.clear_ready();
+        assert!(job.start_with(|_, _| Err(UpdateError::Cancelled)));
     }
 }
