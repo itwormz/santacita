@@ -40,8 +40,13 @@ fn response_bytes(response: reqwest::blocking::Response, limit:u64) -> Result<Ve
     let mut raw=Vec::new();response.take(limit+1).read_to_end(&mut raw).map_err(|_|UpdateError::Network)?;
     if raw.len() as u64>limit { return Err(UpdateError::Invalid); } Ok(raw)
 }
+/// Release lists, checksums and attestations are small: a server that does not answer is given up on after this, not after the hour the download itself may take.
+const SMALL_REQUEST_TIMEOUT:std::time::Duration=std::time::Duration::from_secs(60);
 fn get(client:&reqwest::blocking::Client,url:&str,limit:u64) -> Result<Vec<u8>,UpdateError> {
-    let response=client.get(url).send().and_then(reqwest::blocking::Response::error_for_status).map_err(|_|UpdateError::Network)?;
+    get_within(client,url,limit,SMALL_REQUEST_TIMEOUT)
+}
+fn get_within(client:&reqwest::blocking::Client,url:&str,limit:u64,timeout:std::time::Duration) -> Result<Vec<u8>,UpdateError> {
+    let response=client.get(url).timeout(timeout).send().and_then(reqwest::blocking::Response::error_for_status).map_err(|_|UpdateError::Network)?;
     response_bytes(response,limit)
 }
 fn find_release(client:&reqwest::blocking::Client,include_beta:bool) -> Result<Option<(Latest,String)>,UpdateError> {
@@ -268,4 +273,24 @@ pub fn verify_download(path:&std::path::Path,include_beta:bool)->Result<(),Updat
     if version_key(version).ok_or(UpdateError::Invalid)?.1==1&&!include_beta{return Err(UpdateError::Invalid);}
     if file_sha256(path)?!=digest{return Err(UpdateError::Invalid);}
     crate::attestations::verify(value["bundle"].to_string().as_bytes(),name,&digest,version,value["repository"].as_str().ok_or(UpdateError::Invalid)?,value["commit"].as_str().ok_or(UpdateError::Invalid)?)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_small_request_to_a_server_that_never_answers_gives_up_long_before_the_download_timeout() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let _holder = std::thread::spawn(move || {
+            let held = listener.accept();
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            drop(held);
+        });
+        let client = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(3600)).build().unwrap();
+        let started = std::time::Instant::now();
+        let result = get_within(&client, &url, 1024, std::time::Duration::from_millis(300));
+        assert_eq!(result, Err(UpdateError::Network));
+        assert!(started.elapsed() < std::time::Duration::from_secs(3), "{:?}", started.elapsed());
+    }
 }
