@@ -10,9 +10,41 @@ pub struct StartDetail {
     pub elapsed_ms: u64,
     /// The exit status of a browser that ended on its own, as the system reported it.
     pub exit_code: Option<i32>,
+    /// The last lines the browser wrote to its error output, shortened and without the person's folder names.
+    pub stderr_tail: Vec<String>,
 }
+type Tail = std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>;
+const TAIL_LINES: usize = 3;
+const TAIL_LINE_CHARS: usize = 160;
 thread_local! {
     static START_DETAIL: std::cell::RefCell<Option<StartDetail>> = const { std::cell::RefCell::new(None) };
+    static START_TAIL: std::cell::RefCell<Option<Tail>> = const { std::cell::RefCell::new(None) };
+}
+/// A line of the browser's error output as the report may hold it: printable characters, short, with the folder
+/// of a person's account (`\Users\name`, `/Users/name`, `/home/name`) replaced.
+pub(crate) fn tail_line(raw: &str) -> String {
+    let mut line: String = raw.chars().filter(|c| !c.is_control()).collect();
+    for marker in ["\\Users\\", "/Users/", "/home/"] {
+        let mut from = 0;
+        while let Some(found) = line[from..].find(marker) {
+            let start = from + found + marker.len();
+            let end = line[start..].find(['\\', '/', ' ', '"', '\'']).map_or(line.len(), |n| start + n);
+            line.replace_range(start..end, "[user]");
+            from = start + "[user]".len();
+        }
+    }
+    line.trim().chars().take(TAIL_LINE_CHARS).collect()
+}
+fn push_tail(tail: &Tail, raw: &str) {
+    let line = tail_line(raw);
+    if line.is_empty() {
+        return;
+    }
+    let mut lines = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if lines.len() == TAIL_LINES {
+        lines.pop_front();
+    }
+    lines.push_back(line);
 }
 fn note_exit(status: std::process::ExitStatus) {
     START_DETAIL.with(|cell| cell.borrow_mut().get_or_insert_with(StartDetail::default).exit_code = status.code());
@@ -24,14 +56,23 @@ pub fn take_start_detail() -> Option<StartDetail> {
 /// Runs a start and keeps its detail only when it failed.
 fn traced<T>(version: &str, start: impl FnOnce() -> Result<T, FirefoxError>) -> Result<T, FirefoxError> {
     START_DETAIL.with(|cell| cell.borrow_mut().take());
+    START_TAIL.with(|cell| cell.borrow_mut().take());
     let began = std::time::Instant::now();
     let result = start();
-    if result.is_err() {
+    if let Err(error) = &result {
+        // A browser that just ended may have its last words still on the way through the pipe.
+        if matches!(error, FirefoxError::ExitedEarly | FirefoxError::NoEndpoint) {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+        let tail = START_TAIL.with(|cell| cell.borrow_mut().take());
         START_DETAIL.with(|cell| {
             let mut cell = cell.borrow_mut();
             let detail = cell.get_or_insert_with(StartDetail::default);
             detail.browser_version = version.to_owned();
             detail.elapsed_ms = began.elapsed().as_millis() as u64;
+            detail.stderr_tail = tail
+                .map(|tail| tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).iter().cloned().collect())
+                .unwrap_or_default();
         });
     } else {
         START_DETAIL.with(|cell| cell.borrow_mut().take());
@@ -592,6 +633,8 @@ impl OwnedFirefox {
         let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::LaunchFailed)?;
         let stderr = child.take_stderr().ok_or(FirefoxError::Unavailable)?;
         let (sender, receiver) = mpsc::sync_channel(1);
+        let tail = Tail::default();
+        START_TAIL.with(|cell| *cell.borrow_mut() = Some(tail.clone()));
         std::thread::spawn(move || {
             let mut stderr = stderr;
             let mut buf = [0u8; 4096];
@@ -603,6 +646,7 @@ impl OwnedFirefox {
                 }
                 for byte in &buf[..count] {
                     if *byte == b'\n' {
+                        push_tail(&tail, &String::from_utf8_lossy(&pending));
                         if !reported
                             && let Ok(line) = std::str::from_utf8(&pending)
                             && let Some(address) = parse_endpoint(line)

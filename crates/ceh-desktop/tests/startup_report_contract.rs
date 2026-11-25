@@ -219,7 +219,7 @@ mod start_failure_reason {
     #[test]
     fn a_report_of_a_browser_that_ended_at_once_carries_its_exit_status_and_version() {
         let root = tempfile::tempdir().unwrap();
-        let detail = ceh_desktop::startup_report::StartDetail { browser_version: "158.0.1".into(), elapsed_ms: 412, exit_code: Some(0xC000_0135_u32 as i32) };
+        let detail = ceh_desktop::startup_report::StartDetail { browser_version: "158.0.1".into(), elapsed_ms: 412, exit_code: Some(0xC000_0135_u32 as i32), stderr_tail: vec![] };
         let facts = StartFacts { family: "firefox", found: true, reason: Some("exited_early"), detail: Some(detail) };
         let id = save_failure_with(root.path(), "/Users/Fictional", "browser_start_failed", &facts, at(3)).unwrap();
         assert_eq!(
@@ -230,9 +230,23 @@ mod start_failure_reason {
         assert!(copied.contains("\"exit_code_hex\": \"0xc0000135\"") && copied.contains("\"start_failure\": \"exited_early\""), "{copied}");
     }
     #[test]
+    fn the_last_lines_of_the_browser_reach_the_report_and_the_copy() {
+        let root = tempfile::tempdir().unwrap();
+        let detail = ceh_desktop::startup_report::StartDetail {
+            browser_version: "158.0.1".into(),
+            elapsed_ms: 90,
+            exit_code: Some(1),
+            stderr_tail: vec!["Error: no display".into(), "Exiting due to channel error".into()],
+        };
+        let facts = StartFacts { family: "firefox", found: true, reason: Some("exited_early"), detail: Some(detail) };
+        let id = save_failure_with(root.path(), "/Users/Fictional", "browser_start_failed", &facts, at(5)).unwrap();
+        assert_eq!(stored(root.path(), &id)["browser"]["start_detail"]["stderr_tail"], serde_json::json!(["Error: no display", "Exiting due to channel error"]));
+        assert!(clipboard_text(root.path(), "/Users/Fictional", &id).unwrap().contains("Exiting due to channel error"));
+    }
+    #[test]
     fn a_report_without_a_status_leaves_the_status_out() {
         let root = tempfile::tempdir().unwrap();
-        let detail = ceh_desktop::startup_report::StartDetail { browser_version: "158.0.1".into(), elapsed_ms: 20_005, exit_code: None };
+        let detail = ceh_desktop::startup_report::StartDetail { browser_version: "158.0.1".into(), elapsed_ms: 20_005, exit_code: None, stderr_tail: vec![] };
         let facts = StartFacts { family: "firefox", found: true, reason: Some("startup_timeout"), detail: Some(detail) };
         let id = save_failure_with(root.path(), "/Users/Fictional", "browser_start_failed", &facts, at(4)).unwrap();
         assert_eq!(stored(root.path(), &id)["browser"]["start_detail"], serde_json::json!({"browser_version": "158.0.1", "elapsed_ms": 20005}));

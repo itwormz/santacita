@@ -31,6 +31,7 @@ pub struct StartDetail {
     pub browser_version: String,
     pub elapsed_ms: u64,
     pub exit_code: Option<i32>,
+    pub stderr_tail: Vec<String>,
 }
 thread_local! {
     static START_FAILURE: std::cell::Cell<Option<(&'static str, &'static str)>> = const { std::cell::Cell::new(None) };
@@ -58,6 +59,9 @@ pub fn save_failure_with(root: &Path, home: &str, code: &str, facts: &StartFacts
             // Windows reports a failed start as a status such as 0xC0000135: the hexadecimal form is the one to look up.
             object["exit_code"] = json!(code);
             object["exit_code_hex"] = json!(format!("{:#010x}", code as u32));
+        }
+        if !detail.stderr_tail.is_empty() {
+            object["stderr_tail"] = json!(detail.stderr_tail);
         }
         browser["start_detail"] = object;
     }

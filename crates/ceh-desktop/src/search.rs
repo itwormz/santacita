@@ -300,7 +300,7 @@ impl SearchController {
                     let home = std::env::var("HOME").unwrap_or_default();
                     // The worker noted which browser failed to start and why; without a note the profile's browser stands.
                     let facts = match crate::startup_report::take_start_failure() {
-                        Some((family, reason)) => crate::startup_report::StartFacts { family, found: reason != "not_installed", reason: Some(reason), detail: ceh_browser::firefox::take_start_detail().map(|d| crate::startup_report::StartDetail { browser_version: d.browser_version, elapsed_ms: d.elapsed_ms, exit_code: d.exit_code }) },
+                        Some((family, reason)) => crate::startup_report::StartFacts { family, found: reason != "not_installed", reason: Some(reason), detail: ceh_browser::firefox::take_start_detail().map(|d| crate::startup_report::StartDetail { browser_version: d.browser_version, elapsed_ms: d.elapsed_ms, exit_code: d.exit_code, stderr_tail: d.stderr_tail }) },
                         None => {
                             let engine = Engine::of(&browser_name);
                             let found = if engine.is_none_or(|e| e == Engine::Firefox) { FirefoxInstallation::discover().is_ok() } else { true };

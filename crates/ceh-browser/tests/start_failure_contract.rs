@@ -59,3 +59,21 @@ fn the_detail_of_one_start_does_not_stay_for_the_next() {
     let detail = take_start_detail().unwrap();
     assert_eq!(detail.exit_code, None, "the program never ran, so there is no status");
 }
+#[test]
+fn the_last_lines_the_browser_wrote_before_it_ended_are_kept_without_the_persons_folder() {
+    let _ = take_start_detail();
+    let script = "echo one >&2\necho two >&2\necho 'cannot lock /Users/Fictional/profile: busy' >&2\necho 'C:\\Users\\Fictional\\AppData failed' >&2\nexit 1";
+    assert!(matches!(start_with_script(script, true), Err(FirefoxError::ExitedEarly)));
+    let detail = take_start_detail().unwrap();
+    assert_eq!(detail.stderr_tail, ["two", "cannot lock /Users/[user]/profile: busy", "C:\\Users\\[user]\\AppData failed"]);
+}
+#[test]
+fn a_very_long_line_is_cut_and_an_empty_one_is_not_kept() {
+    let _ = take_start_detail();
+    let script = format!("echo '' >&2\necho {} >&2\nexit 1", "x".repeat(500));
+    assert!(matches!(start_with_script(&script, true), Err(FirefoxError::ExitedEarly)));
+    let detail = take_start_detail().unwrap();
+    // The shell that runs the stand-in may add a line of its own; what matters is the last one and that none is empty.
+    assert_eq!(detail.stderr_tail.last().unwrap(), &"x".repeat(160));
+    assert!(detail.stderr_tail.iter().all(|line| !line.is_empty()));
+}
