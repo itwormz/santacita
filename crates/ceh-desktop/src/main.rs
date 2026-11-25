@@ -322,6 +322,8 @@ struct SaveFailure {
     code: &'static str,
     errors: Vec<String>,
 }
+// The arguments are those the window sends, plus the two Tauri hands over: the call shape stays as the window knows it.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 async fn save_profile(
     window: WebviewWindow,
