@@ -41,6 +41,8 @@ Browser/vault live checks are opt-in and require authorization. Never repeat a r
 
 Release version is declared in `.github/release-version` and prepared with `node packaging/release.mjs prepare`. Keep Cargo.toml, all workspace versions in Cargo.lock, frontend package/lock and the versioned CHANGELOG section consistent. Tags are `vX.Y.Z-beta.N` for beta, `vX.Y.Z` for stable. A release PR has final notes and versions before merge. Manual builds do not publish; normal infrastructure PRs do not tag.
 
+CHANGELOG sections, release notes and release PR bodies split each version into `### New` (what a person gets that they did not have) and `### Fixes` (what was wrong and now is not). Internal work (tests, clippy, docs, tooling) is not listed. Published versions are not rewritten.
+
 Keep the build workflow path `.github/workflows/build.yml`, GitHub-hosted push tag identity, exact package names and strict SHA256/Sigstore policy compatible with Python 0.3.8. Never skip verification on errors or substitute an arbitrary repository/URL.
 
 ## UI, data and documentation
