@@ -767,7 +767,9 @@ fn existing_database(path: &std::path::Path) -> Result<Option<Connection>, Store
         Ok(_) => {}
     }
     let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    db.busy_timeout(std::time::Duration::from_millis(100))?;
+    // A write of the live search commits in milliseconds; a read that waits a moment is better than a dashboard
+    // that shows an error until the next refresh.
+    db.busy_timeout(std::time::Duration::from_secs(2))?;
     Ok(Some(db))
 }
 pub fn dashboard_file(

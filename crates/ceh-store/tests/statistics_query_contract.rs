@@ -430,3 +430,18 @@ fn reader_tolerates_a_database_without_the_notice_table_and_evidence_column() {
     let tables: i64 = db.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE '%notice%'", [], |r| r.get(0)).unwrap();
     assert_eq!(tables, 0, "reading never creates tables");
 }
+#[test]
+fn a_dashboard_read_waits_out_a_write_that_takes_a_few_hundred_milliseconds() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("profile-statistics.sqlite3");
+    let writer = Connection::open(&path).unwrap();
+    writer.execute_batch(include_str!("../src/schema.sql")).unwrap();
+    writer.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        writer.execute_batch("COMMIT").unwrap();
+    });
+    let read = ceh_store::statistics::dashboard_file(&path, "fixture", now());
+    release.join().unwrap();
+    assert!(read.is_ok(), "the read gave up instead of waiting: {:?}", read.err());
+}
