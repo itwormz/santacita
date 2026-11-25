@@ -29,3 +29,9 @@ test('the extractor reads single, double quoted, escaped and ternary literals',(
  const found=literals(`t('One')+t("Two")+t('It\\'s')+t(flag?'Yes':'No')+x.t('Skip')+t(dynamic)`);
  assert.deepEqual([...found].sort(),["It's",'No','One','Two','Yes']);
 });
+test('a key present in both catalogs has the same text in both, so the window and the notifications speak alike',()=>{
+ const differing=[];
+ for(const language of ['en','es'])for(const [key,text] of Object.entries(additions[language]??{}))
+  if(key in (catalog[language]??{})&&catalog[language][key]!==text)differing.push(`${language}: ${key}`);
+ assert.deepEqual(differing,[],`texts differ between messages.json and translations.json:\n${differing.join('\n')}`);
+});
