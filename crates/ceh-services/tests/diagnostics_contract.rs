@@ -407,3 +407,43 @@ fn path_inspection_distinguishes_missing_and_existing_without_raw_errors() {
     assert_eq!(found["exists"], true);
     assert_eq!(found["is_file"], true);
 }
+#[test]
+fn an_account_folder_is_removed_from_a_startup_report_on_every_system_even_without_a_home_value() {
+    let sanitizer = ceh_services::diagnostics::Sanitizer::default();
+    for (text, expected) in [
+        (r"cannot open C:\Users\Ivan Petrov\AppData\Roaming\x", r"cannot open C:\Users\[user]\AppData\Roaming\x"),
+        (r"\\?\D:\Users\ivan.petrov\Downloads\SantaCita.exe", r"\\?\D:\Users\[user]\Downloads\SantaCita.exe"),
+        (r"E:\documents and settings\ivan\x", r"E:\documents and settings\[user]\x"),
+        ("failed in /home/ivan/.config/x", "failed in /home/[user]/.config/x"),
+        (r"C:\Distr\SantaCita\SantaCita.exe", r"C:\Distr\SantaCita\SantaCita.exe"),
+    ] {
+        assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text}");
+    }
+}
+#[test]
+fn a_token_a_bearer_secret_and_an_api_key_are_removed_from_a_startup_report() {
+    let sanitizer = ceh_services::diagnostics::Sanitizer::default();
+    for (text, expected) in [
+        ("request failed token=abc123def", "request failed [private value]"),
+        ("api_key: k-9f8e7d", "[private value]"),
+        ("secret=s3cr3t;", "[private value];"),
+        ("sent Bearer eyJhbGciOi.payload.sig to server", "sent [private value] to server"),
+        ("access_token=still-removed", "[private value]"),
+        ("the pin of the profile", "the pin of the profile"),
+    ] {
+        assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text}");
+    }
+}
+#[test]
+fn a_secret_split_by_a_line_break_is_removed_from_a_startup_report() {
+    let sanitizer = ceh_services::diagnostics::Sanitizer::default();
+    for (text, expected) in [
+        ("Bearer\nabc123def", "[private value]"),
+        ("Bearer\r\nabc123def", "[private value]"),
+        ("token\n=abc123def", "[private value]"),
+        ("api_key:\nabc123def", "[private value]"),
+        ("Bearer abc123def", "[private value]"),
+    ] {
+        assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text:?}");
+    }
+}

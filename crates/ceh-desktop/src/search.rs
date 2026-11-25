@@ -61,7 +61,8 @@ enum LiveCommand {
     ManualRestart,
     /// The person asked to continue searching after the booking handoff.
     Resume,
-    Timings(ceh_core::timings::AssistTimings),
+    /// Boxed: the timings are many times larger than every other command.
+    Timings(Box<ceh_core::timings::AssistTimings>),
 }
 struct Message {
     command: Control,
@@ -184,7 +185,7 @@ impl SearchController {
         }
         let timings = loaded.timings.ok_or("profile_invalid")?;
         let policy = loaded.appointment_policy.ok_or("profile_invalid")?;
-        self.send_live(LiveCommand::Timings(timings))?;
+        self.send_live(LiveCommand::Timings(Box::new(timings)))?;
         self.send_live(LiveCommand::Budget(BudgetCommand::ApplyPolicy(policy)))
     }
     /// A new browser session with a cleared profile (Python `restart`: `ручной перезапуск`, immediate).
@@ -297,14 +298,14 @@ impl SearchController {
                     && !requested_stop
                     && !busy
                 {
-                    let home = std::env::var("HOME").unwrap_or_default();
+                    let home = crate::home_dir();
                     // The worker noted which browser failed to start and why; without a note the profile's browser stands.
                     let facts = match crate::startup_report::take_start_failure() {
-                        Some((family, reason)) => crate::startup_report::StartFacts { family, found: reason != "not_installed", reason: Some(reason) },
+                        Some((family, reason)) => crate::startup_report::StartFacts { family, found: reason != "not_installed", reason: Some(reason), detail: ceh_browser::firefox::take_start_detail().map(|d| crate::startup_report::StartDetail { browser_version: d.browser_version, elapsed_ms: d.elapsed_ms, exit_code: d.exit_code, stderr_tail: d.stderr_tail }) },
                         None => {
                             let engine = Engine::of(&browser_name);
                             let found = if engine.is_none_or(|e| e == Engine::Firefox) { FirefoxInstallation::discover().is_ok() } else { true };
-                            crate::startup_report::StartFacts { family: engine.map_or("firefox", Engine::family), found, reason: None }
+                            crate::startup_report::StartFacts { family: engine.map_or("firefox", Engine::family), found, reason: None, detail: None }
                         }
                     };
                     let id = crate::current_time().ok().and_then(|now| {
@@ -356,7 +357,10 @@ impl SearchController {
                     s.revision = s.revision.wrapping_add(1);
                 }
             })
-            .map_err(|_| "search_unavailable")?;
+            .map_err(|_| {
+                withdraw_failed_start(&self.state, "search_unavailable");
+                "search_unavailable"
+            })?;
         *handle = Some(Handle {
             sender,
             live,
@@ -364,6 +368,16 @@ impl SearchController {
             cancelled,
         });
         Ok(())
+    }
+}
+/// The state is set to running before the search thread exists; when the system refuses the thread, nothing runs,
+/// and the person must not be left looking at a search that never started.
+fn withdraw_failed_start(state: &Mutex<SearchSnapshot>, code: &'static str) {
+    if let Ok(mut s) = state.lock() {
+        s.active = false;
+        s.error = Some(code);
+        s.attention = true;
+        s.revision = s.revision.wrapping_add(1);
     }
 }
 impl Drop for SearchController {
@@ -460,7 +474,7 @@ fn save_pending_report(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut
     save_pending_report_at(root, state, pending, Instant::now());
 }
 fn save_pending_report_at(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut crate::session_report::PendingReport, now: Instant) {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = crate::home_dir();
     let saved = pending.try_save(now, |report| {
         crate::current_time().ok().and_then(|at| crate::startup_report::save_session_stop(root, &home, report.clone(), at))
     });
@@ -645,6 +659,7 @@ fn run_session(
     let family = engine.family();
     // A reason noted by an earlier start must not leak into the report of this one.
     let _ = crate::startup_report::take_start_failure();
+    let _ = ceh_browser::firefox::take_start_detail();
     // The report written after a failed start names the browser and the reason (a fixed code, never user data).
     let failed = |error: ceh_browser::firefox::FirefoxError, code: &'static str| {
         crate::startup_report::note_start_failure(family, error.code());
@@ -999,9 +1014,9 @@ fn run_owned(
                             contact_typing: unit_sample(),
                                         typing: unit_sample(),
                         };
-                        if driver.apply_timings(next.clone(), samples).is_ok() {
+                        if driver.apply_timings((*next).clone(), samples).is_ok() {
                             presenter.set_alert_interval((next.alert_seconds()*1000.).ceil() as u64);
-                            *timings = next;
+                            *timings = *next;
                         }
                     }
                 }
@@ -1019,7 +1034,7 @@ fn run_owned(
                     return Ok(SessionEnd::Finished);
                 }
             }
-            publish_budget(state, &mut budget, crate::current_time()?, &appointment_policy, observer.hot_retry())?;
+            publish_budget(state, &mut budget, crate::current_time()?, appointment_policy, observer.hot_retry())?;
             let paused = driver.control().mode() == ControlMode::Paused;
             if paused {
                 // A pause ends the hold being timed: after it the one-minute count starts again.
@@ -1040,7 +1055,7 @@ fn run_owned(
             }
             if !paused && !manual {
                 let budget_now = crate::current_time()?;
-                let ready = budget.next_submission(budget_now, &appointment_policy, observer.hot_retry());
+                let ready = budget.next_submission(budget_now, appointment_policy, observer.hot_retry());
                 let delay = (ready - budget_now).num_milliseconds().max(0) as u64;
                 driver.set_appointment_schedule(mono().saturating_add(delay), appointment_policy.confirm_new_round);
                 driver.sample_waits(unit_sample(), unit_sample()).map_err(|_| "profile_invalid")?;
@@ -1120,7 +1135,7 @@ fn run_owned(
                         kind: before.observation.kind,
                         operation_code: before.observation.operation_code,
                     };
-                    let mut changed = observer.observe(&page, &mut budget, budget_now, &appointment_policy);
+                    let mut changed = observer.observe(&page, &mut budget, budget_now, appointment_policy);
                     if before.observation.kind == PageKind::Office {
                         changed |= observer.offices_seen(&mut budget, budget_now, before.offices.clone());
                     }
@@ -1134,7 +1149,8 @@ fn run_owned(
                 if !before.offices.is_empty() {
                     journal.offices(before.offices.clone(), None);
                 }
-                if std::env::var("CEH_PREVIEW_FIREFOX").as_deref() == Ok("applicant")
+                if cfg!(debug_assertions)
+                    && std::env::var("CEH_PREVIEW_FIREFOX").as_deref() == Ok("applicant")
                     && matches!(before.observation.kind, PageKind::Applicant | PageKind::ApplicantNoSlots)
                 {
                     browser.handoff();
@@ -1242,7 +1258,7 @@ fn run_owned(
                 let submits_appointment = effects.iter().any(|effect| matches!(effect, FlowEffect::Activate { action: ActionKind::Request, .. }));
                 let mut prior_budget = if submits_appointment {
                     let prior = (budget.clone(), observer.clone());
-                    observer.request_sent(&mut budget, crate::current_time()?, &appointment_policy);
+                    observer.request_sent(&mut budget, crate::current_time()?, appointment_policy);
                     budget_store.save(&budget).map_err(|_| "appointment_budget_unavailable")?;
                     Some(prior)
                 } else {
@@ -1329,7 +1345,7 @@ fn run_owned(
                             next.load().map_err(|_| "appointment_budget_unavailable")?,
                         );
                         let now = crate::current_time()?;
-                        budget.carry_today_choices_from(&before, now, &appointment_policy);
+                        budget.carry_today_choices_from(&before, now, appointment_policy);
                         next.save(&budget).map_err(|_| "appointment_budget_unavailable")?;
                         let previous = std::mem::replace(&mut budget_store, next);
                         if initial_budget_store.is_none() {
@@ -1873,4 +1889,19 @@ mod report_saving_tests {
 /// True when the step does nothing but accept the cookie banner.
 pub(crate) fn only_cookie_banner(effects: &[FlowEffect]) -> bool {
     !effects.is_empty() && effects.iter().all(|effect| matches!(effect, FlowEffect::AcceptCookies { .. }))
+}
+
+#[cfg(test)]
+mod failed_start_tests {
+    use super::*;
+    #[test]
+    fn a_search_whose_thread_could_not_be_started_is_not_left_running() {
+        let state = Mutex::new(SearchSnapshot { profile: Some("p".into()), active: true, revision: 4, ..Default::default() });
+        withdraw_failed_start(&state, "search_unavailable");
+        let after = state.lock().unwrap();
+        assert!(!after.active, "the start never ran, so nothing may be shown as running");
+        assert_eq!(after.error, Some("search_unavailable"));
+        assert!(after.attention);
+        assert_eq!(after.revision, 5);
+    }
 }

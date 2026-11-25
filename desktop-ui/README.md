@@ -1,26 +1,22 @@
-# Rust desktop UI
+# Desktop UI
 
-Tauri + Svelte/TypeScript frontend for the Rust migration. The current preview
-implements the main shell, basic profile editing, validated timing fields and
-the two independent search-behavior options. Telegram/webhook settings, lazy credential editing, pairing and explicit test
-actions are connected to Rust services. Profile statistics and office history read existing SQLite storage through scoped
-Rust commands. The timeline supports clips, event markers and read-only selection
-statistics; physical trackpad acceptance remains pending. Local appointment notes,
-immutable achievement snapshots, Google Calendar/ICS preparation, public PNG cards
-and text/card sharing are connected to scoped Rust commands. Private appointment
-fields remain separate from public exports. Native Save dialogs and PNG clipboard
-were checked on macOS; opening a social network never publishes automatically.
-Browser integration, attention sound/status lifecycle and updates are still being migrated. Real notification delivery was not
-used during preview acceptance; synthetic transport/GUI fixtures cover it.
-It is not a replacement for the released Python desktop application yet.
+Tauri + Svelte/TypeScript frontend of the SantaCita desktop application (Rust).
+It shows the main window: profiles and their settings (timings, search
+behaviour, Telegram and webhook notifications, pairing), the live search state
+and work journal, profile statistics with the timeline and office history, the
+daily appointment budget, appointment notes, achievements and public cards, and
+application updates. Everything it does goes through scoped Rust commands; the
+browser, the search and the notifications run in the native part, and site
+content is never loaded into this window.
 
-The preview uses a separate application ID and runtime under
-`.local/builds/runtime/rust-preview`; it does not automatically open the stable
-application's profiles or credentials. A debug-only `CEH_PREVIEW_LEGACY_COPY` selector
-can explicitly open a prepared `stable`, `historical`, `json-only` or `experimental`
-copy under `.local/builds/runtime/legacy-compat/<case>/rust`; it never opens the
-original runtime and labels the window as a legacy-data copy. Browser search stays disabled until the
-Rust browser adapter is connected. Node is a build/test tool, not a sidecar.
+Node is a build and test tool only, not a sidecar.
+
+A debug build uses a separate application ID and runtime under
+`.local/builds/runtime/rust-preview`, so it does not open the installed
+application's profiles or credentials. Debug-only `CEH_PREVIEW_*` variables
+(for example `CEH_PREVIEW_LEGACY_COPY`, which opens a prepared copy of older
+data from `.local/builds/runtime/legacy-compat/<case>/rust`) exist for looking
+at the interface and are ignored in release builds.
 
 ## Local macOS development
 
@@ -54,12 +50,12 @@ Cargo output follows the workspace target directory under `.local/builds`.
 The app bundle is in `rust-target/debug/bundle/macos/SantaCita.app`.
 The Tauri build hook always checks and rebuilds frontend assets before embedding
 them; it does not install dependencies. Run the preparation script first on a
-fresh checkout. The macOS preview uses an explicit ad-hoc bundle signature, binding its Info.plist
+fresh checkout. The local macOS debug bundle uses an explicit ad-hoc bundle signature, binding its Info.plist
 and resources; it is not a Developer ID signature or notarization. Verify it with
 `codesign --verify --deep --strict` before native acceptance. An already running
-preview must be closed before replacing its bundle.
+debug build must be closed before replacing its bundle.
 
-These instructions describe the current macOS preview; other native targets and
+These instructions describe the local macOS debug build; other native targets and
 release installers have separate acceptance gates.
 
 Only the local main webview can call desktop commands. Site content is not loaded

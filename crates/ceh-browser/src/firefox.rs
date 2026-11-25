@@ -3,6 +3,108 @@ use std::{
     fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
 };
+/// What is known about a start that failed, beyond the step it stopped at: numbers and a version, never page or user data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StartDetail {
+    pub browser_version: String,
+    pub elapsed_ms: u64,
+    /// The exit status of a browser that ended on its own, as the system reported it.
+    pub exit_code: Option<i32>,
+    /// The last lines the browser wrote to its error output, shortened (the report removes folder and account names).
+    pub stderr_tail: Vec<String>,
+}
+type Tail = std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>;
+const TAIL_LINES: usize = 3;
+const TAIL_LINE_CHARS: usize = 160;
+thread_local! {
+    static START_DETAIL: std::cell::RefCell<Option<StartDetail>> = const { std::cell::RefCell::new(None) };
+    static START_TAIL: std::cell::RefCell<Option<Tail>> = const { std::cell::RefCell::new(None) };
+}
+/// A line of the browser's error output as the report may hold it: printable characters and short. The report
+/// itself removes names of folders and accounts when it is saved, read and copied.
+pub(crate) fn tail_line(raw: &str) -> String {
+    let line: String = raw.chars().filter(|c| !c.is_control()).collect();
+    line.trim().chars().take(TAIL_LINE_CHARS).collect()
+}
+/// Reads what a browser writes on its error output until it ends: the last lines go to `tail` (for the report of a
+/// failed start), and, when `endpoint` is given, the line that announces the WebDriver address is passed on once.
+fn pump_stderr(stderr: impl Read + Send + 'static, tail: Tail, endpoint: Option<mpsc::SyncSender<SocketAddr>>) {
+    std::thread::spawn(move || {
+        let mut stderr = stderr;
+        let mut buf = [0u8; 4096];
+        let mut pending = Vec::new();
+        let mut reported = false;
+        while let Ok(count) = stderr.read(&mut buf) {
+            if count == 0 {
+                break;
+            }
+            for byte in &buf[..count] {
+                if *byte == b'\n' {
+                    push_tail(&tail, &String::from_utf8_lossy(&pending));
+                    if !reported
+                        && let Some(sender) = &endpoint
+                        && let Ok(line) = std::str::from_utf8(&pending)
+                        && let Some(address) = parse_endpoint(line)
+                    {
+                        let _ = sender.try_send(address);
+                        reported = true;
+                    }
+                    pending.clear();
+                } else if pending.len() < 8192 {
+                    pending.push(*byte);
+                }
+            }
+        }
+        // A browser that ends in the middle of a line leaves its last words without a line break.
+        if !pending.is_empty() {
+            push_tail(&tail, &String::from_utf8_lossy(&pending));
+        }
+    });
+}
+fn push_tail(tail: &Tail, raw: &str) {
+    let line = tail_line(raw);
+    if line.is_empty() {
+        return;
+    }
+    let mut lines = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if lines.len() == TAIL_LINES {
+        lines.pop_front();
+    }
+    lines.push_back(line);
+}
+fn note_exit(status: std::process::ExitStatus) {
+    START_DETAIL.with(|cell| cell.borrow_mut().get_or_insert_with(StartDetail::default).exit_code = status.code());
+}
+/// The detail the last start on this thread left behind, once; `None` when it succeeded or nothing was noted.
+pub fn take_start_detail() -> Option<StartDetail> {
+    START_DETAIL.with(|cell| cell.borrow_mut().take())
+}
+/// Runs a start and keeps its detail only when it failed.
+fn traced<T>(version: &str, start: impl FnOnce() -> Result<T, FirefoxError>) -> Result<T, FirefoxError> {
+    START_DETAIL.with(|cell| cell.borrow_mut().take());
+    START_TAIL.with(|cell| cell.borrow_mut().take());
+    let began = std::time::Instant::now();
+    let result = start();
+    if let Err(error) = &result {
+        // A browser that just ended may have its last words still on the way through the pipe.
+        if matches!(error, FirefoxError::ExitedEarly | FirefoxError::NoEndpoint) {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+        let tail = START_TAIL.with(|cell| cell.borrow_mut().take());
+        START_DETAIL.with(|cell| {
+            let mut cell = cell.borrow_mut();
+            let detail = cell.get_or_insert_with(StartDetail::default);
+            detail.browser_version = version.to_owned();
+            detail.elapsed_ms = began.elapsed().as_millis() as u64;
+            detail.stderr_tail = tail
+                .map(|tail| tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).iter().cloned().collect())
+                .unwrap_or_default();
+        });
+    } else {
+        START_DETAIL.with(|cell| cell.borrow_mut().take());
+    }
+    result
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FirefoxError {
     NotInstalled,
@@ -10,6 +112,16 @@ pub enum FirefoxError {
     InvalidProfile,
     ProfileBusy,
     Unavailable,
+    /// The operating system would not run the browser's program.
+    LaunchFailed,
+    /// The browser ended on its own before it announced its control address.
+    ExitedEarly,
+    /// The browser output ended without a control address while the browser still ran.
+    NoEndpoint,
+    /// The browser announced its control address, but the app could not connect to it.
+    ConnectFailed,
+    /// Connected, but the browser did not set up the control session.
+    SessionFailed,
     StartupTimeout,
     CertificateCache,
     Cancelled,
@@ -24,6 +136,11 @@ impl FirefoxError {
             Self::InvalidProfile => "invalid_profile",
             Self::ProfileBusy => "profile_busy",
             Self::Unavailable => "unavailable",
+            Self::LaunchFailed => "launch_failed",
+            Self::ExitedEarly => "exited_early",
+            Self::NoEndpoint => "no_endpoint",
+            Self::ConnectFailed => "connect_failed",
+            Self::SessionFailed => "session_failed",
             Self::StartupTimeout => "startup_timeout",
             Self::CertificateCache => "certificate_cache",
             Self::Cancelled => "cancelled",
@@ -459,6 +576,14 @@ impl OwnedFirefox {
         headless: bool,
         cancelled: &AtomicBool,
     ) -> Result<Self, FirefoxError> {
+        traced(installation.version(), || Self::start_attempts(installation, profile, headless, cancelled))
+    }
+    fn start_attempts(
+        installation: &FirefoxInstallation,
+        profile: ProfileLease,
+        headless: bool,
+        cancelled: &AtomicBool,
+    ) -> Result<Self, FirefoxError> {
         match Self::start_with(installation, profile, headless, cancelled, None) {
             Ok(browser) => Ok(browser),
             Err(StartFailure::Fail(error)) => Err(error),
@@ -478,11 +603,12 @@ impl OwnedFirefox {
         headless: bool,
         cancelled: &AtomicBool,
     ) -> Result<Self, FirefoxError> {
-        Self::start_with(installation, profile, headless, cancelled, Some(crate::firefox_control::Fallback::NoSystemAccess))
-            .map_err(|failure| match failure {
+        traced(installation.version(), || {
+            Self::start_with(installation, profile, headless, cancelled, Some(crate::firefox_control::Fallback::NoSystemAccess)).map_err(|failure| match failure {
                 StartFailure::Fail(error) => error,
                 StartFailure::Retry(..) => FirefoxError::Unavailable,
             })
+        })
     }
     fn start_with(
         installation: &FirefoxInstallation,
@@ -530,34 +656,12 @@ impl OwnedFirefox {
             }
         }
         command.arg("about:blank");
-        let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::Unavailable)?;
+        let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::LaunchFailed)?;
         let stderr = child.take_stderr().ok_or(FirefoxError::Unavailable)?;
         let (sender, receiver) = mpsc::sync_channel(1);
-        std::thread::spawn(move || {
-            let mut stderr = stderr;
-            let mut buf = [0u8; 4096];
-            let mut pending = Vec::new();
-            let mut reported = false;
-            while let Ok(count) = stderr.read(&mut buf) {
-                if count == 0 {
-                    break;
-                }
-                for byte in &buf[..count] {
-                    if *byte == b'\n' {
-                        if !reported
-                            && let Ok(line) = std::str::from_utf8(&pending)
-                            && let Some(address) = parse_endpoint(line)
-                        {
-                            let _ = sender.try_send(address);
-                            reported = true;
-                        }
-                        pending.clear();
-                    } else if pending.len() < 8192 {
-                        pending.push(*byte);
-                    }
-                }
-            }
-        });
+        let tail = Tail::default();
+        START_TAIL.with(|cell| *cell.borrow_mut() = Some(tail.clone()));
+        pump_stderr(stderr, tail, Some(sender));
         let mut owned = Self {
             child: Some(child),
             profile: Some(profile),
@@ -576,15 +680,15 @@ impl OwnedFirefox {
             if cancelled.load(Ordering::Acquire) {
                 return Err(StartFailure::Fail(FirefoxError::Cancelled));
             }
-            if owned
+            if let Some(status) = owned
                 .child
                 .as_mut()
                 .ok_or(FirefoxError::Unavailable)?
                 .try_wait()
                 .map_err(|_| FirefoxError::Unavailable)?
-                .is_some()
             {
-                return Err(StartFailure::Fail(FirefoxError::Unavailable));
+                note_exit(status);
+                return Err(StartFailure::Fail(FirefoxError::ExitedEarly));
             }
             if Instant::now() >= deadline {
                 return Err(StartFailure::Fail(FirefoxError::StartupTimeout));
@@ -595,18 +699,28 @@ impl OwnedFirefox {
                     break;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(_) => return Err(StartFailure::Fail(FirefoxError::Unavailable)),
+                // The output ended: a browser that ended with it is an early exit, only one that still runs is not.
+                Err(_) => {
+                    for _ in 0..5 {
+                        if let Some(status) = owned.child.as_mut().and_then(|child| child.try_wait().ok()).flatten() {
+                            note_exit(status);
+                            return Err(StartFailure::Fail(FirefoxError::ExitedEarly));
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    return Err(StartFailure::Fail(FirefoxError::NoEndpoint));
+                }
             }
         }
         let mut first = Some(BidiConnection::connect(owned.endpoint, Duration::from_secs(5))
-            .map_err(|_| FirefoxError::Unavailable)?);
+            .map_err(|_| FirefoxError::ConnectFailed)?);
         let session = first.as_mut().ok_or(FirefoxError::Unavailable)?
             .call_before(
                 "session.new",
                 json!({"capabilities":{"alwaysMatch":{"acceptInsecureCerts":false}}}),
                 deadline,
             )
-            .map_err(|_| FirefoxError::Unavailable)?;
+            .map_err(|_| FirefoxError::SessionFailed)?;
         if session["capabilities"]["browserName"] != "firefox"
             || session["capabilities"]["acceptInsecureCerts"] != false
         {
@@ -645,23 +759,23 @@ impl OwnedFirefox {
                 // After the switch the agent is new: authenticate again before anything else.
                 connection
                     .call_before("session.new", json!({"capabilities":{"alwaysMatch":{"acceptInsecureCerts":false}}}), deadline)
-                    .map_err(|_| FirefoxError::Unavailable)?;
+                    .map_err(|_| FirefoxError::SessionFailed)?;
             }
         }
         let mut connection = first.take().ok_or(FirefoxError::Unavailable)?;
-        connection.call_before("session.subscribe",json!({"events":["network.beforeRequestSent","network.responseCompleted","network.fetchError","browsingContext.load","browsingContext.navigationStarted"]}),deadline).map_err(|_|FirefoxError::Unavailable)?;
+        connection.call_before("session.subscribe",json!({"events":["network.beforeRequestSent","network.responseCompleted","network.fetchError","browsingContext.load","browsingContext.navigationStarted"]}),deadline).map_err(|_|FirefoxError::SessionFailed)?;
         if owned.webdriver_mode == crate::firefox_control::WebdriverMode::Mask {
-            connection.call_before("script.addPreloadScript", json!({"functionDeclaration":crate::firefox_control::WEBDRIVER_MASK_V2}), deadline).map_err(|_| FirefoxError::Unavailable)?;
+            connection.call_before("script.addPreloadScript", json!({"functionDeclaration":crate::firefox_control::WEBDRIVER_MASK_V2}), deadline).map_err(|_| FirefoxError::SessionFailed)?;
         }
         let tree = connection
             .call_before("browsingContext.getTree", json!({}), deadline)
-            .map_err(|_| FirefoxError::Unavailable)?;
+            .map_err(|_| FirefoxError::SessionFailed)?;
         owned.context = tree["contexts"]
             .as_array()
             .filter(|v| v.len() == 1)
             .and_then(|v| v[0]["context"].as_str())
             .filter(|s| !s.is_empty() && s.len() <= 512)
-            .ok_or(FirefoxError::Unavailable)?
+            .ok_or(FirefoxError::SessionFailed)?
             .into();
         if cancelled.load(Ordering::Acquire) {
             return Err(StartFailure::Fail(FirefoxError::Cancelled));
@@ -678,6 +792,13 @@ impl OwnedFirefox {
         profile: ProfileLease,
         cancelled: &AtomicBool,
     ) -> Result<Self, FirefoxError> {
+        traced(installation.version(), || Self::start_chromium_attempt(installation, profile, cancelled))
+    }
+    fn start_chromium_attempt(
+        installation: &crate::chromium::ChromiumInstallation,
+        profile: ProfileLease,
+        cancelled: &AtomicBool,
+    ) -> Result<Self, FirefoxError> {
         if cancelled.load(Ordering::Acquire) {
             return Err(FirefoxError::Cancelled);
         }
@@ -690,7 +811,11 @@ impl OwnedFirefox {
         let mut command = Command::new(installation.executable());
         command
             .args(crate::chromium::launch_arguments(profile.path(), crate::launch::TargetOs::current()));
-        let child = crate::spawn::spawn(command, crate::spawn::Stderr::Null).map_err(|_| FirefoxError::Unavailable)?;
+        let mut child = crate::spawn::spawn(command, crate::spawn::Stderr::Piped).map_err(|_| FirefoxError::LaunchFailed)?;
+        // Chromium announces its port in a file, not on this output; the output is read for the report of a failure.
+        let tail = Tail::default();
+        START_TAIL.with(|cell| *cell.borrow_mut() = Some(tail.clone()));
+        pump_stderr(child.take_stderr().ok_or(FirefoxError::Unavailable)?, tail, None);
         let mut owned = Self {
             child: Some(child),
             profile: Some(profile),
@@ -709,8 +834,9 @@ impl OwnedFirefox {
             if cancelled.load(Ordering::Acquire) {
                 return Err(FirefoxError::Cancelled);
             }
-            if owned.child.as_mut().ok_or(FirefoxError::Unavailable)?.try_wait().map_err(|_| FirefoxError::Unavailable)?.is_some() {
-                return Err(FirefoxError::Unavailable);
+            if let Some(status) = owned.child.as_mut().ok_or(FirefoxError::Unavailable)?.try_wait().map_err(|_| FirefoxError::Unavailable)? {
+                note_exit(status);
+                return Err(FirefoxError::ExitedEarly);
             }
             if Instant::now() >= deadline {
                 return Err(FirefoxError::StartupTimeout);
@@ -726,7 +852,7 @@ impl OwnedFirefox {
             match BidiConnection::connect_cdp(owned.endpoint, &path, Duration::from_secs(5)) {
                 Ok(connection) => break connection,
                 Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(200)),
-                Err(_) => return Err(FirefoxError::Unavailable),
+                Err(_) => return Err(FirefoxError::ConnectFailed),
             }
         };
         connection.call_before("session.new", json!({"capabilities":{}}), deadline).map_err(|_| FirefoxError::Unavailable)?;

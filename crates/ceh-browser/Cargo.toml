@@ -12,6 +12,8 @@ serde_json.workspace = true
 url = { workspace = true, optional = true }
 
 [features]
+# On by default: without it the crate does not compile its own tests (the modules above the protocol layer import it).
+default = ["bidi"]
 bidi = ["dep:tungstenite", "dep:url", "dep:base64", "dep:tempfile", "dep:libloading"]
 
 [dependencies.tungstenite]

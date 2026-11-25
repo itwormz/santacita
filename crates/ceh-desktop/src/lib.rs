@@ -630,6 +630,14 @@ pub fn set_idle_daily_target(
     Ok(budget.summary(now, &policy, false))
 }
 
+/// The home folder the reports replace with `~`: `HOME`, or on Windows (which has none) `USERPROFILE`.
+pub fn home_dir() -> String {
+    home_from(std::env::var("HOME").ok(), std::env::var("USERPROFILE").ok())
+}
+/// The first of the two that is set and not empty.
+pub fn home_from(home: Option<String>, user_profile: Option<String>) -> String {
+    [home, user_profile].into_iter().flatten().find(|value| !value.is_empty()).unwrap_or_default()
+}
 pub fn current_time() -> Result<chrono::DateTime<chrono::Utc>, &'static str> {
     chrono::DateTime::from_timestamp_millis(
         std::time::SystemTime::now()

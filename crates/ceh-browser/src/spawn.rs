@@ -10,6 +10,9 @@ use std::{
 /// Where the browser's standard error goes; its standard input and output are always discarded.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stderr {
+    /// Every browser start now reads its output (for the report of a failed start); the tests of the process
+    /// handling still start one without.
+    #[cfg_attr(not(test), allow(dead_code))]
     Null,
     Piped,
 }
@@ -300,12 +303,16 @@ mod tests {
 
     #[test]
     fn an_ordinary_child_stays_the_responsibility_of_its_starter() {
+        // The test runner can hand the responsibility for this process to another one while the test runs; the
+        // starter is read before and after the child, and the child may answer to either.
+        let before = responsible_for(std::process::id());
         let mut child = Command::new("/bin/sleep").arg("5").stdin(Stdio::null()).stdout(Stdio::null()).spawn().unwrap();
         let responsible = responsible_for(child.id());
+        let after = responsible_for(std::process::id());
         let _ = child.kill();
         let _ = child.wait();
         // The baseline the fix is measured against: the child answers to whoever answers for its starter.
-        assert_eq!(responsible, responsible_for(std::process::id()));
+        assert!(responsible == before || responsible == after, "{responsible:?} is neither {before:?} nor {after:?}");
         assert_ne!(responsible, None);
     }
 

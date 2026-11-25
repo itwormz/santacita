@@ -322,6 +322,8 @@ struct SaveFailure {
     code: &'static str,
     errors: Vec<String>,
 }
+// The arguments are those the window sends, plus the two Tauri hands over: the call shape stays as the window knows it.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 async fn save_profile(
     window: WebviewWindow,
@@ -542,8 +544,8 @@ fn search_control(
 #[tauri::command]
 fn installed_browsers(window: WebviewWindow) -> Result<serde_json::Value, &'static str> {
     authorize(&window)?;
-    // Preview of a machine without a compatible browser (`CEH_PREVIEW_NO_BROWSERS=1`): only browsers the app cannot drive.
-    if std::env::var_os("CEH_PREVIEW_NO_BROWSERS").is_some() {
+    // Preview of a machine without a compatible browser (`CEH_PREVIEW_NO_BROWSERS=1`, debug builds only): only browsers the app cannot drive.
+    if cfg!(debug_assertions) && std::env::var_os("CEH_PREVIEW_NO_BROWSERS").is_some() {
         return Ok(serde_json::json!([
             {"id":"edge","name":"Microsoft Edge","version":"142.0","support":"planned"},
             {"id":"safari","name":"Safari","version":"","support":"unsupported"}
@@ -746,7 +748,7 @@ async fn legacy_import(
 #[tauri::command]
 fn startup_report_latest(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) -> Result<Option<String>, &'static str> {
     authorize(&window)?;
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = ceh_desktop::home_dir();
     // Development preview (`CEH_PREVIEW_REPORT=1`, debug builds only): a sample report so the button can be looked at.
     if cfg!(debug_assertions) && std::env::var_os("CEH_PREVIEW_REPORT").is_some() {
         let report = serde_json::json!({
@@ -772,7 +774,7 @@ async fn startup_report_copy(
     authorize(&window)?;
     let root = runtime.root.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = ceh_desktop::home_dir();
         let text = ceh_desktop::startup_report::clipboard_text(&root, &home, &id)?;
         arboard::Clipboard::new()
             .and_then(|mut c| c.set_text(text))
@@ -918,7 +920,7 @@ fn main() {
             // A panic on the window's thread aborts the app: its place is kept and reported at the next start.
             ceh_desktop::crash_note::install(&root);
             if let Ok(now) = ceh_desktop::current_time() {
-                let _ = ceh_desktop::crash_note::report_previous(&root, &std::env::var("HOME").unwrap_or_default(), now);
+                let _ = ceh_desktop::crash_note::report_previous(&root, &ceh_desktop::home_dir(), now);
             }
             // The first merge of a large statistics file (older versions wrote a row every heartbeat) takes seconds on a
             // slow disk: it is done here, in the background, and not while a search starts.

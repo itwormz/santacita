@@ -430,3 +430,32 @@ fn reader_tolerates_a_database_without_the_notice_table_and_evidence_column() {
     let tables: i64 = db.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE '%notice%'", [], |r| r.get(0)).unwrap();
     assert_eq!(tables, 0, "reading never creates tables");
 }
+#[test]
+fn a_dashboard_read_waits_out_a_write_that_takes_a_few_hundred_milliseconds() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("profile-statistics.sqlite3");
+    let writer = Connection::open(&path).unwrap();
+    writer.execute_batch(include_str!("../src/schema.sql")).unwrap();
+    writer.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        writer.execute_batch("COMMIT").unwrap();
+    });
+    let read = ceh_store::statistics::dashboard_file(&path, "fixture", now());
+    release.join().unwrap();
+    assert!(read.is_ok(), "the read gave up instead of waiting: {:?}", read.err());
+}
+#[test]
+fn rows_of_active_time_far_outside_the_period_are_not_read_for_it() {
+    let db = db();
+    // A row of years ago whose times cannot be read: the period of today never needs it.
+    db.execute(
+        "INSERT INTO active(profile,session,start,end,seconds) VALUES ('fixture','old','2020-01-01Xjunk','2020-01-01Ymore',5.0)",
+        [],
+    )
+    .unwrap();
+    let reader = StatisticsReader::new(&db);
+    assert!(reader.active_seconds("fixture", Period::Today, now()).is_ok());
+    let summary = reader.summary("fixture", Period::Today, now());
+    assert!(summary.is_ok(), "{summary:?}");
+}
