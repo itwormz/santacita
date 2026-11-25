@@ -407,3 +407,16 @@ fn path_inspection_distinguishes_missing_and_existing_without_raw_errors() {
     assert_eq!(found["exists"], true);
     assert_eq!(found["is_file"], true);
 }
+#[test]
+fn an_account_folder_is_removed_from_a_startup_report_on_every_system_even_without_a_home_value() {
+    let sanitizer = ceh_services::diagnostics::Sanitizer::default();
+    for (text, expected) in [
+        (r"cannot open C:\Users\Ivan Petrov\AppData\Roaming\x", r"cannot open C:\Users\[user]\AppData\Roaming\x"),
+        (r"\\?\D:\Users\ivan.petrov\Downloads\SantaCita.exe", r"\\?\D:\Users\[user]\Downloads\SantaCita.exe"),
+        (r"E:\documents and settings\ivan\x", r"E:\documents and settings\[user]\x"),
+        ("failed in /home/ivan/.config/x", "failed in /home/[user]/.config/x"),
+        (r"C:\Distr\SantaCita\SantaCita.exe", r"C:\Distr\SantaCita\SantaCita.exe"),
+    ] {
+        assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text}");
+    }
+}

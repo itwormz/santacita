@@ -531,6 +531,9 @@ fn replace_bounded(value: &str, regex: &regex::Regex, word_boundary: bool) -> St
 static CLEAN_STARTUP_PATTERNS: std::sync::LazyLock<Vec<(regex::Regex, &'static str)>> = std::sync::LazyLock::new(|| {
     [
         (r"/Users/[^/\s]+", "/Users/[user]"),
+        (r"/home/[^/\s]+", "/home/[user]"),
+        // A Windows account folder, whatever the drive and however the name is written (it may hold a space).
+        (r#"(?i)(\\(?:Users|Documents and Settings)\\)[^\\/"'\r\n]+"#, "${1}[user]"),
         (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "[email]"),
         (r"(?im)\b(?:cookie|set-cookie|authorization)\s*:[^\r\n]*", "[private header]"),
         (

@@ -10,7 +10,7 @@ pub struct StartDetail {
     pub elapsed_ms: u64,
     /// The exit status of a browser that ended on its own, as the system reported it.
     pub exit_code: Option<i32>,
-    /// The last lines the browser wrote to its error output, shortened and without the person's folder names.
+    /// The last lines the browser wrote to its error output, shortened (the report removes folder and account names).
     pub stderr_tail: Vec<String>,
 }
 type Tail = std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>;
@@ -20,19 +20,10 @@ thread_local! {
     static START_DETAIL: std::cell::RefCell<Option<StartDetail>> = const { std::cell::RefCell::new(None) };
     static START_TAIL: std::cell::RefCell<Option<Tail>> = const { std::cell::RefCell::new(None) };
 }
-/// A line of the browser's error output as the report may hold it: printable characters, short, with the folder
-/// of a person's account (`\Users\name`, `/Users/name`, `/home/name`) replaced.
+/// A line of the browser's error output as the report may hold it: printable characters and short. The report
+/// itself removes names of folders and accounts when it is saved, read and copied.
 pub(crate) fn tail_line(raw: &str) -> String {
-    let mut line: String = raw.chars().filter(|c| !c.is_control()).collect();
-    for marker in ["\\Users\\", "/Users/", "/home/"] {
-        let mut from = 0;
-        while let Some(found) = line[from..].find(marker) {
-            let start = from + found + marker.len();
-            let end = line[start..].find(['\\', '/', ' ', '"', '\'']).map_or(line.len(), |n| start + n);
-            line.replace_range(start..end, "[user]");
-            from = start + "[user]".len();
-        }
-    }
+    let line: String = raw.chars().filter(|c| !c.is_control()).collect();
     line.trim().chars().take(TAIL_LINE_CHARS).collect()
 }
 fn push_tail(tail: &Tail, raw: &str) {
