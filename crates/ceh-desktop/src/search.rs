@@ -297,7 +297,7 @@ impl SearchController {
                     && !requested_stop
                     && !busy
                 {
-                    let home = std::env::var("HOME").unwrap_or_default();
+                    let home = crate::home_dir();
                     // The worker noted which browser failed to start and why; without a note the profile's browser stands.
                     let facts = match crate::startup_report::take_start_failure() {
                         Some((family, reason)) => crate::startup_report::StartFacts { family, found: reason != "not_installed", reason: Some(reason), detail: ceh_browser::firefox::take_start_detail().map(|d| crate::startup_report::StartDetail { browser_version: d.browser_version, elapsed_ms: d.elapsed_ms, exit_code: d.exit_code, stderr_tail: d.stderr_tail }) },
@@ -460,7 +460,7 @@ fn save_pending_report(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut
     save_pending_report_at(root, state, pending, Instant::now());
 }
 fn save_pending_report_at(root: &Path, state: &Mutex<SearchSnapshot>, pending: &mut crate::session_report::PendingReport, now: Instant) {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = crate::home_dir();
     let saved = pending.try_save(now, |report| {
         crate::current_time().ok().and_then(|at| crate::startup_report::save_session_stop(root, &home, report.clone(), at))
     });

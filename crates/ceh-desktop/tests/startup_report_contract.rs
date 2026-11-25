@@ -260,3 +260,12 @@ mod start_failure_reason {
         assert_eq!(take_start_failure(), None, "taken once");
     }
 }
+
+#[test]
+fn the_home_folder_comes_from_home_or_on_windows_from_the_user_profile() {
+    use ceh_desktop::home_from;
+    assert_eq!(home_from(Some("/Users/Fictional".into()), Some("C:\\Users\\Other".into())), "/Users/Fictional");
+    assert_eq!(home_from(None, Some("C:\\Users\\Fictional".into())), "C:\\Users\\Fictional");
+    assert_eq!(home_from(Some(String::new()), Some("C:\\Users\\Fictional".into())), "C:\\Users\\Fictional", "an empty value is not a folder");
+    assert_eq!(home_from(None, None), "");
+}

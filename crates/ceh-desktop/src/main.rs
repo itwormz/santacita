@@ -746,7 +746,7 @@ async fn legacy_import(
 #[tauri::command]
 fn startup_report_latest(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) -> Result<Option<String>, &'static str> {
     authorize(&window)?;
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = ceh_desktop::home_dir();
     // Development preview (`CEH_PREVIEW_REPORT=1`, debug builds only): a sample report so the button can be looked at.
     if cfg!(debug_assertions) && std::env::var_os("CEH_PREVIEW_REPORT").is_some() {
         let report = serde_json::json!({
@@ -772,7 +772,7 @@ async fn startup_report_copy(
     authorize(&window)?;
     let root = runtime.root.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = ceh_desktop::home_dir();
         let text = ceh_desktop::startup_report::clipboard_text(&root, &home, &id)?;
         arboard::Clipboard::new()
             .and_then(|mut c| c.set_text(text))
@@ -918,7 +918,7 @@ fn main() {
             // A panic on the window's thread aborts the app: its place is kept and reported at the next start.
             ceh_desktop::crash_note::install(&root);
             if let Ok(now) = ceh_desktop::current_time() {
-                let _ = ceh_desktop::crash_note::report_previous(&root, &std::env::var("HOME").unwrap_or_default(), now);
+                let _ = ceh_desktop::crash_note::report_previous(&root, &ceh_desktop::home_dir(), now);
             }
             // The first merge of a large statistics file (older versions wrote a row every heartbeat) takes seconds on a
             // slow disk: it is done here, in the background, and not while a search starts.
