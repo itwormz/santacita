@@ -1136,7 +1136,8 @@ fn run_owned(
                 if !before.offices.is_empty() {
                     journal.offices(before.offices.clone(), None);
                 }
-                if std::env::var("CEH_PREVIEW_FIREFOX").as_deref() == Ok("applicant")
+                if cfg!(debug_assertions)
+                    && std::env::var("CEH_PREVIEW_FIREFOX").as_deref() == Ok("applicant")
                     && matches!(before.observation.kind, PageKind::Applicant | PageKind::ApplicantNoSlots)
                 {
                     browser.handoff();

@@ -544,8 +544,8 @@ fn search_control(
 #[tauri::command]
 fn installed_browsers(window: WebviewWindow) -> Result<serde_json::Value, &'static str> {
     authorize(&window)?;
-    // Preview of a machine without a compatible browser (`CEH_PREVIEW_NO_BROWSERS=1`): only browsers the app cannot drive.
-    if std::env::var_os("CEH_PREVIEW_NO_BROWSERS").is_some() {
+    // Preview of a machine without a compatible browser (`CEH_PREVIEW_NO_BROWSERS=1`, debug builds only): only browsers the app cannot drive.
+    if cfg!(debug_assertions) && std::env::var_os("CEH_PREVIEW_NO_BROWSERS").is_some() {
         return Ok(serde_json::json!([
             {"id":"edge","name":"Microsoft Edge","version":"142.0","support":"planned"},
             {"id":"safari","name":"Safari","version":"","support":"unsupported"}
