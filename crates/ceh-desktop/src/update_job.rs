@@ -69,9 +69,7 @@ impl UpdateJob {
         std::thread::spawn(move || {
             let progress_state = state.clone();
             let result = work(&cancel, &mut |percent| {
-                if let Ok(mut inner) = progress_state.lock() {
-                    inner.percent = percent;
-                }
+                lock(&progress_state).percent = percent;
             });
             let mut inner = lock(&state);
             match result {
@@ -122,5 +120,25 @@ mod tests {
         assert!(job.install_path().is_none());
         job.clear_ready();
         assert!(job.start_with(|_, _| Err(UpdateError::Cancelled)));
+    }
+
+    #[test]
+    fn a_download_after_a_poisoned_lock_still_shows_its_progress() {
+        let job = UpdateJob::new();
+        let inner = job.inner.clone();
+        let _ = std::thread::spawn(move || {
+            let _held = inner.lock().unwrap();
+            panic!("a thread died holding the update state");
+        })
+        .join();
+        let (seen, shown) = std::sync::mpsc::channel();
+        let watcher = job.clone();
+        assert!(job.start_with(move |_, progress| {
+            progress(42);
+            let _ = seen.send(watcher.status().percent);
+            Err(UpdateError::Cancelled)
+        }));
+        let percent = shown.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(percent, 42, "the progress of the running download was dropped");
     }
 }
