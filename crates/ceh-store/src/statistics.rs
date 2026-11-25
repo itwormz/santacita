@@ -134,8 +134,9 @@ impl<'a> StatisticsReader<'a> {
         }
         let mut active = self
             .db
-            .prepare("SELECT start,end FROM active WHERE profile=?1")?;
-        for interval in active.query_map([profile], |r| {
+            .prepare(ACTIVE_IN_DAYS_2)?;
+        let (from_day, to_day) = day_window(b);
+        for interval in active.query_map(params![profile, from_day, to_day], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
         })? {
             let (start, end) = interval?;
@@ -386,11 +387,14 @@ impl<'a> StatisticsReader<'a> {
         let at = crate::migrate::parse_time(value)?;
         let mut observed = Vec::new();
         let mut active = Vec::new();
+        // Only rows that end after the period starts and start before this moment can count.
+        let from_day = b.start.map(|l| (l - chrono::Duration::days(1)).format("%Y-%m-%d").to_string());
+        let to_day = (at + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
         for (table, target) in [("active", &mut active), ("observed_active", &mut observed)] {
-            let mut stmt = self
-                .db
-                .prepare(&format!("SELECT start,end FROM {table} WHERE profile=?1"))?;
-            for row in stmt.query_map([profile], |r| {
+            let mut stmt = self.db.prepare(&format!(
+                "SELECT start,end FROM {table} WHERE profile=?1 AND (?2 IS NULL OR substr(end,1,10)>=?2) AND substr(start,1,10)<=?3"
+            ))?;
+            for row in stmt.query_map(params![profile, from_day, to_day], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
             })? {
                 let (start, end) = row?;
@@ -415,8 +419,9 @@ impl<'a> StatisticsReader<'a> {
         let mut seconds = 0.0;
         let mut stmt = self
             .db
-            .prepare("SELECT start,end,seconds FROM active WHERE profile=?1")?;
-        for row in stmt.query_map([profile], |r| {
+            .prepare(ACTIVE_IN_DAYS_3)?;
+        let (from_day, to_day) = day_window(b);
+        for row in stmt.query_map(params![profile, from_day, to_day], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -463,8 +468,9 @@ impl<'a> StatisticsReader<'a> {
             .unwrap_or(0.0);
         let mut stmt = self
             .db
-            .prepare("SELECT start,end,seconds FROM active WHERE profile=?1")?;
-        for row in stmt.query_map([profile], |r| {
+            .prepare(ACTIVE_IN_DAYS_3)?;
+        let (from_day, to_day) = day_window(b);
+        for row in stmt.query_map(params![profile, from_day, to_day], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -757,6 +763,15 @@ pub fn dashboard(
     Ok(result)
 }
 
+/// The rows of active time that can touch a period, found by the day written at the front of their times. A day of
+/// margin on each side covers any offset the times were written with; the exact comparison stays in the loops. A row
+/// years away from the period is not read, so it is not parsed either.
+const ACTIVE_IN_DAYS_2: &str = "SELECT start,end FROM active WHERE profile=?1 AND (?2 IS NULL OR substr(end,1,10)>=?2) AND (?3 IS NULL OR substr(start,1,10)<=?3)";
+const ACTIVE_IN_DAYS_3: &str = "SELECT start,end,seconds FROM active WHERE profile=?1 AND (?2 IS NULL OR substr(end,1,10)>=?2) AND (?3 IS NULL OR substr(start,1,10)<=?3)";
+fn day_window(b: crate::periods::Bounds) -> (Option<String>, Option<String>) {
+    let day = |at: DateTime<Utc>, shift: i64| (at + chrono::Duration::days(shift)).format("%Y-%m-%d").to_string();
+    (b.start.map(|at| day(at, -1)), b.end.map(|at| day(at, 1)))
+}
 /// Read existing storage only. Missing history is distinct from a failed query.
 /// Schema migration belongs to startup compatibility, never to a dashboard read.
 fn existing_database(path: &std::path::Path) -> Result<Option<Connection>, StoreError> {

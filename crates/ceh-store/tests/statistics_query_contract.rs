@@ -445,3 +445,17 @@ fn a_dashboard_read_waits_out_a_write_that_takes_a_few_hundred_milliseconds() {
     release.join().unwrap();
     assert!(read.is_ok(), "the read gave up instead of waiting: {:?}", read.err());
 }
+#[test]
+fn rows_of_active_time_far_outside_the_period_are_not_read_for_it() {
+    let db = db();
+    // A row of years ago whose times cannot be read: the period of today never needs it.
+    db.execute(
+        "INSERT INTO active(profile,session,start,end,seconds) VALUES ('fixture','old','2020-01-01Xjunk','2020-01-01Ymore',5.0)",
+        [],
+    )
+    .unwrap();
+    let reader = StatisticsReader::new(&db);
+    assert!(reader.active_seconds("fixture", Period::Today, now()).is_ok());
+    let summary = reader.summary("fixture", Period::Today, now());
+    assert!(summary.is_ok(), "{summary:?}");
+}
