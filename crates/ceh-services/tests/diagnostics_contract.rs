@@ -420,3 +420,17 @@ fn an_account_folder_is_removed_from_a_startup_report_on_every_system_even_witho
         assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text}");
     }
 }
+#[test]
+fn a_token_a_bearer_secret_and_an_api_key_are_removed_from_a_startup_report() {
+    let sanitizer = ceh_services::diagnostics::Sanitizer::default();
+    for (text, expected) in [
+        ("request failed token=abc123def", "request failed [private value]"),
+        ("api_key: k-9f8e7d", "[private value]"),
+        ("secret=s3cr3t;", "[private value];"),
+        ("sent Bearer eyJhbGciOi.payload.sig to server", "sent [private value] to server"),
+        ("access_token=still-removed", "[private value]"),
+        ("the pin of the profile", "the pin of the profile"),
+    ] {
+        assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text}");
+    }
+}
