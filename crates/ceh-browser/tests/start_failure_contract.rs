@@ -1,6 +1,6 @@
 //! Where a browser start stopped: each place has its own code, so a report says what happened on the person's computer.
 #![cfg(unix)]
-use ceh_browser::firefox::{FirefoxError, FirefoxInstallation, OwnedFirefox, ProfileLease};
+use ceh_browser::firefox::{FirefoxError, FirefoxInstallation, OwnedFirefox, ProfileLease, take_start_detail};
 use std::{os::unix::fs::PermissionsExt, path::Path, sync::atomic::AtomicBool};
 
 /// A Firefox installation whose program is `script`, run with `sh`.
@@ -42,4 +42,20 @@ fn every_start_failure_has_its_own_fixed_code() {
     .map(FirefoxError::code)
     .collect();
     assert_eq!(codes, ["unavailable", "launch_failed", "exited_early", "no_endpoint", "connect_failed", "session_failed", "startup_timeout"]);
+}
+#[test]
+fn a_browser_that_ended_at_once_leaves_its_exit_status_its_version_and_the_time_it_took() {
+    let _ = take_start_detail();
+    assert!(matches!(start_with_script("exit 3", true), Err(FirefoxError::ExitedEarly)));
+    let detail = take_start_detail().expect("a failed start leaves its detail");
+    assert_eq!((detail.exit_code, detail.browser_version.as_str()), (Some(3), "158.0.1"));
+    assert!(detail.elapsed_ms < 20_000);
+    assert_eq!(take_start_detail(), None, "taken once");
+}
+#[test]
+fn the_detail_of_one_start_does_not_stay_for_the_next() {
+    assert!(matches!(start_with_script("exit 3", true), Err(FirefoxError::ExitedEarly)));
+    assert!(matches!(start_with_script("exit 0", false), Err(FirefoxError::LaunchFailed)));
+    let detail = take_start_detail().unwrap();
+    assert_eq!(detail.exit_code, None, "the program never ran, so there is no status");
 }

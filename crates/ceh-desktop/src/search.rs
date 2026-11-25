@@ -300,11 +300,11 @@ impl SearchController {
                     let home = std::env::var("HOME").unwrap_or_default();
                     // The worker noted which browser failed to start and why; without a note the profile's browser stands.
                     let facts = match crate::startup_report::take_start_failure() {
-                        Some((family, reason)) => crate::startup_report::StartFacts { family, found: reason != "not_installed", reason: Some(reason) },
+                        Some((family, reason)) => crate::startup_report::StartFacts { family, found: reason != "not_installed", reason: Some(reason), detail: ceh_browser::firefox::take_start_detail().map(|d| crate::startup_report::StartDetail { browser_version: d.browser_version, elapsed_ms: d.elapsed_ms, exit_code: d.exit_code }) },
                         None => {
                             let engine = Engine::of(&browser_name);
                             let found = if engine.is_none_or(|e| e == Engine::Firefox) { FirefoxInstallation::discover().is_ok() } else { true };
-                            crate::startup_report::StartFacts { family: engine.map_or("firefox", Engine::family), found, reason: None }
+                            crate::startup_report::StartFacts { family: engine.map_or("firefox", Engine::family), found, reason: None, detail: None }
                         }
                     };
                     let id = crate::current_time().ok().and_then(|now| {
@@ -645,6 +645,7 @@ fn run_session(
     let family = engine.family();
     // A reason noted by an earlier start must not leak into the report of this one.
     let _ = crate::startup_report::take_start_failure();
+    let _ = ceh_browser::firefox::take_start_detail();
     // The report written after a failed start names the browser and the reason (a fixed code, never user data).
     let failed = |error: ceh_browser::firefox::FirefoxError, code: &'static str| {
         crate::startup_report::note_start_failure(family, error.code());

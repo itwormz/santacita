@@ -22,6 +22,15 @@ pub struct StartFacts {
     pub family: &'static str,
     pub found: bool,
     pub reason: Option<&'static str>,
+    /// How far and how long the start got, and how the browser ended: numbers and a version only.
+    pub detail: Option<StartDetail>,
+}
+/// Numbers and a version of a start that failed (the browser crate's own `StartDetail`, copied where the report is built).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StartDetail {
+    pub browser_version: String,
+    pub elapsed_ms: u64,
+    pub exit_code: Option<i32>,
 }
 thread_local! {
     static START_FAILURE: std::cell::Cell<Option<(&'static str, &'static str)>> = const { std::cell::Cell::new(None) };
@@ -36,12 +45,21 @@ pub fn take_start_failure() -> Option<(&'static str, &'static str)> {
 }
 /// Save a report for a failed search start and return its id; `None` when nothing could be written.
 pub fn save_failure(root: &Path, home: &str, code: &str, firefox_found: bool, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
-    save_failure_with(root, home, code, &StartFacts { family: "firefox", found: firefox_found, reason: None }, now)
+    save_failure_with(root, home, code, &StartFacts { family: "firefox", found: firefox_found, reason: None, detail: None }, now)
 }
 pub fn save_failure_with(root: &Path, home: &str, code: &str, facts: &StartFacts, now: chrono::DateTime<chrono::Utc>) -> Option<String> {
     let mut browser = json!({"family": facts.family, "exists": facts.found});
     if let Some(reason) = facts.reason {
         browser["start_failure"] = json!(reason);
+    }
+    if let Some(detail) = &facts.detail {
+        let mut object = json!({"browser_version": detail.browser_version, "elapsed_ms": detail.elapsed_ms});
+        if let Some(code) = detail.exit_code {
+            // Windows reports a failed start as a status such as 0xC0000135: the hexadecimal form is the one to look up.
+            object["exit_code"] = json!(code);
+            object["exit_code_hex"] = json!(format!("{:#010x}", code as u32));
+        }
+        browser["start_detail"] = object;
     }
     let report = json!({
         "version": env!("CARGO_PKG_VERSION"),

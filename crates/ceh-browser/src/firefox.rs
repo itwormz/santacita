@@ -3,6 +3,41 @@ use std::{
     fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
 };
+/// What is known about a start that failed, beyond the step it stopped at: numbers and a version, never page or user data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StartDetail {
+    pub browser_version: String,
+    pub elapsed_ms: u64,
+    /// The exit status of a browser that ended on its own, as the system reported it.
+    pub exit_code: Option<i32>,
+}
+thread_local! {
+    static START_DETAIL: std::cell::RefCell<Option<StartDetail>> = const { std::cell::RefCell::new(None) };
+}
+fn note_exit(status: std::process::ExitStatus) {
+    START_DETAIL.with(|cell| cell.borrow_mut().get_or_insert_with(StartDetail::default).exit_code = status.code());
+}
+/// The detail the last start on this thread left behind, once; `None` when it succeeded or nothing was noted.
+pub fn take_start_detail() -> Option<StartDetail> {
+    START_DETAIL.with(|cell| cell.borrow_mut().take())
+}
+/// Runs a start and keeps its detail only when it failed.
+fn traced<T>(version: &str, start: impl FnOnce() -> Result<T, FirefoxError>) -> Result<T, FirefoxError> {
+    START_DETAIL.with(|cell| cell.borrow_mut().take());
+    let began = std::time::Instant::now();
+    let result = start();
+    if result.is_err() {
+        START_DETAIL.with(|cell| {
+            let mut cell = cell.borrow_mut();
+            let detail = cell.get_or_insert_with(StartDetail::default);
+            detail.browser_version = version.to_owned();
+            detail.elapsed_ms = began.elapsed().as_millis() as u64;
+        });
+    } else {
+        START_DETAIL.with(|cell| cell.borrow_mut().take());
+    }
+    result
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FirefoxError {
     NotInstalled,
@@ -474,6 +509,14 @@ impl OwnedFirefox {
         headless: bool,
         cancelled: &AtomicBool,
     ) -> Result<Self, FirefoxError> {
+        traced(installation.version(), || Self::start_attempts(installation, profile, headless, cancelled))
+    }
+    fn start_attempts(
+        installation: &FirefoxInstallation,
+        profile: ProfileLease,
+        headless: bool,
+        cancelled: &AtomicBool,
+    ) -> Result<Self, FirefoxError> {
         match Self::start_with(installation, profile, headless, cancelled, None) {
             Ok(browser) => Ok(browser),
             Err(StartFailure::Fail(error)) => Err(error),
@@ -493,11 +536,12 @@ impl OwnedFirefox {
         headless: bool,
         cancelled: &AtomicBool,
     ) -> Result<Self, FirefoxError> {
-        Self::start_with(installation, profile, headless, cancelled, Some(crate::firefox_control::Fallback::NoSystemAccess))
-            .map_err(|failure| match failure {
+        traced(installation.version(), || {
+            Self::start_with(installation, profile, headless, cancelled, Some(crate::firefox_control::Fallback::NoSystemAccess)).map_err(|failure| match failure {
                 StartFailure::Fail(error) => error,
                 StartFailure::Retry(..) => FirefoxError::Unavailable,
             })
+        })
     }
     fn start_with(
         installation: &FirefoxInstallation,
@@ -591,14 +635,14 @@ impl OwnedFirefox {
             if cancelled.load(Ordering::Acquire) {
                 return Err(StartFailure::Fail(FirefoxError::Cancelled));
             }
-            if owned
+            if let Some(status) = owned
                 .child
                 .as_mut()
                 .ok_or(FirefoxError::Unavailable)?
                 .try_wait()
                 .map_err(|_| FirefoxError::Unavailable)?
-                .is_some()
             {
+                note_exit(status);
                 return Err(StartFailure::Fail(FirefoxError::ExitedEarly));
             }
             if Instant::now() >= deadline {
@@ -613,7 +657,8 @@ impl OwnedFirefox {
                 // The output ended: a browser that ended with it is an early exit, only one that still runs is not.
                 Err(_) => {
                     for _ in 0..5 {
-                        if owned.child.as_mut().and_then(|child| child.try_wait().ok()).is_some_and(|status| status.is_some()) {
+                        if let Some(status) = owned.child.as_mut().and_then(|child| child.try_wait().ok()).flatten() {
+                            note_exit(status);
                             return Err(StartFailure::Fail(FirefoxError::ExitedEarly));
                         }
                         std::thread::sleep(Duration::from_millis(100));
@@ -702,6 +747,13 @@ impl OwnedFirefox {
         profile: ProfileLease,
         cancelled: &AtomicBool,
     ) -> Result<Self, FirefoxError> {
+        traced(installation.version(), || Self::start_chromium_attempt(installation, profile, cancelled))
+    }
+    fn start_chromium_attempt(
+        installation: &crate::chromium::ChromiumInstallation,
+        profile: ProfileLease,
+        cancelled: &AtomicBool,
+    ) -> Result<Self, FirefoxError> {
         if cancelled.load(Ordering::Acquire) {
             return Err(FirefoxError::Cancelled);
         }
@@ -733,7 +785,8 @@ impl OwnedFirefox {
             if cancelled.load(Ordering::Acquire) {
                 return Err(FirefoxError::Cancelled);
             }
-            if owned.child.as_mut().ok_or(FirefoxError::Unavailable)?.try_wait().map_err(|_| FirefoxError::Unavailable)?.is_some() {
+            if let Some(status) = owned.child.as_mut().ok_or(FirefoxError::Unavailable)?.try_wait().map_err(|_| FirefoxError::Unavailable)? {
+                note_exit(status);
                 return Err(FirefoxError::ExitedEarly);
             }
             if Instant::now() >= deadline {
