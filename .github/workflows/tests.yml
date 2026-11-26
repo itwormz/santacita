@@ -75,11 +75,11 @@ jobs:
       - name: Chrome (required)
         env:
           CEH_REQUIRE_BROWSERS: '1'
-        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored --test-threads 1 chrome_recognises_the_same_element chrome_does_not_scroll_the_page_under_a_pinned_banner
+        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored --test-threads 1 chrome_recognises_the_same_element chrome_does_not_scroll_the_page_under_a_pinned_banner chrome_fills_the_contact_form chrome_types_the_nie
       - name: Firefox (run when installed, advisory)
         # Firefox on a cold hosted runner sometimes misses the 20 s start deadline; Chrome above is the required check.
         continue-on-error: true
-        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored --test-threads 1 firefox_recognises_the_same_element firefox_does_not_scroll_the_page_under_a_pinned_banner firefox_profile_gets_the_site_intermediate_before_the_first_page
+        run: xvfb-run -a cargo test -p ceh-browser --features bidi --locked -- --ignored --test-threads 1 firefox_recognises_the_same_element firefox_does_not_scroll_the_page_under_a_pinned_banner firefox_profile_gets_the_site_intermediate_before_the_first_page firefox_fills_the_contact_form firefox_types_the_nie
   windows:
     name: Windows tests
     needs: scope
@@ -105,7 +105,7 @@ jobs:
         env:
           CEH_REQUIRE_BROWSERS: '1'
         run: |
-          run() { cargo test -p ceh-browser --features bidi --locked --lib -- --ignored --test-threads 1 firefox_profile_gets_the_site_intermediate_before_the_first_page firefox_does_not_scroll_the_page_under_a_pinned_banner chrome_does_not_scroll_the_page_under_a_pinned_banner; }
+          run() { cargo test -p ceh-browser --features bidi --locked --lib -- --ignored --test-threads 1 firefox_profile_gets_the_site_intermediate_before_the_first_page firefox_does_not_scroll_the_page_under_a_pinned_banner chrome_does_not_scroll_the_page_under_a_pinned_banner fills_the_contact_form types_the_nie; }
           run || run
   audit:
     name: Dependency audit

@@ -140,12 +140,12 @@ fn press_until(
         crate::trusted_input::Target::icp(ActionKind::Applicant, input.payload(target), SCRIPT),
     )? {
         DispatchOutcome::Unknown => return Ok(PreparationOutcome::Unknown),
-        DispatchOutcome::NotDispatched => return Ok(PreparationOutcome::Failed),
+        DispatchOutcome::NotDispatched => return Ok(typed_field::stopped(PreparationOutcome::Failed, format!("{target}: press_not_sent"))),
         DispatchOutcome::Dispatched => {}
     }
     loop {
         if Instant::now() >= deadline {
-            return Ok(PreparationOutcome::Failed);
+            return Ok(typed_field::stopped(PreparationOutcome::Failed, format!("{verify}: out_of_time")));
         }
         let fresh = fresh_page(connection, observer, input)?;
         let mut permit = gate.begin_preparation(guard, &fresh.observation, ActionKind::Applicant)?;
@@ -156,7 +156,7 @@ fn press_until(
         }
         drop(permit);
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return Ok(PreparationOutcome::Failed);
+            return Ok(typed_field::stopped(PreparationOutcome::Failed, format!("{verify}: out_of_time")));
         };
         std::thread::sleep(remaining.min(Duration::from_millis(250)));
     }
@@ -174,7 +174,7 @@ pub fn prepare_applicant(
 ) -> Result<PreparationOutcome, BrowserError> {
     let typing_delay = typed_field::typing_delay(typing_delay);
     if Instant::now() >= deadline {
-        return Ok(PreparationOutcome::Failed);
+        return Ok(typed_field::stopped(PreparationOutcome::Failed, "out_of_time_before_form"));
     }
     let page = |connection: &mut BidiConnection, observer: &mut PageObserver| fresh_page(connection, observer, input);
     let mut operations = if input.copy {
@@ -195,7 +195,7 @@ pub fn prepare_applicant(
                 match mutation::perform(connection, &mut permit, &fresh, input.payload("verify_copy"), SCRIPT)? {
                     Receipt::Unchanged | Receipt::Changed => PreparationOutcome::Completed,
                     Receipt::Unknown => PreparationOutcome::Unknown,
-                    Receipt::Refused => PreparationOutcome::Failed,
+                    Receipt::Refused => typed_field::stopped(PreparationOutcome::Failed, "copied_values_missing"),
                 }
             }
             "number" | "name" => {
@@ -213,7 +213,7 @@ pub fn prepare_applicant(
                 let choice = typed_select::Choice { action: ActionKind::Applicant, script: SCRIPT, payload: &payload };
                 loop {
                     if Instant::now() >= deadline {
-                        break PreparationOutcome::Failed;
+                        break typed_field::stopped(PreparationOutcome::Failed, "nationality: out_of_time");
                     }
                     match typed_select::choose(connection, observer, gate, guard, &choice, &page)? {
                         typed_select::Chosen::Done => break PreparationOutcome::Completed,

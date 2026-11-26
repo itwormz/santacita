@@ -53,8 +53,11 @@ are explicitly ignored by default and must be opted into on an isolated profile:
   intermediate certificate (macOS, Windows, Linux).
 - `firefox_` and `chrome_does_not_scroll_the_page_under_a_pinned_banner`: a target pinned to the window,
   like the site's cookie banner, is clicked without scrolling the page under it.
+- `firefox_`/`chrome_fills_the_contact_form_while_the_page_shows_hints` and `..._types_the_nie_after_the_scroll_changed_the_header`:
+  a whole field entry on a local copy of the site's forms (fields below the fold, a header that changes when the page
+  scrolls, a hint under the repeated address). Page scripts accept the local server as the site in tests only.
 
-CI runs the certificate and pinned-banner tests on Windows (`Windows tests`, required) and on Ubuntu
+CI runs the certificate, pinned-banner and field-entry tests on Windows (`Windows tests`, required) and on Ubuntu
 (`Browser tests`; the Firefox step there is advisory because of slow cold starts).
 
 Passing protocol tests does not establish native minimize, lock, macOS Spaces, RDP,
