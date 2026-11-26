@@ -6,6 +6,7 @@ use tungstenite::Message;
 fn madrid() -> Value {
     json!({
         "path": "/icpplustiem/selectSede",
+        "load": "1000.5",
         "title": "Proceso automático para la solicitud de cita previa",
         "headings": ["Solicitud de cita previa"],
         "text": ["Seleccione la oficina y el trámite"],
@@ -59,6 +60,16 @@ fn the_fingerprint_changes_when_an_option_is_added_and_not_when_nothing_changes(
     assert_ne!(first.fingerprint(), parse_page(&raw.to_string()).unwrap().fingerprint());
 }
 
+#[test]
+fn the_fingerprint_ignores_the_load_stamp_so_a_refresh_is_told_apart_only_by_it() {
+    let first = parse_page(&madrid().to_string()).unwrap();
+    let mut raw = madrid();
+    raw["load"] = json!("2000.25");
+    let refreshed = parse_page(&raw.to_string()).unwrap();
+    assert_eq!(first.fingerprint(), refreshed.fingerprint());
+    assert_ne!(first.load, refreshed.load);
+}
+
 fn script() -> String {
     std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/learning_snapshot.js")).unwrap()
 }
@@ -78,7 +89,7 @@ fn the_learning_script_never_reads_an_editable_value() {
 }
 
 #[test]
-fn reading_a_page_sends_the_script_to_the_documents_realm_and_parses_the_answer() {
+fn reading_a_page_sends_the_script_to_the_given_target_and_parses_the_answer() {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let address = listener.local_addr().unwrap();
     let answer = madrid().to_string();
@@ -87,12 +98,12 @@ fn reading_a_page_sends_the_script_to_the_documents_realm_and_parses_the_answer(
         let mut socket = tungstenite::accept(stream).unwrap();
         let request: Value = serde_json::from_str(&socket.read().unwrap().into_text().unwrap()).unwrap();
         assert_eq!(request["method"], "script.callFunction");
-        assert_eq!(request["params"]["target"]["realm"], "document-realm");
+        assert_eq!(request["params"]["target"], json!({"context": "ctx", "sandbox": "ceh"}));
         assert_eq!(request["params"]["awaitPromise"], false);
         socket.send(Message::Text(json!({"id": request["id"], "type": "success", "result": {"type": "success", "realm": "document-realm", "result": {"type": "string", "value": answer}}}).to_string().into())).unwrap();
     });
     let mut connection = BidiConnection::connect(address, Duration::from_secs(2)).unwrap();
-    let page = read_page(&mut connection, "document-realm").unwrap();
+    let page = read_page(&mut connection, &json!({"context": "ctx", "sandbox": "ceh"})).unwrap();
     assert_eq!(page.controls.len(), 3);
     server.join().unwrap();
 }

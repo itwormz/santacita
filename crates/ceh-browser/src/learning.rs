@@ -45,6 +45,9 @@ pub struct LearningForm {
 #[serde(deny_unknown_fields)]
 pub struct LearningPage {
     pub path: String,
+    /// The load stamp of the document (`performance.timeOrigin`): a refresh is a new document with the same
+    /// structure. Not part of the fingerprint.
+    pub load: String,
     pub title: String,
     pub headings: Vec<String>,
     pub text: Vec<String>,
@@ -54,7 +57,9 @@ pub struct LearningPage {
 impl LearningPage {
     /// Changes when the structure or an option list changes (a select filled after another choice).
     pub fn fingerprint(&self) -> String {
-        let canonical = serde_json::to_string(self).unwrap_or_default();
+        let mut structure = self.clone();
+        structure.load.clear();
+        let canonical = serde_json::to_string(&structure).unwrap_or_default();
         hex::encode(Sha256::digest(canonical.as_bytes()))
     }
 }
@@ -71,17 +76,18 @@ pub fn parse_page(raw: &str) -> Option<LearningPage> {
         && page.forms.len() <= MAX_FORMS;
     within.then_some(page)
 }
-/// Run the page script in the document's realm and parse what it returns. Read only.
-pub fn read_page(connection: &mut BidiConnection, realm: &str) -> Option<LearningPage> {
+/// Run the page script in `target` (`{"context": .., "sandbox": ..}` or a realm) and parse what it returns.
+/// Read only. The deadline is generous: a missed deadline poisons the connection for the whole search.
+pub fn read_page(connection: &mut BidiConnection, target: &serde_json::Value) -> Option<LearningPage> {
     let value = connection
         .call_before(
             "script.callFunction",
             serde_json::json!({
-                "target": {"realm": realm},
+                "target": target,
                 "functionDeclaration": SCRIPT,
                 "awaitPromise": false
             }),
-            Instant::now() + Duration::from_millis(750),
+            Instant::now() + Duration::from_millis(3000),
         )
         .ok()?;
     parse_page(value["result"]["value"].as_str()?)

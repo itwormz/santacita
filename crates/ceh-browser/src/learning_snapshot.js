@@ -51,6 +51,6 @@
     });
   }
   return JSON.stringify({
-    path: stripped(location.pathname), title: clean(document.title), headings, text, forms, controls,
+    path: stripped(location.pathname), load: String(performance.timeOrigin), title: clean(document.title), headings, text, forms, controls,
   });
 }
