@@ -305,3 +305,20 @@ fn production_code_never_intercepts_holds_or_alters_network_traffic() {
     }
     assert!(files.len() > 20);
 }
+#[test]
+fn a_script_response_under_icpplustiem_becomes_a_candidate() {
+    let mut q = ResponseQueue::new("owned").unwrap();
+    q.ingest(&event(
+        "script",
+        "https://icp.administracionelectronica.gob.es/icpplustiem/portal.js?v=1",
+        "application/javascript",
+        false,
+    ));
+    q.ingest(&event(
+        "other",
+        "https://icp.administracionelectronica.gob.es/icpplusother/portal.js",
+        "application/javascript",
+        false,
+    ));
+    assert_eq!(q.drain().responses.len(), 1);
+}

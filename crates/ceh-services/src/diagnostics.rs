@@ -43,6 +43,11 @@ impl CapturePolicy {
         self.enabled && self.first_party
     }
 }
+/// The site's application prefixes: the general one, the Barcelona one and the Madrid one (`icpplustiem`).
+/// `ceh-browser/src/passive.rs` keeps the same list; keep the two in step.
+pub fn site_path(path: &str) -> bool {
+    ["/icpplus/", "/icpplustieb/", "/icpplustiem/"].iter().any(|prefix| path.starts_with(prefix))
+}
 pub fn script_url(raw: &str) -> Option<String> {
     let url = Url::parse(raw).ok()?;
     if url.scheme() != "https"
@@ -57,7 +62,7 @@ pub fn script_url(raw: &str) -> Option<String> {
         .map(|part| part.split(';').next().unwrap_or(""))
         .collect::<Vec<_>>()
         .join("/");
-    if !path.starts_with("/icpplus/") && !path.starts_with("/icpplustieb/") {
+    if !site_path(&path) {
         return None;
     }
     Some(format!("https://{HOST}{path}"))
