@@ -1292,6 +1292,9 @@ fn run_owned(
                         if let Some(reason) = ceh_browser::take_stale_reason() {
                             row["detail"] = serde_json::json!(reason);
                         }
+                        if let Some(reason) = ceh_browser::take_preparation_reason() {
+                            row["entry_stopped"] = serde_json::json!(reason);
+                        }
                         let reason = row["detail"].as_str().map(str::to_owned);
                         diagnostics.step(row);
                         if crate::session_report::with(|recorder| recorder.stale(&crate::session_timeline::madrid_text(None), reason.as_deref())) {
@@ -1330,6 +1333,10 @@ fn run_owned(
                 );
                 if ceh_browser::take_scroll_fallback() {
                     row["scroll_fallback"] = serde_json::json!(true);
+                }
+                // Where a field entry stopped (a fixed check name and the field, never a typed value).
+                if let Some(reason) = ceh_browser::take_preparation_reason() {
+                    row["entry_stopped"] = serde_json::json!(reason);
                 }
                 diagnostics.step(row);
                 crate::session_report::with(|recorder| recorder.progressed());
