@@ -376,6 +376,7 @@
     "Контрольная сумма и происхождение пакета проверены. Установка запускается по кнопке.": "Package checksum and provenance verified. Start installation with the button.",
     "Для другого получателя — отправить ему ссылку. Срок действия: {minutes} мин.": "For another recipient, send them the link. It expires in {minutes} min.",
     "Для другого получателя — отправить ему ссылку.": "For another recipient, send them the link.",
+    "Браузер трижды подряд не смог проверить сертификат сайта. Поиск остановлен: проверьте, не подменяет ли сеть или антивирус HTTPS, и запустите поиск снова.": "The browser could not verify the site's certificate three times in a row. The search was stopped: check that your network or antivirus does not intercept HTTPS, then start the search again.",
     "Окно браузера нельзя поднять в этой среде. Откройте его вручную.": "The browser window cannot be brought forward in this environment. Open it manually.",
     "Импорт старых данных не завершён. Повторите импорт в настройках.": "Importing the previous data is incomplete. Retry the import in Settings.",
     "Добавьте получателя, чтобы получать уведомления. Токен можно сохранить сейчас.": "Add a recipient to receive notifications. You can save the token now."
@@ -757,6 +758,7 @@
     "Контрольная сумма и происхождение пакета проверены. Установка запускается по кнопке.": "Suma de comprobación y procedencia del paquete verificadas. Inicia la instalación con el botón.",
     "Для другого получателя — отправить ему ссылку. Срок действия: {minutes} мин.": "Para otro destinatario, enviarle el enlace. Caduca en {minutes} min.",
     "Для другого получателя — отправить ему ссылку.": "Para otro destinatario, enviarle el enlace.",
+    "Браузер трижды подряд не смог проверить сертификат сайта. Поиск остановлен: проверьте, не подменяет ли сеть или антивирус HTTPS, и запустите поиск снова.": "El navegador no pudo verificar el certificado del sitio tres veces seguidas. La búsqueda se ha detenido: compruebe que su red o su antivirus no interceptan HTTPS y vuelva a iniciar la búsqueda.",
     "Окно браузера нельзя поднять в этой среде. Откройте его вручную.": "No se puede traer al frente la ventana del navegador en este entorno. Ábrala manualmente.",
     "Импорт старых данных не завершён. Повторите импорт в настройках.": "La importación de los datos anteriores no ha terminado. Repítala en Ajustes.",
     "Добавьте получателя, чтобы получать уведомления. Токен можно сохранить сейчас.": "Añade un destinatario para recibir notificaciones. Puedes guardar el token ahora."

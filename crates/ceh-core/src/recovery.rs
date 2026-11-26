@@ -53,6 +53,10 @@ impl From<TimingError> for RecoveryError {
         Self::InvalidTiming
     }
 }
+/// A browser error page code that says the site's certificate could not be verified (Chromium `ERR_CERT_*`).
+pub fn is_certificate_error(variant: &str) -> bool {
+    variant.starts_with("ERR_CERT_")
+}
 pub fn plan_recovery(
     observed: &Observation,
     facts: &RecoveryFacts,
@@ -128,6 +132,14 @@ pub fn plan_recovery(
             };
             (delay(RetryKind::ServerRetry)?, action)
         }
+        // A Chromium browser that could not verify the site's certificate (`ERR_CERT_*`): the site sends its certificate
+        // without the intermediate, the browser fetches it itself, and a fetch that failed once is remembered by the
+        // browser process, so opening the start page again in it fails the same way. A new browser on the same profile
+        // fetches it again; the wait is short because nothing was sent to the site. TLS checks stay on.
+        PageKind::Unreachable if is_certificate_error(&observed.variant) => (
+            delay(RetryKind::UnsentClick)?,
+            RecoveryAction::Restart { clear_profile: false, reopen: true },
+        ),
         // The browser's own error page: one fixed wait, then the start page again (a navigation that fails once
         // more shows this page again and the same wait follows).
         PageKind::Unreachable => (delay(RetryKind::Unreachable)?, RecoveryAction::GetEntry),

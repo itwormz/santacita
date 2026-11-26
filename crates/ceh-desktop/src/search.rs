@@ -598,6 +598,8 @@ fn run(
     // The rows are kept between runs so the Work tab can show the profile's earlier log.
     let mut log = crate::journal_log::JournalLog::open(root, &profile.id, started_ms);
     let mut carry = ceh_core::flow::RecoveryCarry::default();
+    // New browsers started in a row because the browser could not verify the site's certificate.
+    let mut certificate_restarts = CertificateRestarts::default();
     loop {
         // What a search remembers belongs to one browser: a replacement browser starts with an empty memory, so a launch
         // that fails cannot leave the previous browser's report.
@@ -613,7 +615,9 @@ fn run(
                 if cancelled.load(Ordering::Acquire) {
                     return Ok(());
                 }
-                let _ = request;
+                if !certificate_restarts.allow(&request, Instant::now()) {
+                    return Err("site_certificate_untrusted");
+                }
                 update(state, |s| {
                     s.page = None;
                     s.manual = false;
@@ -624,6 +628,28 @@ fn run(
                 })?;
             }
         }
+    }
+}
+/// A browser that could not verify the site's certificate is replaced by a new one. When the new ones fail the same way
+/// one after another, the certificate is not a passing failure of the browser (an untrusted certificate, a network
+/// that intercepts HTTPS): the search stops and says so instead of starting browsers forever.
+#[derive(Default)]
+struct CertificateRestarts {
+    count: u32,
+    last: Option<Instant>,
+}
+impl CertificateRestarts {
+    const MAX: u32 = 3;
+    /// Restarts more than this far apart are not one run of failures.
+    const WINDOW: Duration = Duration::from_secs(10 * 60);
+    fn allow(&mut self, request: &crate::restart::RestartRequest, now: Instant) -> bool {
+        if request.reason != crate::restart::CERTIFICATE_RESTART {
+            return true;
+        }
+        let recent = self.last.is_some_and(|last| now.saturating_duration_since(last) < Self::WINDOW);
+        self.count = if recent { self.count + 1 } else { 1 };
+        self.last = Some(now);
+        self.count <= Self::MAX
     }
 }
 /// The browser is gone (the person closed it, or the app quit it): nothing waits for the person any more.
@@ -1756,6 +1782,30 @@ mod live_command_tests {
         assert!(commands.try_recv().is_ok());
     }
 
+    #[test]
+    fn a_site_certificate_failure_gets_a_new_browser_three_times_in_a_row_then_the_search_stops() {
+        use ceh_core::{model::PageKind, recovery::RecoveryAction};
+        let certificate = crate::restart::RestartRequest::from_action(&RecoveryAction::Restart { clear_profile: false, reopen: true }, PageKind::Unreachable).unwrap();
+        assert_eq!(certificate.reason, crate::restart::CERTIFICATE_RESTART);
+        assert!(!certificate.clear_profile, "the profile and its cookies are kept");
+        assert_eq!(certificate.kind(), crate::restart::RestartKind::NewSession);
+        let other = crate::restart::RestartRequest::from_action(&RecoveryAction::Restart { clear_profile: true, reopen: false }, PageKind::Blocked).unwrap();
+        let start = Instant::now();
+        let mut restarts = super::CertificateRestarts::default();
+        for n in 0..3 {
+            assert!(restarts.allow(&certificate, start + Duration::from_secs(10 * n)), "restart {n}");
+        }
+        // Other restarts are never counted or refused.
+        assert!(restarts.allow(&other, start + Duration::from_secs(35)));
+        assert!(!restarts.allow(&certificate, start + Duration::from_secs(40)), "the fourth in a row stops the search");
+        // A failure long after the last one starts a new count.
+        let mut later = super::CertificateRestarts::default();
+        assert!(later.allow(&certificate, start));
+        assert!(later.allow(&certificate, start + Duration::from_secs(5)));
+        assert!(later.allow(&certificate, start + Duration::from_secs(5 + 11 * 60)));
+        assert!(later.allow(&certificate, start + Duration::from_secs(10 + 11 * 60)));
+        assert!(later.allow(&certificate, start + Duration::from_secs(15 + 11 * 60)));
+    }
     #[test]
     fn restart_session_asks_for_a_new_browser_session_not_a_new_pass() {
         let (controller, commands, _messages) = running(false);

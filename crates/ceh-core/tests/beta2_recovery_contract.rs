@@ -355,3 +355,24 @@ fn the_interval_for_an_unreachable_site_comes_from_the_profile() {
     e.apply_timings(parse_timings(&json!({"unreachable_seconds": 90})).unwrap(), 30.).unwrap();
     assert_eq!(e.observe_with_facts(unreachable_page("first"), PageFacts::default(), 0).unwrap(), vec![FlowEffect::WaitUntil(90_000)]);
 }
+#[test]
+fn a_site_certificate_the_browser_could_not_verify_gets_a_new_browser_soon_not_the_five_minute_wait() {
+    // Chromium remembers a failed check of the site's certificate for the life of its process, so opening the start page
+    // again in it fails the same way: a new browser on the same profile (cookies kept) checks it again.
+    for code in ["ERR_CERT_AUTHORITY_INVALID", "ERR_CERT_DATE_INVALID"] {
+        let mut e = engine();
+        let page = Observation { document: DocumentId::new("cert").unwrap(), variant: code.into(), ..observation(PageKind::Unreachable) };
+        assert_eq!(e.observe_with_facts(page.clone(), PageFacts::default(), 1000).unwrap(), vec![FlowEffect::WaitUntil(3000)], "{code}");
+        let effects = e.observe_with_facts(page, PageFacts::default(), 3000).unwrap();
+        assert!(
+            matches!(effects.as_slice(), [FlowEffect::Recover { action: RecoveryAction::Restart { clear_profile: false, reopen: true }, .. }]),
+            "{code}: {effects:?}"
+        );
+    }
+    // Any other error page of the browser keeps the profile's wait and opens the start page again in the same browser.
+    let mut e = engine();
+    assert_eq!(e.observe_with_facts(unreachable_page("first"), PageFacts::default(), 1000).unwrap(), vec![FlowEffect::WaitUntil(301_000)]);
+    assert!(ceh_core::recovery::is_certificate_error("ERR_CERT_COMMON_NAME_INVALID"));
+    assert!(!ceh_core::recovery::is_certificate_error("ERR_CONNECTION_RESET"));
+    assert!(!ceh_core::recovery::is_certificate_error("dnsNotFound"));
+}
