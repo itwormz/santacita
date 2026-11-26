@@ -115,6 +115,13 @@ impl SessionRecorder {
             return false;
         }
         self.last_page_key = Some(key);
+        live_update(|live| {
+            live.insert("t".into(), json!(at));
+            live.insert("page".into(), page["page"].clone());
+            live.insert("variant".into(), json!(observation.variant));
+            live.insert("effects".into(), json!(effect_names));
+            live.insert("flow".into(), report["flow"].clone());
+        });
         self.push(json!({
             "t": at, "kind": "page", "page": page["page"], "method": page["method"], "doc": page["doc"],
             "variant": observation.variant, "operation_code": observation.operation_code,
@@ -141,6 +148,12 @@ impl SessionRecorder {
         if let Some(stopped) = row["entry_stopped"].as_str().map(stale_code) {
             row["entry_stopped"] = json!(stopped);
         }
+        live_update(|live| {
+            live.insert("last_step".into(), json!({"t": at, "effects": row["effects"], "error": row.get("error"), "detail": row.get("detail"), "entry_stopped": row.get("entry_stopped")}));
+            if let Some(stopped) = row.get("entry_stopped") {
+                live.insert("entry_stopped".into(), stopped.clone());
+            }
+        });
         row["t"] = json!(at);
         row["kind"] = json!("step");
         self.push(row);
@@ -148,6 +161,9 @@ impl SessionRecorder {
     /// The browser could not act on the page it had planned for. Returns `true` on the third one in a row.
     pub fn stale(&mut self, at: &str, reason: Option<&str>) -> bool {
         self.stale_streak += 1;
+        live_update(|live| {
+            live.insert("stale".into(), json!({"t": at, "reason": reason.map(stale_code), "streak": self.stale_streak}));
+        });
         self.push(json!({"t": at, "kind": "stale_document", "reason": reason.map(stale_code), "streak": self.stale_streak}));
         self.stale_streak == 3
     }
@@ -205,6 +221,21 @@ fn effect_name(effect: &FlowEffect) -> String {
     crate::session_timeline::effect_label(effect)
 }
 
+/// The newest state of the running search for the developer window: names, counts and codes only (the same as in a
+/// report, without page facts). Written by the worker, read by the window.
+static LIVE: std::sync::Mutex<Option<Value>> = std::sync::Mutex::new(None);
+fn live_update(work: impl FnOnce(&mut serde_json::Map<String, Value>)) {
+    if let Ok(mut live) = LIVE.lock() {
+        let state = live.get_or_insert_with(|| json!({}));
+        if let Some(object) = state.as_object_mut() {
+            work(object);
+        }
+    }
+}
+/// What the running search last saw and did (`null` before the first page of a search).
+pub fn live() -> Value {
+    LIVE.lock().ok().and_then(|live| live.clone()).unwrap_or(Value::Null)
+}
 thread_local! {
     /// The search worker is one thread for the whole run, so its memory needs no plumbing through the loop.
     static RECORDER: RefCell<SessionRecorder> = RefCell::new(SessionRecorder::default());
@@ -212,6 +243,9 @@ thread_local! {
 /// Forget the previous search (a new one starts on this thread).
 pub fn begin() {
     RECORDER.with(|recorder| *recorder.borrow_mut() = SessionRecorder::default());
+    if let Ok(mut live) = LIVE.lock() {
+        *live = None;
+    }
 }
 pub fn with<T>(work: impl FnOnce(&mut SessionRecorder) -> T) -> T {
     RECORDER.with(|recorder| work(&mut recorder.borrow_mut()))

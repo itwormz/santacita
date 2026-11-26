@@ -43,6 +43,13 @@ fn main() {
             "achievement_calendar",
             "achievement_export",
             "open_public_link",
+            "developer_state",
+            "developer_environment",
+            "developer_learning",
+            "developer_open",
+            "developer_copy_environment",
+            "developer_export",
+            "developer_site_check",
         ]),
     ))
     .expect("desktop build configuration");
