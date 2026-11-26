@@ -232,10 +232,24 @@ fn a_late_old_document_receipt_does_not_retime_the_new_document() {
     );
 }
 #[test]
+fn an_unknown_preparation_is_not_typed_again_on_the_same_page() {
+    // Its last step may have reached the page and its gate reservation is kept, so the same page is not prepared again:
+    // the full result wait after the slow entry returned, then the hold of the contact step.
+    let mut e = engine();
+    let o = observation(PageKind::Contact);
+    let effects = e.observe_with_facts(o.clone(), facts(), 0).unwrap();
+    let FlowEffect::Prepare { guard, action } = effects[0].clone() else { panic!() };
+    e.complete_preparation_at(&guard, action, PreparationOutcome::Unknown, 45000).unwrap();
+    assert_eq!(e.observe_with_facts(o.clone(), facts(), 45001).unwrap(), vec![FlowEffect::WaitUntil(50000)]);
+    assert!(e.observe_with_facts(o.clone(), facts(), 49999).unwrap().is_empty());
+    assert_eq!(e.observe_with_facts(o, facts(), 50000).unwrap(), vec![FlowEffect::Hold, FlowEffect::Alert]);
+}
+#[test]
 fn an_interrupted_preparation_is_typed_again_twice_then_the_person_is_called() {
     // Preparation only types into the page: it is repeated on the same page after the unsent-click pauses
     // (2 s, then 5 s), counted from when the slow entry returned. Only then does the contact step wait for a person.
-    for outcome in [PreparationOutcome::Failed, PreparationOutcome::Unknown] {
+    {
+        let outcome = PreparationOutcome::Failed;
         let mut e = engine();
         let o = observation(PageKind::Contact);
         let mut now = 0;

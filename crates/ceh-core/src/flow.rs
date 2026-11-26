@@ -584,18 +584,24 @@ impl FlowEngine {
         if !matches!(self.phase,Some(Phase::Preparing(expected)) if expected==action) {
             return Err(FlowError::UnexpectedCompletion);
         }
-        // Preparation only types into the page and never submits it: an interrupted entry (the page changed while
-        // typing, a refused focus click, time ran out) is tried again on a fresh observation like an unsent click,
-        // and the person is called only when the retries are used up.
-        self.phase = Some(if outcome == PreparationOutcome::Completed {
-            Phase::Prepared(action)
-        } else {
-            let attempt = self.unsent_attempts.iter().find(|(key, _)| key == &(guard.document.clone(), action)).map_or(0, |(_, n)| *n);
-            let seconds = self.timings.recovery_delay(RetryKind::UnsentClick, attempt, self.recovery_jitter).map_err(|_| FlowError::InvalidDelay)?;
-            Phase::ActionWait {
-                deadline: deadline_millis(now, seconds).map_err(|_|FlowError::ClockOverflow)?,
-                action, unsent: true, announced: false,
+        // Preparation only types into the page and never submits it: an entry that failed (the page changed while
+        // typing, a refused focus click, time ran out) is tried again on a fresh observation like an unsent click, and
+        // the person is called only when the retries are used up. An entry whose last step is unknown keeps its gate
+        // reservation, so the same page cannot be prepared again: it gets the result wait and the recovery as before.
+        self.phase = Some(match outcome {
+            PreparationOutcome::Completed => Phase::Prepared(action),
+            PreparationOutcome::Failed => {
+                let attempt = self.unsent_attempts.iter().find(|(key, _)| key == &(guard.document.clone(), action)).map_or(0, |(_, n)| *n);
+                let seconds = self.timings.recovery_delay(RetryKind::UnsentClick, attempt, self.recovery_jitter).map_err(|_| FlowError::InvalidDelay)?;
+                Phase::ActionWait {
+                    deadline: deadline_millis(now, seconds).map_err(|_|FlowError::ClockOverflow)?,
+                    action, unsent: true, announced: false,
+                }
             }
+            PreparationOutcome::Unknown => Phase::ActionWait {
+                deadline: deadline_millis(now, self.timings.post_timeout_seconds()).map_err(|_|FlowError::ClockOverflow)?,
+                action, unsent: false, announced: false,
+            },
         });
         self.last_tick = Some(now);
         Ok(())
