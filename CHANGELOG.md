@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### New
+
+- A developer window: three clicks on the small wrench in the corner of the About window. It records the pages a search passes through for adding new services later (their structure and the path between them, never what was typed), shows what the bot is doing right now, opens the app's folders, exports the last session as a zip into Downloads, shows the installed browsers and checks whether the site's start page opens in a browser.
+
 ### Fixes
 
 - Fix a search that stopped on the applicant or contact form and waited for a person: the NIE field is now typed although scrolling to it changes the site's header, and the repeated email is typed to the end although the site shows a hint while the two addresses differ. A form entry that is cut off is tried twice more before the person is called.
