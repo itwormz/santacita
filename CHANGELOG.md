@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- Fix a search that stopped on the applicant or contact form and waited for a person: the NIE field is now typed although scrolling to it changes the site's header, and the repeated email is typed to the end although the site shows a hint while the two addresses differ. A form entry that is cut off is tried twice more before the person is called.
+
 ## 0.4.9
 
 ### New
