@@ -505,6 +505,16 @@ impl SessionDriver {
                 _ => None,
             })
             .collect();
+        let preparations: Vec<_> = step
+            .update
+            .effects
+            .iter()
+            .filter_map(|e| match e {
+                FlowEffect::Prepare { guard, action } => Some((guard.clone(), *action)),
+                _ => None,
+            })
+            .collect();
+        let (now, planned_at) = (step.now, step.planned_at);
         let result = self.execute_inner(connection, step);
         if matches!(result, Err(BrowserError::Paused)) {
             self.cancelled_preactions.extend(candidates);
@@ -514,6 +524,15 @@ impl SessionDriver {
                 if *action == ActionKind::Cookie {
                     self.flow.cookie_click_not_sent(guard);
                 }
+            }
+        }
+        if matches!(result, Err(BrowserError::StaleDocument | BrowserError::NoObservation)) {
+            // Typing that was cut off because the page changed under it sent nothing to the site: it ends as a failed
+            // preparation, which the flow tries again, instead of leaving the flow waiting for a preparation that
+            // never completes. A preparation that had already completed is left as it is (the call is refused).
+            let at = now.saturating_add(planned_at.elapsed().as_millis() as u64);
+            for (guard, action) in &preparations {
+                let _ = self.flow.complete_preparation_at(guard, *action, ceh_core::flow::PreparationOutcome::Failed, at);
             }
         }
         result

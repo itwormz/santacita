@@ -25,7 +25,7 @@ fn read_document_before(
     if context.is_empty() || context.len() > 512 || !matches!(fill_mode, "manual" | "copy") {
         return Err(ProtocolError::InvalidData);
     }
-    let value=connection.call_before("script.callFunction",json!({"target":reading_target(context),"awaitPromise":false,"functionDeclaration":INSPECT_DOCUMENT,"arguments":[{"type":"string","value":fill_mode}]}),deadline)?;
+    let value=connection.call_before("script.callFunction",json!({"target":reading_target(context),"awaitPromise":false,"functionDeclaration":crate::site_script(INSPECT_DOCUMENT),"arguments":[{"type":"string","value":fill_mode}]}),deadline)?;
     if value["type"] != "success" || value["result"]["type"] != "string" {
         return Err(ProtocolError::InvalidData);
     }

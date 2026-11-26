@@ -13,8 +13,10 @@ param(
   [string]$WebView2Setup
 )
 $ErrorActionPreference = 'Stop'
-if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$') { throw "Unsupported version: $Version" }
-# Windows Installer versions are numeric: beta N becomes the fourth field (0.4.0-beta.2 -> 0.4.0.2).
+if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-(?:beta|dev)\.(\d+))?$') { throw "Unsupported version: $Version" }
+# Windows Installer versions are numeric: beta or dev N becomes the fourth field (0.4.0-beta.2 -> 0.4.0.2,
+# 0.4.9-dev.1 -> 0.4.9.1). Windows Installer ignores that field when it compares versions, and the package allows
+# same-version upgrades, so a dev build installs over its release and the next release installs over it.
 $msiVersion = if ($Matches[4]) { "$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])" } else { "$($Matches[1]).$($Matches[2]).$($Matches[3])" }
 foreach ($path in $Exe, $License, $Icon, "$PSScriptRoot\SantaCita.wxs") { if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing: $path" } }
 if ($WebView2Setup) {

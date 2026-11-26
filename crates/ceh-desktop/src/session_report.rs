@@ -137,6 +137,10 @@ impl SessionRecorder {
         if let Some(detail) = row["detail"].as_str().map(stale_code) {
             row["detail"] = json!(detail);
         }
+        // Where a field entry stopped: a fixed field and check name with counts, kept to plain code characters.
+        if let Some(stopped) = row["entry_stopped"].as_str().map(stale_code) {
+            row["entry_stopped"] = json!(stopped);
+        }
         row["t"] = json!(at);
         row["kind"] = json!("step");
         self.push(row);

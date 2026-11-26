@@ -35,6 +35,25 @@ mod trusted_input;
 pub use trusted_input::{take_scroll_fallback, take_stale_reason};
 #[cfg(feature = "bidi")]
 mod typed_field;
+#[cfg(test)]
+thread_local! {
+    /// Tests only: a local test server that page scripts accept as the site, so a whole field entry runs on a
+    /// fixture page. Release and debug builds of the app never compile this.
+    pub(crate) static TEST_SITE_HOST: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+/// A page script as it is sent. Outside tests it is the script itself; in tests the site's host may be a local server.
+pub(crate) fn site_script(script: &str) -> std::borrow::Cow<'_, str> {
+    #[cfg(test)]
+    if let Some(host) = TEST_SITE_HOST.with(|h| h.borrow().clone()) {
+        return std::borrow::Cow::Owned(
+            script
+                .replace("'https://icp.administracionelectronica.gob.es'", &format!("'http://{host}'"))
+                .replace("location.hostname==='icp.administracionelectronica.gob.es'", &format!("location.host==='{host}'")),
+        );
+    }
+    std::borrow::Cow::Borrowed(script)
+}
+pub use typed_field::take_preparation_reason;
 #[cfg(feature = "bidi")]
 mod typed_select;
 use ceh_core::control::{Authority, ControlError, ControlMode, ControlSnapshot};
