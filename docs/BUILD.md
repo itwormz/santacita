@@ -13,6 +13,7 @@ cargo test --workspace --locked
 node desktop-ui/scripts/prepare.mjs
 node --test desktop-ui/tests/*.test.mjs
 cargo test -p ceh-desktop --features shell --locked
+cargo clippy --workspace --all-targets --features ceh-browser/bidi,ceh-desktop/shell --locked -- -D warnings
 ```
 
 `prepare.mjs` installs the locked frontend dependencies, generates icons, type-checks Svelte and builds the frontend. Its dependencies and generated files stay in `.local/builds/`.
