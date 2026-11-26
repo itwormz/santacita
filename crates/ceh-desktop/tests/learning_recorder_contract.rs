@@ -172,3 +172,18 @@ fn two_runs_started_in_the_same_second_do_not_share_a_directory() {
     assert!(LearningRecorder::create(root.path(), "run", &profile()).is_some());
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
 }
+
+#[test]
+fn a_failure_to_read_is_noted_once_per_kind_until_a_page_is_read_again() {
+    let root = tempfile::tempdir().unwrap();
+    let mut recorder = LearningRecorder::create(root.path(), "run", &profile()).unwrap();
+    recorder.note("read_failed_call");
+    recorder.note("read_failed_call");
+    recorder.note("read_empty");
+    recorder.record(page("/icpplustiem/a", 1, &[]));
+    recorder.note("read_failed_call");
+    let text = std::fs::read_to_string(run_dir(root.path()).join("events.jsonl")).unwrap();
+    let events: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let names: Vec<_> = events.iter().map(|e| e["event"].as_str().unwrap()).collect();
+    assert_eq!(names, ["read_failed_call", "read_empty", "read_failed_call"]);
+}

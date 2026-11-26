@@ -7,6 +7,8 @@ use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
 const SCRIPT: &str = include_str!("learning_snapshot.js");
+/// Long on purpose: see `ReadFailure::Call`.
+const READ_DEADLINE: Duration = Duration::from_secs(20);
 const MAX_BYTES: usize = 256 * 1024;
 const MAX_CONTROLS: usize = 400;
 const MAX_OPTIONS: usize = 500;
@@ -76,9 +78,20 @@ pub fn parse_page(raw: &str) -> Option<LearningPage> {
         && page.forms.len() <= MAX_FORMS;
     within.then_some(page)
 }
+/// Why a read gave no page (kept apart so a recording that stops can say why).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadFailure {
+    /// The browser did not answer in time or the connection is gone. A missed deadline ends the connection for
+    /// the whole search, so the deadline is long: a page that is being left can hold the call for seconds.
+    Call,
+    /// The script declined to read (not the official site) or returned no text.
+    Empty,
+    /// The text is not the structure: unknown key, over a limit, or not JSON.
+    Invalid,
+}
 /// Run the page script in `target` (`{"context": .., "sandbox": ..}` or a realm) and parse what it returns.
-/// Read only. The deadline is generous: a missed deadline poisons the connection for the whole search.
-pub fn read_page(connection: &mut BidiConnection, target: &serde_json::Value) -> Option<LearningPage> {
+/// Read only.
+pub fn read_page(connection: &mut BidiConnection, target: &serde_json::Value) -> Result<LearningPage, ReadFailure> {
     let value = connection
         .call_before(
             "script.callFunction",
@@ -87,8 +100,9 @@ pub fn read_page(connection: &mut BidiConnection, target: &serde_json::Value) ->
                 "functionDeclaration": SCRIPT,
                 "awaitPromise": false
             }),
-            Instant::now() + Duration::from_millis(3000),
+            Instant::now() + READ_DEADLINE,
         )
-        .ok()?;
-    parse_page(value["result"]["value"].as_str()?)
+        .map_err(|_| ReadFailure::Call)?;
+    let text = value["result"]["value"].as_str().ok_or(ReadFailure::Empty)?;
+    parse_page(text).ok_or(ReadFailure::Invalid)
 }

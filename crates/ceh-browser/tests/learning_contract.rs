@@ -1,4 +1,4 @@
-use ceh_browser::{bidi::BidiConnection, learning::{parse_page, read_page}};
+use ceh_browser::{bidi::BidiConnection, learning::{ReadFailure, parse_page, read_page}};
 use serde_json::{Value, json};
 use std::{net::TcpListener, path::Path, thread, time::Duration};
 use tungstenite::Message;
@@ -105,5 +105,45 @@ fn reading_a_page_sends_the_script_to_the_given_target_and_parses_the_answer() {
     let mut connection = BidiConnection::connect(address, Duration::from_secs(2)).unwrap();
     let page = read_page(&mut connection, &json!({"context": "ctx", "sandbox": "ceh"})).unwrap();
     assert_eq!(page.controls.len(), 3);
+    server.join().unwrap();
+}
+
+fn answer_with(value: Value) -> Result<ceh_browser::learning::LearningPage, ReadFailure> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept(stream).unwrap();
+        let request: Value = serde_json::from_str(&socket.read().unwrap().into_text().unwrap()).unwrap();
+        socket.send(Message::Text(json!({"id": request["id"], "type": "success", "result": {"type": "success", "realm": "r", "result": value}}).to_string().into())).unwrap();
+    });
+    let mut connection = BidiConnection::connect(address, Duration::from_secs(2)).unwrap();
+    let result = read_page(&mut connection, &json!({"context": "ctx"}));
+    server.join().unwrap();
+    result
+}
+
+#[test]
+fn a_page_the_script_declines_to_read_is_reported_as_empty() {
+    assert_eq!(answer_with(json!({"type": "null"})).unwrap_err(), ReadFailure::Empty);
+}
+
+#[test]
+fn an_answer_that_is_not_the_structure_is_reported_as_invalid() {
+    assert_eq!(answer_with(json!({"type": "string", "value": "{\"path\":\"/x\",\"value\":\"secret\"}"})).unwrap_err(), ReadFailure::Invalid);
+}
+
+#[test]
+fn a_call_that_the_browser_never_answers_is_reported_as_a_call_failure() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept(stream).unwrap();
+        let _ = socket.read();
+        // Never answers: the socket is dropped.
+    });
+    let mut connection = BidiConnection::connect(address, Duration::from_secs(2)).unwrap();
+    assert_eq!(read_page(&mut connection, &json!({"context": "ctx"})).unwrap_err(), ReadFailure::Call);
     server.join().unwrap();
 }

@@ -1535,9 +1535,13 @@ fn run_owned(
             // Learning mode (developer): the page as it is now, in any control mode, at most every 1.5 s.
             if let Some(recorder) = learning.as_mut()
                 && recorder.due(Instant::now())
-                && let Some(page) = ceh_browser::learning::read_page(browser.connection(), &serde_json::json!({"context": &context, "sandbox": "ceh"}))
             {
-                recorder.record(page);
+                match ceh_browser::learning::read_page(browser.connection(), &serde_json::json!({"context": &context, "sandbox": "ceh"})) {
+                    Ok(page) => recorder.record(page),
+                    Err(ceh_browser::learning::ReadFailure::Call) => recorder.note("read_failed_call"),
+                    Err(ceh_browser::learning::ReadFailure::Empty) => recorder.note("read_empty"),
+                    Err(ceh_browser::learning::ReadFailure::Invalid) => recorder.note("read_invalid"),
+                }
             }
             diagnostics.flush_timeline(browser.connection(), &mut driver);
             let change = presenter

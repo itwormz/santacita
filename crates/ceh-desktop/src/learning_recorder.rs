@@ -38,6 +38,8 @@ pub struct LearningRecorder {
     last: Option<Last>,
     stopped: bool,
     read_at: Option<Instant>,
+    /// The last failure written to `events.jsonl`; cleared when a page is read again.
+    noted: Option<String>,
 }
 /// Lower case without Spanish accents, one char for one char, so positions line up with the original text.
 fn fold(text: &str) -> Vec<char> {
@@ -141,7 +143,20 @@ impl LearningRecorder {
         sanitizer.register(secrets.clone());
         let mut known: Vec<Vec<char>> = secrets.iter().map(|secret| fold(secret)).filter(|f| f.len() >= 3).collect();
         known.extend(profile.full_name.split_whitespace().filter(|word| word.chars().count() >= 4).map(fold));
-        Some(Self { directory, sanitizer, known, index: 0, last: None, stopped: false, read_at: None })
+        Some(Self { directory, sanitizer, known, index: 0, last: None, stopped: false, read_at: None, noted: None })
+    }
+    /// Write a failure of the recording itself to `events.jsonl` (once per kind until a page is read again), so a
+    /// recording that stops can say why. Also printed to stderr the first time.
+    pub fn note(&mut self, event: &str) {
+        if self.stopped || self.noted.as_deref() == Some(event) {
+            return;
+        }
+        self.noted = Some(event.to_owned());
+        let at = crate::current_time().map(|now| now.to_rfc3339()).unwrap_or_default();
+        eprintln!("learning mode: {event}");
+        let _ = private_file(true)
+            .open(self.directory.join("events.jsonl"))
+            .and_then(|mut f| writeln!(f, "{}", json!({"at": at, "event": event})));
     }
     /// Whether a read of the page is due: at most one every 1.5 seconds, so the extra script call stays rare.
     pub fn due(&mut self, now: Instant) -> bool {
@@ -157,6 +172,7 @@ impl LearningRecorder {
         if self.stopped || self.index >= MAX_PAGES {
             return;
         }
+        self.noted = None;
         let mut value = serde_json::to_value(&page).unwrap_or(Value::Null);
         redact(&mut value, &self.sanitizer, &self.known);
         let Ok(page) = serde_json::from_value::<LearningPage>(value) else { return };
