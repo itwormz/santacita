@@ -605,6 +605,7 @@ fn run(
         // What a search remembers belongs to one browser: a replacement browser starts with an empty memory, so a launch
         // that fails cannot leave the previous browser's report.
         crate::session_report::begin();
+        SITE_REACHED.store(false, Ordering::Release);
         let end = run_session(
             root, profile.clone(), &mut timings, &mut appointment_policy, receiver, live, notifications,
             shared_gate, cancelled, state, window, sound, close_browser, &mut journal, &mut log, &mut carry,
@@ -615,6 +616,10 @@ fn run(
                 // The core waited the cooldown before asking (Python `cooldown_completed`): no further delay.
                 if cancelled.load(Ordering::Acquire) {
                     return Ok(());
+                }
+                // A browser that opened the site ends a run of certificate failures.
+                if SITE_REACHED.load(Ordering::Acquire) {
+                    certificate_restarts = CertificateRestarts::default();
                 }
                 if !certificate_restarts.allow(&request, Instant::now()) {
                     return Err("site_certificate_untrusted");
@@ -630,6 +635,15 @@ fn run(
             }
         }
     }
+}
+/// The browser of the current session showed a page of the site itself (not an error page or a page still loading).
+static SITE_REACHED: AtomicBool = AtomicBool::new(false);
+fn site_opened(kind: PageKind) -> bool {
+    !matches!(
+        kind,
+        PageKind::Unreachable | PageKind::Loading | PageKind::Unknown | PageKind::AuthWait
+            | PageKind::Blocked | PageKind::RateLimited | PageKind::ServerError | PageKind::Expired
+    )
 }
 /// A browser that could not verify the site's certificate is replaced by a new one. When the new ones fail the same way
 /// one after another, the certificate is not a passing failure of the browser (an untrusted certificate, a network
@@ -1146,6 +1160,9 @@ fn run_owned(
                         .or_else(|| (before.report["preparation"] == "hold").then(|| "preparation_hold".to_owned()))
                         .unwrap_or_else(|| "hold".to_owned());
                     request_stop_report(&mut pending_report, &reason, "the search stopped and waits for a person");
+                }
+                if site_opened(before.observation.kind) {
+                    SITE_REACHED.store(true, Ordering::Release);
                 }
                 let now = mono();
                 if before.control.mode() == ControlMode::Manual {
@@ -1829,6 +1846,11 @@ mod live_command_tests {
         // Other restarts are never counted or refused.
         assert!(restarts.allow(&other, start + Duration::from_secs(35)));
         assert!(!restarts.allow(&certificate, start + Duration::from_secs(40)), "the fourth in a row stops the search");
+        // A page of the site opened by one of the new browsers ends the run of failures.
+        assert!(super::site_opened(PageKind::Province) && super::site_opened(PageKind::Applicant));
+        for error in [PageKind::Unreachable, PageKind::Loading, PageKind::Blocked, PageKind::ServerError] {
+            assert!(!super::site_opened(error), "{error:?}");
+        }
         // A failure long after the last one starts a new count.
         let mut later = super::CertificateRestarts::default();
         assert!(later.allow(&certificate, start));
