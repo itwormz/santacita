@@ -821,6 +821,8 @@ fn run_owned(
         .event(JournalEvent::Start, None, None, false, wall()?)
         .map_err(|_| "search_unavailable")?;
     let mut diagnostics = crate::search_diagnostics::SearchDiagnostics::new(root, session.as_str().to_owned(), profile);
+    // Developer only: `CEH_LEARNING=<directory>` records the structure of every page, whatever the control mode.
+    let mut learning = crate::learning_recorder::LearningRecorder::from_env(profile);
     let mut presenter = crate::session_presentation::SessionPresentation::new(session.clone(), (timings.alert_seconds()*1000.).ceil() as u64);
     let mut certificate_clicked: Option<u64> = None;
     let mut hidden_before_action = false;
@@ -1106,6 +1108,17 @@ fn run_owned(
                 };
                 let before = step.update();
                 diagnostics.observe(&step, browser.connection(), &mut driver);
+                if let Some(recorder) = learning.as_mut()
+                    && let Some(page) = step.learning_snapshot(browser.connection())
+                {
+                    let observation = &before.observation;
+                    recorder.record(
+                        page,
+                        &crate::learning_recorder::name(&observation.method),
+                        &crate::learning_recorder::name(&observation.kind),
+                        observation.document.as_str(),
+                    );
+                }
                 let at = wall()?;
                 // Recorded before anything below that can fail, so the report of such a failure has the page.
                 if crate::session_report::with(|recorder| {
