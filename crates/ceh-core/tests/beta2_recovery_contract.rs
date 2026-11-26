@@ -232,29 +232,27 @@ fn a_late_old_document_receipt_does_not_retime_the_new_document() {
     );
 }
 #[test]
-fn slow_failed_or_unknown_preparation_gets_a_full_wait_after_its_completion() {
+fn an_interrupted_preparation_is_typed_again_twice_then_the_person_is_called() {
+    // Preparation only types into the page: it is repeated on the same page after the unsent-click pauses
+    // (2 s, then 5 s), counted from when the slow entry returned. Only then does the contact step wait for a person.
     for outcome in [PreparationOutcome::Failed, PreparationOutcome::Unknown] {
         let mut e = engine();
         let o = observation(PageKind::Contact);
-        let effects = e.observe_with_facts(o.clone(), facts(), 0).unwrap();
-        let FlowEffect::Prepare { guard, action } = effects[0].clone() else {
-            panic!()
-        };
-        e.complete_preparation_at(&guard, action, outcome, 45000)
-            .unwrap();
-        assert_eq!(
-            e.observe_with_facts(o.clone(), facts(), 45001).unwrap(),
-            vec![FlowEffect::WaitUntil(50000)]
-        );
-        assert!(
-            e.observe_with_facts(o.clone(), facts(), 49999)
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(
-            e.observe_with_facts(o, facts(), 50000).unwrap(),
-            vec![FlowEffect::Hold, FlowEffect::Alert]
-        );
+        let mut now = 0;
+        for wait in [2000, 5000] {
+            let effects = e.observe_with_facts(o.clone(), facts(), now).unwrap();
+            let FlowEffect::Prepare { guard, action } = effects[0].clone() else { panic!("{effects:?}") };
+            now += 45000;
+            e.complete_preparation_at(&guard, action, outcome, now).unwrap();
+            assert_eq!(e.observe_with_facts(o.clone(), facts(), now + 1).unwrap(), vec![FlowEffect::WaitUntil(now + wait)]);
+            assert!(e.observe_with_facts(o.clone(), facts(), now + wait - 1).unwrap().is_empty());
+            now += wait;
+        }
+        let effects = e.observe_with_facts(o.clone(), facts(), now).unwrap();
+        let FlowEffect::Prepare { guard, action } = effects[0].clone() else { panic!("{effects:?}") };
+        e.complete_preparation_at(&guard, action, outcome, now + 1).unwrap();
+        assert_eq!(e.observe_with_facts(o.clone(), facts(), now + 2).unwrap(), vec![FlowEffect::WaitUntil(now + 1 + 5000)]);
+        assert_eq!(e.observe_with_facts(o, facts(), now + 1 + 5000).unwrap(), vec![FlowEffect::Hold, FlowEffect::Alert]);
     }
 }
 
