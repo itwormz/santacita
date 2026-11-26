@@ -973,6 +973,8 @@ fn run_owned(
                     Control::Resume => {
                         if driver.control().mode() != ControlMode::Manual {
                             apply_worker_control(&mut driver, &gate, &message, mono())?;
+                            // Out of pause the app drives again in this same pass: no event may be dropped from here.
+                            browser.connection().set_drop_events_on_overflow(false);
                             stats
                                 .set_phase(&mut db, "working", wall()?, mono())
                                 .map_err(|_| "statistics_unavailable")?;
