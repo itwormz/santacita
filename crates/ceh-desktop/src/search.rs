@@ -947,6 +947,15 @@ fn run_owned(
         loop {
             // At the top of every pass, so a pending report is retried while paused or while nothing can be observed too.
             save_pending_report(root, state, &mut pending_report);
+            // The recording is turned on or off from the developer window; picked up first, before any browser call of
+            // this pass. Events may be dropped on overflow only while it records and a person drives: the app keeps every
+            // event whenever it drives itself, so the waits for a quiet network see them all.
+            let wanted = crate::learning_recorder::requested();
+            if wanted != learning_root {
+                learning = wanted.as_deref().and_then(|root| crate::learning_recorder::LearningRecorder::start(root, profile));
+                learning_root = wanted;
+            }
+            browser.connection().set_drop_events_on_overflow(learning.is_some() && driver.control().mode() != ControlMode::Automatic);
             while let Ok(message) = receiver.try_recv() {
                 match message.command {
                     Control::Stop => return Ok(SessionEnd::Finished),
@@ -990,6 +999,8 @@ fn run_owned(
                         // Take the same browser back with a new control session; cookies and the site session stay.
                         // A second request finds `manual` already false and is dropped.
                         if manual && browser.resume_automation().is_ok() {
+                            // The app drives again from here: no event may be dropped any more.
+                            browser.connection().set_drop_events_on_overflow(false);
                             // Navigate first: if the original tab is gone the person keeps the browser.
                             let navigated = browser.connection().call(
                                 "browsingContext.navigate",
@@ -1585,15 +1596,6 @@ fn run_owned(
                 preferences_at = Instant::now();
             }
             diagnostics.window_state(browser.connection(), &context);
-            let wanted = crate::learning_recorder::requested();
-            if wanted != learning_root {
-                learning = wanted.as_deref().and_then(|root| crate::learning_recorder::LearningRecorder::start(root, profile));
-                learning_root = wanted;
-            }
-            // The recording drops a flood of events while a person drives; with no recording the app keeps every event again.
-            if learning.is_none() {
-                browser.connection().set_drop_events_on_overflow(false);
-            }
             // Learning mode (developer): the page as it is now, in any control mode, at most every 1.5 s.
             if let Some(recorder) = learning.as_mut()
                 && recorder.due(Instant::now())
