@@ -292,6 +292,7 @@ impl SearchController {
                     &sound,
                     &close_browser,
                 );
+                crate::session_report::live_finished();
                 let requested_stop = stop.load(Ordering::Acquire);
                 let busy = result == Err("browser_profile_busy");
                 if let Err(code) = &result

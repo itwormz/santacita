@@ -24,7 +24,7 @@ const dash=(v:unknown)=>v===null||v===undefined||v===''?'—':String(v);
   <div class="row"><button type="button" class:primary={!dev?.learning.on} disabled={busy||!dev} onclick={()=>void toggle()}><Icon name={dev?.learning.on?'stop':'play'} size={16}/>{t(dev?.learning.on?'Остановить запись':'Начать запись')}</button><button type="button" disabled={busy} onclick={()=>void run(()=>developerOpen('learning'))}><Icon name="folder" size={16}/>{t('Открыть папку')}</button></div>
  </section>
  <section><h2><Icon name="activity" size={16}/>{t('Состояние поиска')}</h2>
-  {#if dev?.live}{@const live=dev.live}<dl>
+  {#if dev?.live}{@const live=dev.live}{#if live.running!==true}<p class="muted">{t('Поиск не идёт')} · {t('последнее состояние')}</p>{/if}<dl>
    <dt>{t('Страница')}</dt><dd>{dash(live.page)}{live.variant?` · ${live.variant}`:''}</dd>
    <dt>{t('Фаза')}</dt><dd>{dash(live.flow?.phase)}</dd>
    <dt>{t('Причина остановки')}</dt><dd>{dash(live.flow?.hold_reason)}</dd>
@@ -43,8 +43,8 @@ const dash=(v:unknown)=>v===null||v===undefined||v===''?'—':String(v);
  </section>
  <section><h2><Icon name="globe" size={16}/>{t('Проверка сайта')}</h2>
   <p class="muted">{t('Открывает стартовую страницу сайта в отдельном временном профиле и закрывает браузер. Дальше стартовой страницы не идёт.')}</p>
-  <div class="row"><select bind:value={checkBrowser} disabled={checking||!env}>{#each env?.browsers.filter(b=>b.support==='supported')??[] as b}<option value={b.id}>{b.name}</option>{/each}</select><button type="button" disabled={checking||!checkBrowser||!!dev?.live} onclick={()=>void siteCheck()}><Icon name="search" size={16}/>{t(checking?'Проверяем…':'Проверить')}</button></div>
-  {#if dev?.live}<p class="muted">{t('Недоступно, пока идёт поиск')}</p>{/if}
+  <div class="row"><select bind:value={checkBrowser} disabled={checking||!env}>{#each env?.browsers.filter(b=>b.support==='supported')??[] as b}<option value={b.id}>{b.name}</option>{/each}</select><button type="button" disabled={checking||!checkBrowser||dev?.live?.running===true} onclick={()=>void siteCheck()}><Icon name="search" size={16}/>{t(checking?'Проверяем…':'Проверить')}</button></div>
+  {#if dev?.live?.running===true}<p class="muted">{t('Недоступно, пока идёт поиск')}</p>{/if}
   {#if check}<p role="status">{t(RESULTS[check.result]??check.result)}{check.code?` (${check.code})`:''} · {check.seconds} {t('с')}</p>{/if}
  </section>
  {#if message}<p class="muted" role="status">{message}</p>{/if}{#if failed}<p class="error" role="alert">{t('Не получилось')}</p>{/if}
