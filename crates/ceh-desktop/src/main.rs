@@ -788,7 +788,13 @@ async fn startup_report_copy(
 #[tauri::command]
 fn developer_state(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) -> Result<serde_json::Value, &'static str> {
     authorize(&window)?;
-    Ok(ceh_desktop::developer::state(&runtime.root))
+    Ok(developer_state_of(&runtime))
+}
+/// The developer window's state with whether a search runs now (from the search controller, also while a browser starts).
+fn developer_state_of(runtime: &DesktopRuntime) -> serde_json::Value {
+    let mut state = ceh_desktop::developer::state(&runtime.root);
+    state["search_active"] = serde_json::json!(runtime.search.snapshot().map(|s| s.active).unwrap_or(true));
+    state
 }
 /// Versions, the system and the installed browsers (read once when the window opens: finding browsers takes a moment).
 #[tauri::command]
@@ -806,7 +812,7 @@ fn developer_learning(
 ) -> Result<serde_json::Value, &'static str> {
     authorize(&window)?;
     ceh_desktop::developer::set_learning(&runtime.root, on)?;
-    Ok(ceh_desktop::developer::state(&runtime.root))
+    Ok(developer_state_of(&runtime))
 }
 /// Open one of the app's own folders (`data`, `diagnostics`, `reports`, `learning`) in the file manager.
 #[tauri::command]
@@ -856,9 +862,14 @@ async fn developer_export(window: WebviewWindow, runtime: State<'_, DesktopRunti
 #[tauri::command]
 async fn developer_site_check(
     window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
     browser: String,
 ) -> Result<serde_json::Value, &'static str> {
     authorize(&window)?;
+    // Never next to a running search, including while its browser starts or is replaced.
+    if runtime.search.snapshot().map(|s| s.active).unwrap_or(true) {
+        return Err("search_running");
+    }
     tauri::async_runtime::spawn_blocking(move || ceh_desktop::developer::site_check(&browser))
         .await
         .map_err(|_| "developer_site_check_failed")

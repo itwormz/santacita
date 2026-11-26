@@ -83,7 +83,7 @@ export async function legacyImport(name:string):Promise<{copied:number;kept:numb
 export async function resetSession(id:string):Promise<'reset'|'restarted'>{return invoke('reset_session',{id});}
 export async function copyStartupReport(id:string):Promise<void>{return invoke('startup_report_copy',{id});}
 export async function latestStartupReport():Promise<string|null>{return invoke('startup_report_latest');}
-export interface DeveloperState {learning:{on:boolean;folder:string|null};folders:Record<string,string>;live:Record<string,any>|null}
+export interface DeveloperState {learning:{on:boolean;folder:string|null};folders:Record<string,string>;live:Record<string,any>|null;search_active:boolean}
 export interface DeveloperEnvironment {app:string;system:string;architecture:string;data:string;browsers:{id:string;name:string;version:string;path:string;support:string}[];chromium_arguments:string[];learning_variable:boolean}
 export async function developerState():Promise<DeveloperState>{return invoke('developer_state');}
 export async function developerEnvironment():Promise<DeveloperEnvironment>{return invoke('developer_environment');}
