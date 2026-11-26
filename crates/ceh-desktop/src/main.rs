@@ -297,7 +297,7 @@ async fn update_install(window: WebviewWindow, runtime: State<'_, DesktopRuntime
             .map_err(|_| "update_install_failed")?
             .map_err(|_| "update_install_failed")?;
         window.app_handle().exit(0);
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "linux"))]
     tauri::async_runtime::spawn_blocking(move || ceh_desktop::notification_actions::open_installer(&path))
