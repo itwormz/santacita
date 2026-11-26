@@ -6,6 +6,7 @@
 
 - Fix a search that stopped on the applicant or contact form and waited for a person: the NIE field is now typed although scrolling to it changes the site's header, and the repeated email is typed to the end although the site shows a hint while the two addresses differ. A form entry that is cut off is tried twice more before the person is called.
 - Fix Chrome, Brave and Edge sometimes opening the site on "Privacy error" at the start: the browser could not download the site's missing intermediate certificate and the search waited without moving on. The download now works every time, and if the browser still cannot verify the site's certificate, the app starts a new browser with the same profile; after three times in a row the search stops and says so.
+- Problem reports now include the pages of every province, including Madrid: the diagnostics read any page of the site, not only two of its sections.
 
 ## 0.4.9
 
