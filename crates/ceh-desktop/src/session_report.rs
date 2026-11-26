@@ -106,6 +106,14 @@ impl SessionRecorder {
         let effect_names = effects.iter().map(effect_name).collect::<Vec<_>>();
         let page = crate::session_timeline::page_row(observation.kind, observation.method, &observation.document);
         let key = format!("{page}{effect_names:?}{}", report["flow"]["phase"]);
+        // The developer window shows the newest state even when the page row below is not repeated.
+        live_update(|live| {
+            live.insert("t".into(), json!(at));
+            live.insert("page".into(), page["page"].clone());
+            live.insert("variant".into(), json!(observation.variant));
+            live.insert("effects".into(), json!(effect_names));
+            live.insert("flow".into(), report["flow"].clone());
+        });
         if self.last_page_key.as_deref() == Some(key.as_str()) {
             // The same stop seen again: keep the newest facts of that page, without a second signal.
             if let Some(row) = self.rows.iter_mut().rev().find(|row| row["kind"] == "page") {
@@ -115,13 +123,6 @@ impl SessionRecorder {
             return false;
         }
         self.last_page_key = Some(key);
-        live_update(|live| {
-            live.insert("t".into(), json!(at));
-            live.insert("page".into(), page["page"].clone());
-            live.insert("variant".into(), json!(observation.variant));
-            live.insert("effects".into(), json!(effect_names));
-            live.insert("flow".into(), report["flow"].clone());
-        });
         self.push(json!({
             "t": at, "kind": "page", "page": page["page"], "method": page["method"], "doc": page["doc"],
             "variant": observation.variant, "operation_code": observation.operation_code,
