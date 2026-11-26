@@ -99,6 +99,12 @@ pub struct SearchController {
     close_browser: Arc<AtomicBool>,
 }
 impl SearchController {
+    /// Whether the developer window's site check may open a browser now: never while a search runs. `active` is set
+    /// before the search thread starts and cleared only when it has ended, so it covers the browser launch, every
+    /// replacement browser and the stop; an unreadable state counts as running.
+    pub fn site_check_allowed(&self) -> bool {
+        self.snapshot().is_ok_and(|s| !s.active)
+    }
     pub fn snapshot(&self) -> Result<SearchSnapshot, &'static str> {
         self.state
             .lock()
@@ -1823,6 +1829,14 @@ mod live_command_tests {
         (controller, commands, messages)
     }
 
+    #[test]
+    fn the_site_check_waits_until_the_search_has_ended() {
+        assert!(SearchController::default().site_check_allowed(), "no search");
+        let (controller, _commands, _messages) = running(false);
+        assert!(!controller.site_check_allowed(), "a running search, also while it starts or replaces its browser");
+        controller.state.lock().unwrap().active = false;
+        assert!(controller.site_check_allowed(), "the search has ended");
+    }
     #[test]
     fn invalid_daily_targets_are_refused_before_they_reach_the_worker() {
         let (controller, commands, _messages) = running(false);
