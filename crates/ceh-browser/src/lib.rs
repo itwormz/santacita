@@ -53,6 +53,7 @@ pub(crate) fn site_script(script: &str) -> std::borrow::Cow<'_, str> {
     }
     std::borrow::Cow::Borrowed(script)
 }
+#[cfg(feature = "bidi")]
 pub use typed_field::take_preparation_reason;
 #[cfg(feature = "bidi")]
 mod typed_select;
