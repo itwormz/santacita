@@ -98,7 +98,8 @@ onMount(()=>{bootstrap().then(result=>{data=result.data;native=result.native;sel
 function closePopups(event:PointerEvent){const target=event.target as Element;if(!target.closest('.profile-picker'))profileMenu=false;if(!target.closest('.language-picker'))languageMenu=false;if(!target.closest('.more-picker'))moreMenu=false;}
 async function editProfile(id:string|null){if(loadingEditor)return;loadingEditor=true;try{await writes.settled();editor=await loadEditor(id);editingId=id;error='';}catch{error='Не удалось открыть профиль';}finally{loadingEditor=false;}}
 async function profileSaved(id:string){editor=null;selected=id;try{if(!selectionWrites){const initial=await bootstrap();data=initial.data;initializeWrites(initial.data);}const selection=await selectionWrites?.set(id);if(selection&&!selection.ok)throw new Error('selection_failed');const result=await bootstrap();data=result.data;error='';}catch{error='Профиль сохранён. Не удалось обновить список профилей';}}
-function keyboard(event:KeyboardEvent){if(event.key==='Escape'){profileMenu=false;languageMenu=false;moreMenu=false;about=false;}}
+// About is a modal dialog: its own cancel handler takes Escape (back from the developer window or the game, or close).
+function keyboard(event:KeyboardEvent){if(event.key==='Escape'){profileMenu=false;languageMenu=false;moreMenu=false;}}
 </script>
 <svelte:window onpointerdown={closePopups} onkeydown={keyboard}/>
 <div class:light={!dark} class="app-shell">
