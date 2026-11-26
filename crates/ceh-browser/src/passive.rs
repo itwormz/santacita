@@ -110,6 +110,10 @@ impl ResponseQueue {
             .map(|part| part.split(';').next().unwrap_or(""))
             .collect::<Vec<_>>()
             .join("/");
+        // Same prefixes as `ceh_services::diagnostics::site_path` (Madrid is `icpplustiem`).
+        if !["/icpplus/", "/icpplustieb/", "/icpplustiem/"].iter().any(|prefix| path.starts_with(prefix)) {
+            return;
+        }
         let Some(status) = p["response"]["status"]
             .as_u64()
             .filter(|s| (200..600).contains(s) && !(300..400).contains(s))

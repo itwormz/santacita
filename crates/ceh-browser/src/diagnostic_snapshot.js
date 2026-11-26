@@ -1,5 +1,6 @@
 () => {
   if (location.origin !== 'https://icp.administracionelectronica.gob.es') return null;
+  if (!/^\/icpplus(?:tieb|tiem)?\//.test(location.pathname)) return null;
   const allowed = new Set('main section article div form fieldset legend label input select optgroup option button h1 h2 h3 p ul ol li table tr td th'.split(' '));
   const safeIds = /^(?:form|btnAceptar|btnAccesoClave|btnEnviar|btnSiguiente|btnSubmit|idSede|txtIdCitado|txtCopiar|txtTelefonoCitado|emailUNO|emailDOS|tramiteGrupo\[\d{1,3}\])$/;
   const safeTypes = new Set(['text', 'password', 'submit', 'button', 'checkbox', 'radio', 'email', 'tel', 'date', 'hidden']);
