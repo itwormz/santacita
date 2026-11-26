@@ -77,3 +77,33 @@ fn a_very_long_line_is_cut_and_an_empty_one_is_not_kept() {
     assert_eq!(detail.stderr_tail.last().unwrap(), &"x".repeat(160));
     assert!(detail.stderr_tail.iter().all(|line| !line.is_empty()));
 }
+#[test]
+fn the_last_words_of_a_browser_that_wrote_no_final_line_break_are_kept() {
+    let _ = take_start_detail();
+    let script = "echo first >&2\nprintf 'fatal: no display' >&2\nexit 1";
+    assert!(matches!(start_with_script(script, true), Err(FirefoxError::ExitedEarly)));
+    let detail = take_start_detail().unwrap();
+    let last = detail.stderr_tail.last().map(String::as_str);
+    assert_eq!(last, Some("fatal: no display"), "{:?}", detail.stderr_tail);
+}
+#[test]
+fn a_chromium_that_ended_at_once_leaves_what_it_wrote_like_firefox_does() {
+    use ceh_browser::{chromium::ChromiumInstallation, firefox::ProfileKind};
+    let _ = take_start_detail();
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("chromium");
+    std::fs::write(
+        &bin,
+        "#!/bin/sh\ncase \"$1\" in\n--version) echo 'Chromium 120.0.6099.109';;\n*) echo 'GPU process crashed' >&2; printf 'no display' >&2; exit 5;;\nesac\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let installation = ChromiumInstallation::from_executable(ProfileKind::Chromium, &bin).unwrap();
+    let profile = ProfileLease::temporary(Path::new(root.path())).unwrap();
+    let result = OwnedFirefox::start_chromium(&installation, profile, &AtomicBool::new(false));
+    assert!(matches!(result, Err(FirefoxError::ExitedEarly)));
+    let detail = take_start_detail().unwrap();
+    assert_eq!(detail.exit_code, Some(5));
+    let tail: Vec<&str> = detail.stderr_tail.iter().map(String::as_str).collect();
+    assert!(tail.ends_with(&["GPU process crashed", "no display"]), "{tail:?}");
+}

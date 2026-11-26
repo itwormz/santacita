@@ -489,7 +489,8 @@ impl Sanitizer {
             value = pattern.replace_all(&value, *replacement).into_owned();
         }
         let mut value = self.sanitize(&value);
-        // After the addresses are cut: a token in a query goes with its query, the rest is patched in place.
+        // After the addresses are cut: a token in a query goes with its query, the rest is patched in place. A line break
+        // is already written as `\r` or `\n` by then, so the patterns accept it as a separator.
         for (pattern, replacement) in CLEAN_STARTUP_SECRETS.iter() {
             value = pattern.replace_all(&value, *replacement).into_owned();
         }
@@ -557,8 +558,8 @@ static CLEAN_STARTUP_PATTERNS: std::sync::LazyLock<Vec<(regex::Regex, &'static s
 });
 static CLEAN_STARTUP_SECRETS: std::sync::LazyLock<Vec<(regex::Regex, &'static str)>> = std::sync::LazyLock::new(|| {
     [
-        (r"(?i)\b(?:token|secret|api[_-]?key)\s*[=:]\s*[^\s;]+", "[private value]"),
-        (r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+", "[private value]"),
+        (r"(?i)\b(?:token|secret|api[_-]?key)(?:\s|\\[rn])*[=:](?:\s|\\[rn])*[^\s;]+", "[private value]"),
+        (r"(?i)\bbearer(?:\s|\\[rn])+[A-Za-z0-9._~+/=-]+", "[private value]"),
     ]
     .into_iter()
     .map(|(pattern, replacement)| (regex::Regex::new(pattern).expect("fixed scrub pattern"), replacement))

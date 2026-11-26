@@ -446,3 +446,16 @@ fn script_url_still_rejects_other_prefixes() {
     assert!(script_url("https://icp.administracionelectronica.gob.es/icpplusother/x.js").is_none());
     assert!(script_url("https://icp.administracionelectronica.gob.es/other/x.js").is_none());
 }
+#[test]
+fn a_secret_split_by_a_line_break_is_removed_from_a_startup_report() {
+    let sanitizer = ceh_services::diagnostics::Sanitizer::default();
+    for (text, expected) in [
+        ("Bearer\nabc123def", "[private value]"),
+        ("Bearer\r\nabc123def", "[private value]"),
+        ("token\n=abc123def", "[private value]"),
+        ("api_key:\nabc123def", "[private value]"),
+        ("Bearer abc123def", "[private value]"),
+    ] {
+        assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text:?}");
+    }
+}
