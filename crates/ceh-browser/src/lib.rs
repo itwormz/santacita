@@ -16,6 +16,8 @@ pub mod exit;
 mod mutation;
 pub mod navigation;
 #[cfg(feature = "bidi")]
+pub mod learning;
+#[cfg(feature = "bidi")]
 pub mod observer;
 #[cfg(feature = "bidi")]
 pub mod passive;

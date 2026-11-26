@@ -51,6 +51,14 @@ impl NativeStep {
     pub fn visible_words(&self) -> usize {
         self.page.page.snapshot.frames.first().map_or(0, |f| f.text.split_whitespace().count())
     }
+    /// Learning mode only (developer): the structure of the page the person is looking at, in any control mode and
+    /// for any page kind. Read only; the production snapshot below keeps its own, stricter rules.
+    pub fn learning_snapshot(&self, connection: &mut BidiConnection) -> Option<crate::learning::LearningPage> {
+        if !self.page.page.snapshot.official {
+            return None;
+        }
+        crate::learning::read_page(connection, self.update.observation.document.as_str())
+    }
     pub fn diagnostic_snapshot(&self, connection: &mut BidiConnection) -> Option<String> {
         if self.update.control.mode() != ControlMode::Automatic
             || !self.page.page.snapshot.official
