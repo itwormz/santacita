@@ -222,6 +222,8 @@ Rust, Tauri 2, Svelte 5 and TypeScript. SQLite and compatible YAML profiles. Bro
 
 [Build and checks](docs/BUILD.md)
 
+**Learning mode (for developers).** Start the app with `CEH_LEARNING=<folder>` and it records the pages a search passes through, also while you drive the browser by hand: one file per page (its structure, forms and visible text) and the path between pages. Typed values, profile data, phones, emails and DNI/NIE are blanked. Without the variable nothing is recorded. The diagnostics read every page of the site, whatever its path (Madrid uses `icpplustiem`).
+
 ## 💜 Acknowledgements
 
 Thank you for helping spread the word about the project:

@@ -847,6 +847,8 @@ fn run_owned(
         .event(JournalEvent::Start, None, None, false, wall()?)
         .map_err(|_| "search_unavailable")?;
     let mut diagnostics = crate::search_diagnostics::SearchDiagnostics::new(root, session.as_str().to_owned(), profile);
+    // Developer only: `CEH_LEARNING=<directory>` records the structure of every page, whatever the control mode.
+    let mut learning = crate::learning_recorder::LearningRecorder::from_env(profile);
     let mut presenter = crate::session_presentation::SessionPresentation::new(session.clone(), (timings.alert_seconds()*1000.).ceil() as u64);
     let mut certificate_clicked: Option<u64> = None;
     let mut hidden_before_action = false;
@@ -1563,6 +1565,23 @@ fn run_owned(
                 preferences_at = Instant::now();
             }
             diagnostics.window_state(browser.connection(), &context);
+            // Learning mode (developer): the page as it is now, in any control mode, at most every 1.5 s.
+            if let Some(recorder) = learning.as_mut()
+                && recorder.due(Instant::now())
+            {
+                // While a person drives (pause or manual) nobody reads the events: drop a flood instead of failing.
+                let person_drives = driver.control().mode() != ControlMode::Automatic;
+                browser.connection().set_drop_events_on_overflow(person_drives);
+                match ceh_browser::learning::read_page(browser.connection(), &serde_json::json!({"context": &context, "sandbox": "ceh"})) {
+                    Ok(page) => recorder.record(page),
+                    Err(ceh_browser::learning::ReadFailure::Call(error)) => recorder.note(&format!("read_failed_call:{error:?}")),
+                    Err(ceh_browser::learning::ReadFailure::Empty) => recorder.note("read_empty"),
+                    Err(ceh_browser::learning::ReadFailure::Invalid) => recorder.note("read_invalid"),
+                }
+                if person_drives {
+                    browser.connection().take_events();
+                }
+            }
             diagnostics.flush_timeline(browser.connection(), &mut driver);
             let change = presenter
                 .update(
