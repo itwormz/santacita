@@ -447,3 +447,20 @@ fn a_secret_split_by_a_line_break_is_removed_from_a_startup_report() {
         assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text:?}");
     }
 }
+#[test]
+fn a_script_on_any_path_of_the_site_host_is_archived_and_another_host_is_not() {
+    for path in ["/icpplustiem/js/app.js", "/icpco/js/app.js", "/icpplustie/js/app.js", "/nuevo/js/app.js"] {
+        assert_eq!(
+            script_url(&format!("https://icp.administracionelectronica.gob.es{path};jsessionid=X?a=1")).as_deref(),
+            Some(format!("https://icp.administracionelectronica.gob.es{path}").as_str()),
+            "{path}"
+        );
+    }
+    for other in [
+        "https://icp.administracionelectronica.gob.es.evil.invalid/icpplus/app.js",
+        "http://icp.administracionelectronica.gob.es/icpplustiem/app.js",
+        "https://icp.administracionelectronica.gob.es:8443/icpplustiem/app.js",
+    ] {
+        assert!(script_url(other).is_none(), "{other}");
+    }
+}

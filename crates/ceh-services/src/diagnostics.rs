@@ -57,9 +57,7 @@ pub fn script_url(raw: &str) -> Option<String> {
         .map(|part| part.split(';').next().unwrap_or(""))
         .collect::<Vec<_>>()
         .join("/");
-    if !path.starts_with("/icpplus/") && !path.starts_with("/icpplustieb/") {
-        return None;
-    }
+    // Any path on the site's own host (each family of provinces has its own prefix, and the site may add more).
     Some(format!("https://{HOST}{path}"))
 }
 pub fn script_reference(url: &str) -> String {

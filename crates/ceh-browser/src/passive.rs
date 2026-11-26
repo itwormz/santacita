@@ -110,9 +110,8 @@ impl ResponseQueue {
             .map(|part| part.split(';').next().unwrap_or(""))
             .collect::<Vec<_>>()
             .join("/");
-        if !path.starts_with("/icpplus/") && !path.starts_with("/icpplustieb/") {
-            return;
-        }
+        // Any path on the site's own host: the site serves each family of provinces under its own prefix (`icpplus`,
+        // `icpplustieb`, Madrid's `icpplustiem`, `icpco`, ...) and may add more; the host, https and port 443 are checked.
         let Some(status) = p["response"]["status"]
             .as_u64()
             .filter(|s| (200..600).contains(s) && !(300..400).contains(s))

@@ -18,7 +18,6 @@ fn only_owned_first_party_html_and_scripts_are_queued_without_query() {
         "https://icp.administracionelectronica.gob.es.evil.invalid/icpplus/a.js",
         "https://other.invalid/icpplus/a.js",
         "https://secret@icp.administracionelectronica.gob.es/icpplus/a.js",
-        "https://icp.administracionelectronica.gob.es/outside/a.js",
     ] {
         q.ingest(&event("ignore", url, "application/javascript", false));
     }
@@ -304,4 +303,21 @@ fn production_code_never_intercepts_holds_or_alters_network_traffic() {
         }
     }
     assert!(files.len() > 20);
+}
+#[test]
+fn any_path_of_the_site_host_is_queued_as_the_provinces_have_their_own_prefixes() {
+    // Madrid is `icpplustiem`, some provinces `icpco` or `icpplustie`, and the site may add others: only the host,
+    // https and the port decide.
+    let mut q = ResponseQueue::new("owned").unwrap();
+    for (id, path) in [("madrid", "/icpplustiem/acInfo"), ("co", "/icpco/citar"), ("tie", "/icpplustie/acEntrada"), ("new", "/otro/acEntrada")] {
+        q.ingest(&event(id, &format!("https://icp.administracionelectronica.gob.es{path};jsessionid=synthetic?x=1"), "text/html", true));
+    }
+    let batch = q.drain();
+    let urls: Vec<_> = batch.responses.iter().map(|r| r.url().to_owned()).collect();
+    assert_eq!(urls, [
+        "https://icp.administracionelectronica.gob.es/icpplustiem/acInfo",
+        "https://icp.administracionelectronica.gob.es/icpco/citar",
+        "https://icp.administracionelectronica.gob.es/icpplustie/acEntrada",
+        "https://icp.administracionelectronica.gob.es/otro/acEntrada",
+    ]);
 }

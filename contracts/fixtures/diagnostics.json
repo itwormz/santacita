@@ -73,7 +73,7 @@
         "text": "https://icp.administracionelectronica.gob.es/other/app.js"
       },
       "expected": {
-        "url": null,
+        "url": "https://icp.administracionelectronica.gob.es/other/app.js",
         "reference": "7372785ddfc48fde79df9cb3f36c49a66883a924bc9214c3d3aad6dac2f26bee"
       }
     },
