@@ -116,18 +116,39 @@ fn redact(value: &mut Value, sanitizer: &Sanitizer, known: &[Vec<char>]) {
         _ => {}
     }
 }
+/// Where the recording should go, as asked from the developer window (`Some(Some(root))` on, `Some(None)` off);
+/// `None` until asked, when `CEH_LEARNING` decides.
+static REQUESTED: std::sync::Mutex<Option<Option<std::path::PathBuf>>> = std::sync::Mutex::new(None);
+/// Turn the recording on (into `root`) or off for the running search and the next ones. A search picks it up at its next pass.
+pub fn request(root: Option<std::path::PathBuf>) {
+    if let Ok(mut requested) = REQUESTED.lock() {
+        *requested = Some(root);
+    }
+}
+/// The folder the recording goes to now: the developer window's choice, or `CEH_LEARNING` when nothing was chosen.
+pub fn requested() -> Option<std::path::PathBuf> {
+    let asked = REQUESTED.lock().ok().and_then(|requested| requested.clone());
+    match asked {
+        Some(choice) => choice,
+        None => std::env::var_os("CEH_LEARNING").filter(|value| !value.is_empty()).map(std::path::PathBuf::from),
+    }
+}
 impl LearningRecorder {
     /// `None` unless `CEH_LEARNING` names an output directory. Says where it records (or why not) on stderr.
     pub fn from_env(profile: &ProfileDraft) -> Option<Self> {
         let root = std::env::var_os("CEH_LEARNING").filter(|value| !value.is_empty())?;
+        Self::start(Path::new(&root), profile)
+    }
+    /// A new run directory under `root`, named after the Madrid time of the start.
+    pub fn start(root: &Path, profile: &ProfileDraft) -> Option<Self> {
         let mut label = crate::session_timeline::madrid_text(None).replace(':', "-");
         if label.is_empty() {
             label = "run".into();
         }
-        let made = Self::create(Path::new(&root), &label, profile);
+        let made = Self::create(root, &label, profile);
         match &made {
             Some(recorder) => eprintln!("learning mode: recording to {}", recorder.directory.display()),
-            None => eprintln!("learning mode: cannot create a directory under {} (use an absolute path)", Path::new(&root).display()),
+            None => eprintln!("learning mode: cannot create a directory under {} (use an absolute path)", root.display()),
         }
         made
     }

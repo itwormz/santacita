@@ -847,8 +847,10 @@ fn run_owned(
         .event(JournalEvent::Start, None, None, false, wall()?)
         .map_err(|_| "search_unavailable")?;
     let mut diagnostics = crate::search_diagnostics::SearchDiagnostics::new(root, session.as_str().to_owned(), profile);
-    // Developer only: `CEH_LEARNING=<directory>` records the structure of every page, whatever the control mode.
-    let mut learning = crate::learning_recorder::LearningRecorder::from_env(profile);
+    // Developer only: the developer window (or `CEH_LEARNING=<directory>`) records the structure of every page, whatever
+    // the control mode. Turned on and off while the search runs: each pass compares the wanted folder with the current one.
+    let mut learning_root = crate::learning_recorder::requested();
+    let mut learning = learning_root.as_deref().and_then(|root| crate::learning_recorder::LearningRecorder::start(root, profile));
     let mut presenter = crate::session_presentation::SessionPresentation::new(session.clone(), (timings.alert_seconds()*1000.).ceil() as u64);
     let mut certificate_clicked: Option<u64> = None;
     let mut hidden_before_action = false;
@@ -1565,6 +1567,11 @@ fn run_owned(
                 preferences_at = Instant::now();
             }
             diagnostics.window_state(browser.connection(), &context);
+            let wanted = crate::learning_recorder::requested();
+            if wanted != learning_root {
+                learning = wanted.as_deref().and_then(|root| crate::learning_recorder::LearningRecorder::start(root, profile));
+                learning_root = wanted;
+            }
             // Learning mode (developer): the page as it is now, in any control mode, at most every 1.5 s.
             if let Some(recorder) = learning.as_mut()
                 && recorder.due(Instant::now())
