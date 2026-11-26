@@ -1572,6 +1572,10 @@ fn run_owned(
                 learning = wanted.as_deref().and_then(|root| crate::learning_recorder::LearningRecorder::start(root, profile));
                 learning_root = wanted;
             }
+            // The recording drops a flood of events while a person drives; with no recording the app keeps every event again.
+            if learning.is_none() {
+                browser.connection().set_drop_events_on_overflow(false);
+            }
             // Learning mode (developer): the page as it is now, in any control mode, at most every 1.5 s.
             if let Some(recorder) = learning.as_mut()
                 && recorder.due(Instant::now())
