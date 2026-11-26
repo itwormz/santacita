@@ -209,9 +209,9 @@ pub fn apply_icon(window: &tauri::WebviewWindow, status: IconStatus) -> Result<(
             .unwrap_or_else(|_| (image.rgba().to_vec(), image.width(), image.height()));
         let pixels = status_pixels(&small, width, height, status)?;
         OVERRIDDEN.store(true, Ordering::Relaxed);
-        return window
+        window
             .set_icon(tauri::image::Image::new_owned(pixels, width, height))
-            .map_err(|_| "icon_unavailable");
+            .map_err(|_| "icon_unavailable")
     }
     #[cfg(target_os = "macos")]
     {
