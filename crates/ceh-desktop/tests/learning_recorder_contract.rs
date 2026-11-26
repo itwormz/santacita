@@ -104,8 +104,9 @@ fn profile_values_and_nie_shapes_never_reach_the_files() {
     recorder.record(shown);
     for entry in std::fs::read_dir(run_dir(root.path())).unwrap() {
         let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
-        for secret in ["ANA GARCIA PEREZ", "Y1234567X", "600123123", "ana@example.test", "X1234567L"] {
-            assert!(!text.contains(secret), "{secret} reached a file");
+        // The message names the position of the value, never the value itself.
+        for (index, secret) in ["ANA GARCIA PEREZ", "Y1234567X", "600123123", "ana@example.test", "X1234567L"].iter().enumerate() {
+            assert!(!text.contains(secret), "protected value {index} reached a file");
         }
     }
 }
@@ -140,9 +141,10 @@ fn secret_free(text: &[&str], title: &str) {
     recorder.record(shown);
     for entry in std::fs::read_dir(run_dir(root.path())).unwrap() {
         let written = std::fs::read_to_string(entry.unwrap().path()).unwrap();
-        for secret in ["garcia", "GARCIA", "Garc", "perez", "PEREZ", "600123123", "600 123 123", "+34600123123", "600.123.123",
-                       "ana@example.test", "ANA@EXAMPLE.TEST", "Y1234567X", "Y-1234567-X", "y 1234567 x", "12345678Z", "maria@gmail.com"] {
-            assert!(!written.contains(secret), "{secret} reached a file");
+        // The message names the position of the value, never the value itself.
+        for (index, secret) in ["garcia", "GARCIA", "Garc", "perez", "PEREZ", "600123123", "600 123 123", "+34600123123", "600.123.123",
+                       "ana@example.test", "ANA@EXAMPLE.TEST", "Y1234567X", "Y-1234567-X", "y 1234567 x", "12345678Z", "maria@gmail.com"].iter().enumerate() {
+            assert!(!written.contains(secret), "protected value {index} reached a file");
         }
     }
 }
