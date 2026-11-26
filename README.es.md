@@ -222,6 +222,8 @@ Rust, Tauri 2, Svelte 5 y TypeScript. SQLite y perfiles YAML compatibles. Contro
 
 [Compilación y pruebas](docs/BUILD.md)
 
+**Modo de aprendizaje (para desarrolladores).** Inicie la aplicación con `CEH_LEARNING=<carpeta>` y registrará las páginas por las que pasa la búsqueda, también cuando usted maneja el navegador a mano: un archivo por página (estructura, formularios y texto visible) y el recorrido entre páginas. Los valores escritos, los datos del perfil, teléfonos, correos y DNI/NIE se tachan. Sin la variable no se registra nada. El diagnóstico lee también la ruta del sitio de Madrid `icpplustiem`, como las demás rutas.
+
 ## 💜 Agradecimientos
 
 Gracias por ayudar a difundir el proyecto:
