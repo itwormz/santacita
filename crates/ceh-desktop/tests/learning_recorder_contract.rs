@@ -84,6 +84,16 @@ fn a_refresh_with_an_unchanged_structure_is_a_new_document_and_is_written() {
 }
 
 #[test]
+fn a_numeric_load_stamp_is_kept_so_a_refresh_is_still_told_from_a_repeat() {
+    let root = tempfile::tempdir().unwrap();
+    let mut recorder = LearningRecorder::create(root.path(), "run", &profile()).unwrap();
+    recorder.record(page_at("/icpplustiem/acCitar", 0, &["No hay citas disponibles"], "1764150123456.789"));
+    recorder.record(page_at("/icpplustiem/acCitar", 0, &["No hay citas disponibles"], "1764150123456.789"));
+    recorder.record(page_at("/icpplustiem/acCitar", 0, &["No hay citas disponibles"], "1764150987654.321"));
+    assert_eq!(files(&run_dir(root.path())), ["0001.json", "0002.json", "path.jsonl"]);
+}
+
+#[test]
 fn profile_values_and_nie_shapes_never_reach_the_files() {
     let root = tempfile::tempdir().unwrap();
     let mut recorder = LearningRecorder::create(root.path(), "run", &profile()).unwrap();

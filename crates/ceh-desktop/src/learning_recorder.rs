@@ -173,9 +173,12 @@ impl LearningRecorder {
             return;
         }
         self.noted = None;
+        // The load stamp is a number of digits the phone pattern would blank: compare and keep it as read.
+        let load = page.load.clone();
         let mut value = serde_json::to_value(&page).unwrap_or(Value::Null);
         redact(&mut value, &self.sanitizer, &self.known);
-        let Ok(page) = serde_json::from_value::<LearningPage>(value) else { return };
+        let Ok(mut page) = serde_json::from_value::<LearningPage>(value) else { return };
+        page.load = load;
         let fingerprint = page.fingerprint();
         if self.last.as_ref().is_some_and(|last| last.load == page.load && last.fingerprint == fingerprint) {
             return;
