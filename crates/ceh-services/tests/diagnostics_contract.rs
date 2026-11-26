@@ -434,3 +434,16 @@ fn a_token_a_bearer_secret_and_an_api_key_are_removed_from_a_startup_report() {
         assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text}");
     }
 }
+#[test]
+fn a_secret_split_by_a_line_break_is_removed_from_a_startup_report() {
+    let sanitizer = ceh_services::diagnostics::Sanitizer::default();
+    for (text, expected) in [
+        ("Bearer\nabc123def", "[private value]"),
+        ("Bearer\r\nabc123def", "[private value]"),
+        ("token\n=abc123def", "[private value]"),
+        ("api_key:\nabc123def", "[private value]"),
+        ("Bearer abc123def", "[private value]"),
+    ] {
+        assert_eq!(sanitizer.clean_startup(text, ""), expected, "{text:?}");
+    }
+}

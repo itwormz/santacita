@@ -10,6 +10,9 @@ use std::{
 /// Where the browser's standard error goes; its standard input and output are always discarded.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stderr {
+    /// Every browser start now reads its output (for the report of a failed start); the tests of the process
+    /// handling still start one without.
+    #[cfg_attr(not(test), allow(dead_code))]
     Null,
     Piped,
 }
