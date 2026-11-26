@@ -662,17 +662,48 @@ impl CdpWire {
         let value = &result["result"]["value"];
         Ok((value[0].as_f64().ok_or(ProtocolError::InvalidData)?, value[1].as_f64().ok_or(ProtocolError::InvalidData)?))
     }
+    /// One `input.performActions` is many CDP round trips (a click is up to 64 cursor moves). Each event gets the
+    /// command's own time, and the whole gesture four times that plus its planned pauses: a slow browser finishes
+    /// the gesture instead of being cut off half way. A gesture that fails before any button or key went down did
+    /// nothing on the page and says so (`NotPerformed`), so the click may be tried again.
     fn perform(&mut self, params: &Value, deadline: Instant) -> Result<Value, ProtocolError> {
+        let started = Instant::now();
+        let window = deadline.saturating_duration_since(started).max(Duration::from_millis(100));
+        let planned: Duration = params["actions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|source| source["actions"].as_array().into_iter().flatten())
+            .map(|action| Duration::from_millis(action["duration"].as_u64().unwrap_or(0).min(10_000)))
+            .sum();
+        let overall = started + window * 4 + planned;
+        let mut pressed = false;
+        match self.perform_actions(params, window, overall, &mut pressed) {
+            Err(ProtocolError::Rejected | ProtocolError::InvalidData) if !pressed => Err(ProtocolError::NotPerformed),
+            result => result,
+        }
+    }
+    fn perform_actions(&mut self, params: &Value, window: Duration, overall: Instant, pressed: &mut bool) -> Result<Value, ProtocolError> {
         let mut modifiers: u8 = 0;
+        let mut centres: HashMap<String, (f64, f64)> = HashMap::new();
         for source in params["actions"].as_array().into_iter().flatten() {
             for action in source["actions"].as_array().into_iter().flatten() {
                 let duration = Duration::from_millis(action["duration"].as_u64().unwrap_or(0).min(10_000));
+                let deadline = (Instant::now() + duration + window).min(overall);
                 match action["type"].as_str().unwrap_or("") {
                     "pause" => std::thread::sleep(duration),
                     "pointerMove" => {
                         let (dx, dy) = (action["x"].as_f64().unwrap_or(0.0), action["y"].as_f64().unwrap_or(0.0));
+                        // The element stays put during one gesture (it was scrolled into view before): one read.
                         let base = match action["origin"]["element"]["sharedId"].as_str() {
-                            Some(shared) => self.center(shared, deadline)?,
+                            Some(shared) => match centres.get(shared) {
+                                Some(centre) => *centre,
+                                None => {
+                                    let centre = self.center(shared, deadline)?;
+                                    centres.insert(shared.to_owned(), centre);
+                                    centre
+                                }
+                            },
                             None if action["origin"] == "pointer" => self.pointer,
                             None => (0.0, 0.0),
                         };
@@ -690,6 +721,7 @@ impl CdpWire {
                     "pointerDown" | "pointerUp" => {
                         let down = action["type"] == "pointerDown";
                         let (x, y) = self.pointer;
+                        *pressed = true;
                         self.page(
                             "Input.dispatchMouseEvent",
                             json!({"type":if down { "mousePressed" } else { "mouseReleased" },"x":x,"y":y,"button":"left","buttons":if down { 1 } else { 0 },"clickCount":1,"modifiers":modifiers}),
@@ -706,6 +738,7 @@ impl CdpWire {
                             }
                         }
                         let event = key_event(kind, value, modifiers).ok_or(ProtocolError::InvalidData)?;
+                        *pressed = true;
                         self.page("Input.dispatchKeyEvent", event, deadline)?;
                     }
                     _ => return Err(ProtocolError::InvalidData),

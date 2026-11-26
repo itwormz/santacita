@@ -282,6 +282,8 @@ fn activate(
     };
     let outcome = match connection.receive(ticket) {
         Ok(_) => DispatchOutcome::Dispatched,
+        // Chrome: the gesture stopped before the button or key went down; the page got no click or key.
+        Err(ProtocolError::NotPerformed) => DispatchOutcome::NotDispatched,
         Err(_) => DispatchOutcome::Unknown,
     };
     permit.complete_step(outcome)?;
@@ -547,6 +549,8 @@ fn perform_keys(
     };
     let outcome = match connection.receive(ticket) {
         Ok(_) => DispatchOutcome::Dispatched,
+        // Chrome: the gesture stopped before the button or key went down; the page got no click or key.
+        Err(ProtocolError::NotPerformed) => DispatchOutcome::NotDispatched,
         Err(_) => DispatchOutcome::Unknown,
     };
     permit.complete_step(outcome)?;
