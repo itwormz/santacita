@@ -435,16 +435,24 @@ fn a_token_a_bearer_secret_and_an_api_key_are_removed_from_a_startup_report() {
     }
 }
 #[test]
-fn script_url_accepts_the_madrid_prefix() {
-    assert_eq!(
-        script_url("https://icp.administracionelectronica.gob.es/icpplustiem/js/app.js;jsessionid=X?a=1").unwrap(),
-        "https://icp.administracionelectronica.gob.es/icpplustiem/js/app.js"
-    );
+fn script_url_accepts_any_path_of_the_official_host_whatever_the_province_family() {
+    for family in ["icpplus", "icpplustieb", "icpplustiem", "icpplustie", "icpco", "icpnew"] {
+        assert_eq!(
+            script_url(&format!("https://icp.administracionelectronica.gob.es/{family}/js/app.js;jsessionid=X?a=1")).unwrap(),
+            format!("https://icp.administracionelectronica.gob.es/{family}/js/app.js")
+        );
+    }
 }
 #[test]
-fn script_url_still_rejects_other_prefixes() {
-    assert!(script_url("https://icp.administracionelectronica.gob.es/icpplusother/x.js").is_none());
-    assert!(script_url("https://icp.administracionelectronica.gob.es/other/x.js").is_none());
+fn script_url_still_rejects_other_hosts_schemes_and_ports() {
+    for url in [
+        "https://other.example.test/icpplus/x.js",
+        "http://icp.administracionelectronica.gob.es/icpplus/x.js",
+        "https://icp.administracionelectronica.gob.es:8443/icpplus/x.js",
+        "https://icp.administracionelectronica.gob.es.evil.invalid/icpplus/x.js",
+    ] {
+        assert!(script_url(url).is_none(), "{url}");
+    }
 }
 #[test]
 fn a_secret_split_by_a_line_break_is_removed_from_a_startup_report() {

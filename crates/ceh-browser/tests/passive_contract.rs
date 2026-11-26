@@ -18,7 +18,6 @@ fn only_owned_first_party_html_and_scripts_are_queued_without_query() {
         "https://icp.administracionelectronica.gob.es.evil.invalid/icpplus/a.js",
         "https://other.invalid/icpplus/a.js",
         "https://secret@icp.administracionelectronica.gob.es/icpplus/a.js",
-        "https://icp.administracionelectronica.gob.es/outside/a.js",
     ] {
         q.ingest(&event("ignore", url, "application/javascript", false));
     }
@@ -306,19 +305,10 @@ fn production_code_never_intercepts_holds_or_alters_network_traffic() {
     assert!(files.len() > 20);
 }
 #[test]
-fn a_script_response_under_icpplustiem_becomes_a_candidate() {
+fn a_script_response_of_any_province_family_becomes_a_candidate() {
     let mut q = ResponseQueue::new("owned").unwrap();
-    q.ingest(&event(
-        "script",
-        "https://icp.administracionelectronica.gob.es/icpplustiem/portal.js?v=1",
-        "application/javascript",
-        false,
-    ));
-    q.ingest(&event(
-        "other",
-        "https://icp.administracionelectronica.gob.es/icpplusother/portal.js",
-        "application/javascript",
-        false,
-    ));
-    assert_eq!(q.drain().responses.len(), 1);
+    for family in ["icpplus", "icpplustiem", "icpco", "icpplustie"] {
+        q.ingest(&event(family, &format!("https://icp.administracionelectronica.gob.es/{family}/portal.js?v=1"), "application/javascript", false));
+    }
+    assert_eq!(q.drain().responses.len(), 4);
 }
