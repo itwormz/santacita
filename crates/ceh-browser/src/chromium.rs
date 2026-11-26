@@ -26,6 +26,12 @@ pub fn launch_arguments(profile: &Path, os: TargetOs) -> Vec<String> {
         "--disable-background-timer-throttling".to_owned(),
         // Closing the last window ends the browser instead of leaving a background process (Windows).
         "--disable-background-mode".to_owned(),
+        // The site sends its certificate without the intermediate, so the browser downloads it from the address in the
+        // certificate (`http://cacerts.rapidssl.com/...`). That host has a DNS HTTPS record: when the answer carries it,
+        // the browser turns the http download into https (ERR_DNS_NAME_HTTPS_ONLY), its certificate downloader refuses
+        // the redirect, and the site opens on "Privacy error" (seen in Brave about once in 50 starts). Without the HTTPS
+        // record lookup the download stays on http. Certificate checks are unchanged.
+        "--disable-features=UseDnsHttpsSvcb".to_owned(),
     ];
     match os {
         // A fresh profile otherwise asks for the login keychain ("Chrome Safe Storage").

@@ -153,6 +153,7 @@ fn activate(
     let declaration = format!(
         "raw=>{{const inspect={INSPECT_DOCUMENT};const validate={GUARD};const operation={target_script};const allowed={allowed};const target=validate(raw,inspect,operation,allowed);return target;}}"
     );
+    let declaration = crate::site_script(&declaration).into_owned();
     payload["expectedText"] = json!(frame.text);
     payload["expectedVisible"] = json!(snapshot.visible);
     payload["expectedEndpoint"] = json!(snapshot.endpoint);
@@ -201,12 +202,24 @@ fn activate(
     let current = observer
         .observe(connection, fill_mode)
         .map_err(|_| unseen("second_observation_failed"))?;
-    if current.page.snapshot.endpoint != fresh.page.snapshot.endpoint
-        || current.page.snapshot.visible != fresh.page.snapshot.visible
+    let text_changed = current.page.snapshot.visible != fresh.page.snapshot.visible
         || current.page.snapshot.frames.first().map(|f| &f.text)
-            != fresh.page.snapshot.frames.first().map(|f| &f.text)
-    {
+            != fresh.page.snapshot.frames.first().map(|f| &f.text);
+    // A focus click submits nothing. When scrolling only changed the page's text (the site's sticky header, a
+    // banner that went away) and the document, its kind and its address are the same, the click goes ahead
+    // against this new read: the step script resolves the field again and must find the very same element.
+    let same_page_moved = !submission
+        && source.is_none()
+        && current.observation.document == fresh.observation.document
+        && current.observation.kind == fresh.observation.kind
+        && current.page.snapshot.official;
+    if current.page.snapshot.endpoint != fresh.page.snapshot.endpoint || (text_changed && !same_page_moved) {
         return Err(stale(describe_change(current.observation.kind, &fresh.page.snapshot, &current.page.snapshot)));
+    }
+    if text_changed {
+        let frame = current.page.snapshot.frames.first().ok_or(BrowserError::NoObservation)?;
+        payload["expectedText"] = json!(frame.text);
+        payload["expectedVisible"] = json!(current.page.snapshot.visible);
     }
     if let Some(source) = &source {
         if current.observation.document != guard.document

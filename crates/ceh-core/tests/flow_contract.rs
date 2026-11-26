@@ -200,8 +200,17 @@ fn failed_or_unknown_fill_cannot_submit() {
             panic!("missing preparation")
         };
         e.complete_preparation(guard, *action, outcome).unwrap();
-        assert_eq!(e.observe(o.clone(), 1).unwrap(), vec![FlowEffect::WaitUntil(5000)]);
-        assert_eq!(e.observe(o, 5000).unwrap(), vec![FlowEffect::Hold, FlowEffect::Alert]);
+        if outcome == PreparationOutcome::Failed {
+            // Typed again after a short pause, never submitted.
+            assert_eq!(e.observe(o.clone(), 1).unwrap(), vec![FlowEffect::WaitUntil(2000)]);
+            let effects = e.observe(o, 2000).unwrap();
+            assert!(matches!(effects[0], FlowEffect::Prepare { .. }), "{effects:?}");
+            assert!(!effects.iter().any(|effect| matches!(effect, FlowEffect::Activate { .. })));
+        } else {
+            // An unknown last step keeps its reservation: the result wait, then the person.
+            assert_eq!(e.observe(o.clone(), 1).unwrap(), vec![FlowEffect::WaitUntil(5000)]);
+            assert_eq!(e.observe(o, 5000).unwrap(), vec![FlowEffect::Hold, FlowEffect::Alert]);
+        }
     }
 }
 #[test]

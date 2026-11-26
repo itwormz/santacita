@@ -92,6 +92,8 @@ pub struct BidiConnection {
     failed: bool,
     events: Vec<Value>,
     event_bytes: usize,
+    /// Learning mode while a person drives: nobody reads the events then, so a flood is dropped, not fatal.
+    drop_events_on_overflow: bool,
     native_select_commit:bool,
     /// Sanitized rows of the commands sent, drained by the diagnostics timeline.
     command_log: Vec<Value>,
@@ -133,6 +135,7 @@ impl BidiConnection {
             pending: None,
             timeout,
             failed: false,
+            drop_events_on_overflow: false,
             events: Vec::new(),
             event_bytes: 0,
             native_select_commit:false,
@@ -164,6 +167,7 @@ impl BidiConnection {
             pending: None,
             timeout,
             failed: false,
+            drop_events_on_overflow: false,
             events: Vec::new(),
             event_bytes: 0,
             native_select_commit: false,
@@ -290,7 +294,11 @@ impl BidiConnection {
                 return Err(ProtocolError::InvalidData);
             }
             if self.events.len() >= MAX_EVENTS || self.event_bytes + text.len() > MAX_EVENT_BYTES {
-                return Err(ProtocolError::EventOverflow);
+                if !self.drop_events_on_overflow {
+                    return Err(ProtocolError::EventOverflow);
+                }
+                self.events.clear();
+                self.event_bytes = 0;
             }
             self.event_bytes += text.len();
             self.events.push(value);
@@ -339,6 +347,11 @@ impl BidiConnection {
     /// Sanitized rows of the commands sent since the last call (see [`sanitize_command`]).
     pub fn take_command_log(&mut self) -> Vec<Value> {
         std::mem::take(&mut self.command_log)
+    }
+    /// Only for a developer recording while a person drives the browser (nobody reads the events then): events
+    /// over the buffer are dropped instead of ending the connection. Off by default and while the app drives.
+    pub fn set_drop_events_on_overflow(&mut self, on: bool) {
+        self.drop_events_on_overflow = on;
     }
     pub fn take_events(&mut self) -> Vec<Value> {
         self.event_bytes = 0;

@@ -679,6 +679,10 @@ pub fn preview_runtime_root(
 }
 
 #[cfg(feature = "shell")]
+pub mod learning_recorder;
+#[cfg(feature = "shell")]
+pub mod developer;
+#[cfg(feature = "shell")]
 pub mod search;
 #[cfg(feature = "shell")]
 mod search_diagnostics;

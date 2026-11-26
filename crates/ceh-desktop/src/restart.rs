@@ -15,6 +15,8 @@ pub struct RestartRequest {
     pub clear_profile: bool,
     pub reopen: bool,
 }
+/// The reason of a new browser after the browser could not verify the site's certificate.
+pub const CERTIFICATE_RESTART: &str = "браузер не проверил сертификат сайта — браузер перезапущен, профиль сохранён";
 impl RestartRequest {
     pub fn from_action(action: &RecoveryAction, page: PageKind) -> Option<Self> {
         let RecoveryAction::Restart { clear_profile, reopen } = *action else { return None };
@@ -22,6 +24,7 @@ impl RestartRequest {
             (PageKind::Blocked, ..) => "блокировка сайта",
             (PageKind::ServerError, _, true) => "ошибка портала Cl@ve — профиль и cookies сохранены",
             (PageKind::Loading, ..) => "таймаут ответа сайта — новый проход",
+            (PageKind::Unreachable, false, true) => CERTIFICATE_RESTART,
             _ => "перезапуск",
         };
         Some(Self { reason, clear_profile, reopen })

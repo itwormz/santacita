@@ -222,6 +222,8 @@ Rust, Tauri 2, Svelte 5 y TypeScript. SQLite y perfiles YAML compatibles. Contro
 
 [Compilación y pruebas](docs/BUILD.md)
 
+**Ventana de desarrollo.** Se abre con tres clics en la pequeña llave inglesa de la esquina inferior derecha de la ventana «Acerca de». En ella se activa la grabación de las páginas por las que pasa la búsqueda, también cuando usted maneja el navegador a mano: un archivo por página (estructura, formularios y texto visible) y el recorrido entre páginas, en la carpeta `data/learning`. Los valores escritos, los datos del perfil, teléfonos, correos y DNI/NIE se tachan. `CEH_LEARNING=<carpeta>` al iniciar sigue activando la grabación. La ventana también muestra lo que hace el bot, abre las carpetas de la aplicación, exporta la última sesión en un zip y comprueba si se abre la página de inicio del sitio. El diagnóstico lee todas las páginas del sitio, sea cual sea su ruta (Madrid usa `icpplustiem`).
+
 ## 💜 Agradecimientos
 
 Gracias por ayudar a difundir el proyecto:

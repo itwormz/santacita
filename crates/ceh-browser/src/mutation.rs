@@ -43,6 +43,7 @@ pub(crate) fn perform(
     let declaration = format!(
         "raw => {{const inspect={INSPECT_DOCUMENT};const validate={GUARD};const step={script};return validate(raw,inspect,step);}}"
     );
+    let declaration = crate::site_script(&declaration).into_owned();
     // Reads run in the driver's own BiDi sandbox, invisible to the page. Choosing a `<select>` is the one
     // change made in the page's own world (as Python does with `mw:`), so its handlers see an ordinary event.
     // The sandbox realm that names this document is probed first: a navigated page fails closed.

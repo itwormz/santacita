@@ -232,29 +232,41 @@ fn a_late_old_document_receipt_does_not_retime_the_new_document() {
     );
 }
 #[test]
-fn slow_failed_or_unknown_preparation_gets_a_full_wait_after_its_completion() {
-    for outcome in [PreparationOutcome::Failed, PreparationOutcome::Unknown] {
+fn an_unknown_preparation_is_not_typed_again_on_the_same_page() {
+    // Its last step may have reached the page and its gate reservation is kept, so the same page is not prepared again:
+    // the full result wait after the slow entry returned, then the hold of the contact step.
+    let mut e = engine();
+    let o = observation(PageKind::Contact);
+    let effects = e.observe_with_facts(o.clone(), facts(), 0).unwrap();
+    let FlowEffect::Prepare { guard, action } = effects[0].clone() else { panic!() };
+    e.complete_preparation_at(&guard, action, PreparationOutcome::Unknown, 45000).unwrap();
+    assert_eq!(e.observe_with_facts(o.clone(), facts(), 45001).unwrap(), vec![FlowEffect::WaitUntil(50000)]);
+    assert!(e.observe_with_facts(o.clone(), facts(), 49999).unwrap().is_empty());
+    assert_eq!(e.observe_with_facts(o, facts(), 50000).unwrap(), vec![FlowEffect::Hold, FlowEffect::Alert]);
+}
+#[test]
+fn an_interrupted_preparation_is_typed_again_twice_then_the_person_is_called() {
+    // Preparation only types into the page: it is repeated on the same page after the unsent-click pauses
+    // (2 s, then 5 s), counted from when the slow entry returned. Only then does the contact step wait for a person.
+    {
+        let outcome = PreparationOutcome::Failed;
         let mut e = engine();
         let o = observation(PageKind::Contact);
-        let effects = e.observe_with_facts(o.clone(), facts(), 0).unwrap();
-        let FlowEffect::Prepare { guard, action } = effects[0].clone() else {
-            panic!()
-        };
-        e.complete_preparation_at(&guard, action, outcome, 45000)
-            .unwrap();
-        assert_eq!(
-            e.observe_with_facts(o.clone(), facts(), 45001).unwrap(),
-            vec![FlowEffect::WaitUntil(50000)]
-        );
-        assert!(
-            e.observe_with_facts(o.clone(), facts(), 49999)
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(
-            e.observe_with_facts(o, facts(), 50000).unwrap(),
-            vec![FlowEffect::Hold, FlowEffect::Alert]
-        );
+        let mut now = 0;
+        for wait in [2000, 5000] {
+            let effects = e.observe_with_facts(o.clone(), facts(), now).unwrap();
+            let FlowEffect::Prepare { guard, action } = effects[0].clone() else { panic!("{effects:?}") };
+            now += 45000;
+            e.complete_preparation_at(&guard, action, outcome, now).unwrap();
+            assert_eq!(e.observe_with_facts(o.clone(), facts(), now + 1).unwrap(), vec![FlowEffect::WaitUntil(now + wait)]);
+            assert!(e.observe_with_facts(o.clone(), facts(), now + wait - 1).unwrap().is_empty());
+            now += wait;
+        }
+        let effects = e.observe_with_facts(o.clone(), facts(), now).unwrap();
+        let FlowEffect::Prepare { guard, action } = effects[0].clone() else { panic!("{effects:?}") };
+        e.complete_preparation_at(&guard, action, outcome, now + 1).unwrap();
+        assert_eq!(e.observe_with_facts(o.clone(), facts(), now + 2).unwrap(), vec![FlowEffect::WaitUntil(now + 1 + 5000)]);
+        assert_eq!(e.observe_with_facts(o, facts(), now + 1 + 5000).unwrap(), vec![FlowEffect::Hold, FlowEffect::Alert]);
     }
 }
 
@@ -356,4 +368,25 @@ fn the_interval_for_an_unreachable_site_comes_from_the_profile() {
     let mut e = engine();
     e.apply_timings(parse_timings(&json!({"unreachable_seconds": 90})).unwrap(), 30.).unwrap();
     assert_eq!(e.observe_with_facts(unreachable_page("first"), PageFacts::default(), 0).unwrap(), vec![FlowEffect::WaitUntil(90_000)]);
+}
+#[test]
+fn a_site_certificate_the_browser_could_not_verify_gets_a_new_browser_soon_not_the_five_minute_wait() {
+    // Chromium remembers a failed check of the site's certificate for the life of its process, so opening the start page
+    // again in it fails the same way: a new browser on the same profile (cookies kept) checks it again.
+    for code in ["ERR_CERT_AUTHORITY_INVALID", "ERR_CERT_DATE_INVALID"] {
+        let mut e = engine();
+        let page = Observation { document: DocumentId::new("cert").unwrap(), variant: code.into(), ..observation(PageKind::Unreachable) };
+        assert_eq!(e.observe_with_facts(page.clone(), PageFacts::default(), 1000).unwrap(), vec![FlowEffect::WaitUntil(3000)], "{code}");
+        let effects = e.observe_with_facts(page, PageFacts::default(), 3000).unwrap();
+        assert!(
+            matches!(effects.as_slice(), [FlowEffect::Recover { action: RecoveryAction::Restart { clear_profile: false, reopen: true }, .. }]),
+            "{code}: {effects:?}"
+        );
+    }
+    // Any other error page of the browser keeps the profile's wait and opens the start page again in the same browser.
+    let mut e = engine();
+    assert_eq!(e.observe_with_facts(unreachable_page("first"), PageFacts::default(), 1000).unwrap(), vec![FlowEffect::WaitUntil(301_000)]);
+    assert!(ceh_core::recovery::is_certificate_error("ERR_CERT_COMMON_NAME_INVALID"));
+    assert!(!ceh_core::recovery::is_certificate_error("ERR_CONNECTION_RESET"));
+    assert!(!ceh_core::recovery::is_certificate_error("dnsNotFound"));
 }

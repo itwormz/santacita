@@ -99,6 +99,12 @@ pub struct SearchController {
     close_browser: Arc<AtomicBool>,
 }
 impl SearchController {
+    /// Whether the developer window's site check may open a browser now: never while a search runs. `active` is set
+    /// before the search thread starts and cleared only when it has ended, so it covers the browser launch, every
+    /// replacement browser and the stop; an unreadable state counts as running.
+    pub fn site_check_allowed(&self) -> bool {
+        self.snapshot().is_ok_and(|s| !s.active)
+    }
     pub fn snapshot(&self) -> Result<SearchSnapshot, &'static str> {
         self.state
             .lock()
@@ -292,6 +298,7 @@ impl SearchController {
                     &sound,
                     &close_browser,
                 );
+                crate::session_report::live_finished();
                 let requested_stop = stop.load(Ordering::Acquire);
                 let busy = result == Err("browser_profile_busy");
                 if let Err(code) = &result
@@ -598,10 +605,13 @@ fn run(
     // The rows are kept between runs so the Work tab can show the profile's earlier log.
     let mut log = crate::journal_log::JournalLog::open(root, &profile.id, started_ms);
     let mut carry = ceh_core::flow::RecoveryCarry::default();
+    // New browsers started in a row because the browser could not verify the site's certificate.
+    let mut certificate_restarts = CertificateRestarts::default();
     loop {
         // What a search remembers belongs to one browser: a replacement browser starts with an empty memory, so a launch
         // that fails cannot leave the previous browser's report.
         crate::session_report::begin();
+        SITE_REACHED.store(false, Ordering::Release);
         let end = run_session(
             root, profile.clone(), &mut timings, &mut appointment_policy, receiver, live, notifications,
             shared_gate, cancelled, state, window, sound, close_browser, &mut journal, &mut log, &mut carry,
@@ -613,7 +623,13 @@ fn run(
                 if cancelled.load(Ordering::Acquire) {
                     return Ok(());
                 }
-                let _ = request;
+                // A browser that opened the site ends a run of certificate failures.
+                if SITE_REACHED.load(Ordering::Acquire) {
+                    certificate_restarts = CertificateRestarts::default();
+                }
+                if !certificate_restarts.allow(&request, Instant::now()) {
+                    return Err("site_certificate_untrusted");
+                }
                 update(state, |s| {
                     s.page = None;
                     s.manual = false;
@@ -624,6 +640,37 @@ fn run(
                 })?;
             }
         }
+    }
+}
+/// The browser of the current session showed a page of the site itself (not an error page or a page still loading).
+static SITE_REACHED: AtomicBool = AtomicBool::new(false);
+fn site_opened(kind: PageKind) -> bool {
+    !matches!(
+        kind,
+        PageKind::Unreachable | PageKind::Loading | PageKind::Unknown | PageKind::AuthWait
+            | PageKind::Blocked | PageKind::RateLimited | PageKind::ServerError | PageKind::Expired
+    )
+}
+/// A browser that could not verify the site's certificate is replaced by a new one. When the new ones fail the same way
+/// one after another, the certificate is not a passing failure of the browser (an untrusted certificate, a network
+/// that intercepts HTTPS): the search stops and says so instead of starting browsers forever.
+#[derive(Default)]
+struct CertificateRestarts {
+    count: u32,
+    last: Option<Instant>,
+}
+impl CertificateRestarts {
+    const MAX: u32 = 3;
+    /// Restarts more than this far apart are not one run of failures.
+    const WINDOW: Duration = Duration::from_secs(10 * 60);
+    fn allow(&mut self, request: &crate::restart::RestartRequest, now: Instant) -> bool {
+        if request.reason != crate::restart::CERTIFICATE_RESTART {
+            return true;
+        }
+        let recent = self.last.is_some_and(|last| now.saturating_duration_since(last) < Self::WINDOW);
+        self.count = if recent { self.count + 1 } else { 1 };
+        self.last = Some(now);
+        self.count <= Self::MAX
     }
 }
 /// The browser is gone (the person closed it, or the app quit it): nothing waits for the person any more.
@@ -821,6 +868,10 @@ fn run_owned(
         .event(JournalEvent::Start, None, None, false, wall()?)
         .map_err(|_| "search_unavailable")?;
     let mut diagnostics = crate::search_diagnostics::SearchDiagnostics::new(root, session.as_str().to_owned(), profile);
+    // Developer only: the developer window (or `CEH_LEARNING=<directory>`) records the structure of every page, whatever
+    // the control mode. Turned on and off while the search runs: each pass compares the wanted folder with the current one.
+    let mut learning_root = crate::learning_recorder::requested();
+    let mut learning = learning_root.as_deref().and_then(|root| crate::learning_recorder::LearningRecorder::start(root, profile));
     let mut presenter = crate::session_presentation::SessionPresentation::new(session.clone(), (timings.alert_seconds()*1000.).ceil() as u64);
     let mut certificate_clicked: Option<u64> = None;
     let mut hidden_before_action = false;
@@ -902,6 +953,15 @@ fn run_owned(
         loop {
             // At the top of every pass, so a pending report is retried while paused or while nothing can be observed too.
             save_pending_report(root, state, &mut pending_report);
+            // The recording is turned on or off from the developer window; picked up first, before any browser call of
+            // this pass. Events may be dropped on overflow only while it records and a person drives: the app keeps every
+            // event whenever it drives itself, so the waits for a quiet network see them all.
+            let wanted = crate::learning_recorder::requested();
+            if wanted != learning_root {
+                learning = wanted.as_deref().and_then(|root| crate::learning_recorder::LearningRecorder::start(root, profile));
+                learning_root = wanted;
+            }
+            browser.connection().set_drop_events_on_overflow(learning.is_some() && driver.control().mode() != ControlMode::Automatic);
             while let Ok(message) = receiver.try_recv() {
                 match message.command {
                     Control::Stop => return Ok(SessionEnd::Finished),
@@ -919,6 +979,8 @@ fn run_owned(
                     Control::Resume => {
                         if driver.control().mode() != ControlMode::Manual {
                             apply_worker_control(&mut driver, &gate, &message, mono())?;
+                            // Out of pause the app drives again in this same pass: no event may be dropped from here.
+                            browser.connection().set_drop_events_on_overflow(false);
                             stats
                                 .set_phase(&mut db, "working", wall()?, mono())
                                 .map_err(|_| "statistics_unavailable")?;
@@ -945,6 +1007,8 @@ fn run_owned(
                         // Take the same browser back with a new control session; cookies and the site session stay.
                         // A second request finds `manual` already false and is dropped.
                         if manual && browser.resume_automation().is_ok() {
+                            // The app drives again from here: no event may be dropped any more.
+                            browser.connection().set_drop_events_on_overflow(false);
                             // Navigate first: if the original tab is gone the person keeps the browser.
                             let navigated = browser.connection().call(
                                 "browsingContext.navigate",
@@ -1115,6 +1179,9 @@ fn run_owned(
                         .or_else(|| (before.report["preparation"] == "hold").then(|| "preparation_hold".to_owned()))
                         .unwrap_or_else(|| "hold".to_owned());
                     request_stop_report(&mut pending_report, &reason, "the search stopped and waits for a person");
+                }
+                if site_opened(before.observation.kind) {
+                    SITE_REACHED.store(true, Ordering::Release);
                 }
                 let now = mono();
                 if before.control.mode() == ControlMode::Manual {
@@ -1292,6 +1359,9 @@ fn run_owned(
                         if let Some(reason) = ceh_browser::take_stale_reason() {
                             row["detail"] = serde_json::json!(reason);
                         }
+                        if let Some(reason) = ceh_browser::take_preparation_reason() {
+                            row["entry_stopped"] = serde_json::json!(reason);
+                        }
                         let reason = row["detail"].as_str().map(str::to_owned);
                         diagnostics.step(row);
                         if crate::session_report::with(|recorder| recorder.stale(&crate::session_timeline::madrid_text(None), reason.as_deref())) {
@@ -1330,6 +1400,10 @@ fn run_owned(
                 );
                 if ceh_browser::take_scroll_fallback() {
                     row["scroll_fallback"] = serde_json::json!(true);
+                }
+                // Where a field entry stopped (a fixed check name and the field, never a typed value).
+                if let Some(reason) = ceh_browser::take_preparation_reason() {
+                    row["entry_stopped"] = serde_json::json!(reason);
                 }
                 diagnostics.step(row);
                 crate::session_report::with(|recorder| recorder.progressed());
@@ -1530,6 +1604,23 @@ fn run_owned(
                 preferences_at = Instant::now();
             }
             diagnostics.window_state(browser.connection(), &context);
+            // Learning mode (developer): the page as it is now, in any control mode, at most every 1.5 s.
+            if let Some(recorder) = learning.as_mut()
+                && recorder.due(Instant::now())
+            {
+                // While a person drives (pause or manual) nobody reads the events: drop a flood instead of failing.
+                let person_drives = driver.control().mode() != ControlMode::Automatic;
+                browser.connection().set_drop_events_on_overflow(person_drives);
+                match ceh_browser::learning::read_page(browser.connection(), &serde_json::json!({"context": &context, "sandbox": "ceh"})) {
+                    Ok(page) => recorder.record(page),
+                    Err(ceh_browser::learning::ReadFailure::Call(error)) => recorder.note(&format!("read_failed_call:{error:?}")),
+                    Err(ceh_browser::learning::ReadFailure::Empty) => recorder.note("read_empty"),
+                    Err(ceh_browser::learning::ReadFailure::Invalid) => recorder.note("read_invalid"),
+                }
+                if person_drives {
+                    browser.connection().take_events();
+                }
+            }
             diagnostics.flush_timeline(browser.connection(), &mut driver);
             let change = presenter
                 .update(
@@ -1739,6 +1830,14 @@ mod live_command_tests {
     }
 
     #[test]
+    fn the_site_check_waits_until_the_search_has_ended() {
+        assert!(SearchController::default().site_check_allowed(), "no search");
+        let (controller, _commands, _messages) = running(false);
+        assert!(!controller.site_check_allowed(), "a running search, also while it starts or replaces its browser");
+        controller.state.lock().unwrap().active = false;
+        assert!(controller.site_check_allowed(), "the search has ended");
+    }
+    #[test]
     fn invalid_daily_targets_are_refused_before_they_reach_the_worker() {
         let (controller, commands, _messages) = running(false);
         for bad in [0, i32::MAX as u32 + 1, u32::MAX] {
@@ -1749,6 +1848,35 @@ mod live_command_tests {
         assert!(commands.try_recv().is_ok());
     }
 
+    #[test]
+    fn a_site_certificate_failure_gets_a_new_browser_three_times_in_a_row_then_the_search_stops() {
+        use ceh_core::{model::PageKind, recovery::RecoveryAction};
+        let certificate = crate::restart::RestartRequest::from_action(&RecoveryAction::Restart { clear_profile: false, reopen: true }, PageKind::Unreachable).unwrap();
+        assert_eq!(certificate.reason, crate::restart::CERTIFICATE_RESTART);
+        assert!(!certificate.clear_profile, "the profile and its cookies are kept");
+        assert_eq!(certificate.kind(), crate::restart::RestartKind::NewSession);
+        let other = crate::restart::RestartRequest::from_action(&RecoveryAction::Restart { clear_profile: true, reopen: false }, PageKind::Blocked).unwrap();
+        let start = Instant::now();
+        let mut restarts = super::CertificateRestarts::default();
+        for n in 0..3 {
+            assert!(restarts.allow(&certificate, start + Duration::from_secs(10 * n)), "restart {n}");
+        }
+        // Other restarts are never counted or refused.
+        assert!(restarts.allow(&other, start + Duration::from_secs(35)));
+        assert!(!restarts.allow(&certificate, start + Duration::from_secs(40)), "the fourth in a row stops the search");
+        // A page of the site opened by one of the new browsers ends the run of failures.
+        assert!(super::site_opened(PageKind::Province) && super::site_opened(PageKind::Applicant));
+        for error in [PageKind::Unreachable, PageKind::Loading, PageKind::Blocked, PageKind::ServerError] {
+            assert!(!super::site_opened(error), "{error:?}");
+        }
+        // A failure long after the last one starts a new count.
+        let mut later = super::CertificateRestarts::default();
+        assert!(later.allow(&certificate, start));
+        assert!(later.allow(&certificate, start + Duration::from_secs(5)));
+        assert!(later.allow(&certificate, start + Duration::from_secs(5 + 11 * 60)));
+        assert!(later.allow(&certificate, start + Duration::from_secs(10 + 11 * 60)));
+        assert!(later.allow(&certificate, start + Duration::from_secs(15 + 11 * 60)));
+    }
     #[test]
     fn restart_session_asks_for_a_new_browser_session_not_a_new_pass() {
         let (controller, commands, _messages) = running(false);

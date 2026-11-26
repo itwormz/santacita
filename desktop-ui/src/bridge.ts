@@ -83,6 +83,15 @@ export async function legacyImport(name:string):Promise<{copied:number;kept:numb
 export async function resetSession(id:string):Promise<'reset'|'restarted'>{return invoke('reset_session',{id});}
 export async function copyStartupReport(id:string):Promise<void>{return invoke('startup_report_copy',{id});}
 export async function latestStartupReport():Promise<string|null>{return invoke('startup_report_latest');}
+export interface DeveloperState {learning:{on:boolean;folder:string|null};folders:Record<string,string>;live:Record<string,any>|null;search_active:boolean}
+export interface DeveloperEnvironment {app:string;system:string;architecture:string;data:string;browsers:{id:string;name:string;version:string;path:string;support:string}[];chromium_arguments:string[];learning_variable:boolean}
+export async function developerState():Promise<DeveloperState>{return invoke('developer_state');}
+export async function developerEnvironment():Promise<DeveloperEnvironment>{return invoke('developer_environment');}
+export async function developerLearning(on:boolean):Promise<DeveloperState>{return invoke('developer_learning',{on});}
+export async function developerOpen(folder:'data'|'diagnostics'|'reports'|'learning'):Promise<void>{return invoke('developer_open',{folder});}
+export async function developerCopyEnvironment():Promise<void>{return invoke('developer_copy_environment');}
+export async function developerExport():Promise<string>{return invoke('developer_export');}
+export async function developerSiteCheck(browser:string):Promise<{result:string;code?:string;page?:string;browser:string;seconds:number}>{return invoke('developer_site_check',{browser});}
 export async function loadBrowsers():Promise<InstalledBrowser[]>{return invoke('installed_browsers');}
 export async function loadJournalHistory(id:string):Promise<SearchRow[]>{return invoke('journal_history',{id});}
 export async function loadBudget(id:string):Promise<BudgetSummary|null>{return sharedRequest(`budget:${id}`,()=>invoke<BudgetSummary|null>('appointment_budget',{id}));}

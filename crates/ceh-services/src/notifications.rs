@@ -869,6 +869,7 @@ fn reason_phrase(code: &str) -> Option<&'static str> {
         "browser_connection_lost" => "связь с Camoufox потеряна, открытое окно сохранено",
         "browser_recovery_required" => "требуется восстановление браузера, открытое окно сохранено",
         "browser_navigation_failed" => "не удалось открыть сайт",
+        "site_certificate_untrusted" => "браузер не смог проверить сертификат сайта",
         "browser_in_background" => "клик не прошёл: окно Camoufox скрыто за другими окнами",
         "browser_start_failed" => "не удалось запустить Camoufox",
         "browser_not_installed" | "firefox_not_installed" => "выбранный браузер не найден",

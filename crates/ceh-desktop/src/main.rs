@@ -297,7 +297,7 @@ async fn update_install(window: WebviewWindow, runtime: State<'_, DesktopRuntime
             .map_err(|_| "update_install_failed")?
             .map_err(|_| "update_install_failed")?;
         window.app_handle().exit(0);
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "linux"))]
     tauri::async_runtime::spawn_blocking(move || ceh_desktop::notification_actions::open_installer(&path))
@@ -784,6 +784,97 @@ async fn startup_report_copy(
     .map_err(|_| "clipboard_unavailable")?
 }
 
+/// The developer window (three clicks on the icon in About): what it shows at once.
+#[tauri::command]
+fn developer_state(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) -> Result<serde_json::Value, &'static str> {
+    authorize(&window)?;
+    Ok(developer_state_of(&runtime))
+}
+/// The developer window's state with whether a search runs now (from the search controller, also while a browser starts).
+fn developer_state_of(runtime: &DesktopRuntime) -> serde_json::Value {
+    let mut state = ceh_desktop::developer::state(&runtime.root);
+    state["search_active"] = serde_json::json!(!runtime.search.site_check_allowed());
+    state
+}
+/// Versions, the system and the installed browsers (read once when the window opens: finding browsers takes a moment).
+#[tauri::command]
+async fn developer_environment(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) -> Result<serde_json::Value, &'static str> {
+    authorize(&window)?;
+    let root = runtime.root.clone();
+    tauri::async_runtime::spawn_blocking(move || ceh_desktop::developer::environment(&root)).await.map_err(|_| "developer_environment_failed")
+}
+/// Turn the track recording (learning mode) on or off; a running search picks it up at its next pass.
+#[tauri::command]
+fn developer_learning(
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+    on: bool,
+) -> Result<serde_json::Value, &'static str> {
+    authorize(&window)?;
+    ceh_desktop::developer::set_learning(&runtime.root, on)?;
+    Ok(developer_state_of(&runtime))
+}
+/// Open one of the app's own folders (`data`, `diagnostics`, `reports`, `learning`) in the file manager.
+#[tauri::command]
+async fn developer_open(
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+    folder: String,
+) -> Result<(), &'static str> {
+    authorize(&window)?;
+    let root = runtime.root.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = ceh_desktop::developer::folder(&root, &folder)?;
+        ceh_desktop::notification_actions::open_directory(&path).map_err(|_| "developer_folder_unavailable")
+    })
+    .await
+    .map_err(|_| "developer_folder_unavailable")?
+}
+/// Copy the environment (versions, system, browsers, launch arguments) as text.
+#[tauri::command]
+async fn developer_copy_environment(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) -> Result<(), &'static str> {
+    authorize(&window)?;
+    let root = runtime.root.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = ceh_desktop::developer::environment_text(&root);
+        arboard::Clipboard::new().and_then(|mut c| c.set_text(text)).map_err(|_| "clipboard_unavailable")
+    })
+    .await
+    .map_err(|_| "clipboard_unavailable")?
+}
+/// Zip the last session (timeline, report, environment) into Downloads and show it there. Returns the file name.
+#[tauri::command]
+async fn developer_export(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) -> Result<String, &'static str> {
+    authorize(&window)?;
+    let root = runtime.root.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = ceh_desktop::home_dir();
+        let downloads = std::path::Path::new(&home).join("Downloads");
+        let stamp = ceh_desktop::current_time().map(|t| t.format("%Y%m%d-%H%M%S").to_string()).unwrap_or_else(|_| "now".into());
+        let file = ceh_desktop::developer::export_last_session(&root, &home, &downloads, &stamp)?;
+        let _ = ceh_desktop::notification_actions::open_directory(&downloads);
+        Ok(file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+    })
+    .await
+    .map_err(|_| "developer_export_failed")?
+}
+/// Open the site's start page in a throwaway profile of `browser` and say what happened (never past the start page).
+#[tauri::command]
+async fn developer_site_check(
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+    browser: String,
+) -> Result<serde_json::Value, &'static str> {
+    authorize(&window)?;
+    // Never next to a running search, including while its browser starts or is replaced.
+    if !runtime.search.site_check_allowed() {
+        return Err("search_running");
+    }
+    tauri::async_runtime::spawn_blocking(move || ceh_desktop::developer::site_check(&browser))
+        .await
+        .map_err(|_| "developer_site_check_failed")
+}
+
 /// This start follows an update: the previous copy may still hold the data folder for a moment.
 static AFTER_UPDATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -989,6 +1080,13 @@ fn main() {
             copy_text,
             startup_report_copy,
             startup_report_latest,
+            developer_state,
+            developer_environment,
+            developer_learning,
+            developer_open,
+            developer_copy_environment,
+            developer_export,
+            developer_site_check,
             reset_session,
             legacy_candidates,
             legacy_import,
