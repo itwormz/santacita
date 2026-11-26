@@ -222,7 +222,7 @@ Rust, Tauri 2, Svelte 5 and TypeScript. SQLite and compatible YAML profiles. Bro
 
 [Build and checks](docs/BUILD.md)
 
-**Learning mode (for developers).** Start the app with `CEH_LEARNING=<folder>` and it records the pages a search passes through, also while you drive the browser by hand: one file per page (its structure, forms and visible text) and the path between pages. Typed values, profile data, phones, emails and DNI/NIE are blanked. Without the variable nothing is recorded. The diagnostics read every page of the site, whatever its path (Madrid uses `icpplustiem`).
+**Developer window.** Three clicks on the small wrench in the bottom-right corner of the About window open it. It turns on a recording of the pages a search passes through, also while you drive the browser by hand: one file per page (its structure, forms and visible text) and the path between pages, in the `data/learning` folder. Typed values, profile data, phones, emails and DNI/NIE are blanked. `CEH_LEARNING=<folder>` at launch still turns the recording on. The window also shows what the bot is doing, opens the app's folders, exports the last session as a zip and checks whether the site's start page opens. The diagnostics read every page of the site, whatever its path (Madrid uses `icpplustiem`).
 
 ## 💜 Acknowledgements
 
