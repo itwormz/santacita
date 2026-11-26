@@ -1536,11 +1536,17 @@ fn run_owned(
             if let Some(recorder) = learning.as_mut()
                 && recorder.due(Instant::now())
             {
+                // While a person drives (pause or manual) nobody reads the events: drop a flood instead of failing.
+                let person_drives = driver.control().mode() != ControlMode::Automatic;
+                browser.connection().set_drop_events_on_overflow(person_drives);
                 match ceh_browser::learning::read_page(browser.connection(), &serde_json::json!({"context": &context, "sandbox": "ceh"})) {
                     Ok(page) => recorder.record(page),
-                    Err(ceh_browser::learning::ReadFailure::Call) => recorder.note("read_failed_call"),
+                    Err(ceh_browser::learning::ReadFailure::Call(error)) => recorder.note(&format!("read_failed_call:{error:?}")),
                     Err(ceh_browser::learning::ReadFailure::Empty) => recorder.note("read_empty"),
                     Err(ceh_browser::learning::ReadFailure::Invalid) => recorder.note("read_invalid"),
+                }
+                if person_drives {
+                    browser.connection().take_events();
                 }
             }
             diagnostics.flush_timeline(browser.connection(), &mut driver);

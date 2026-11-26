@@ -1,7 +1,7 @@
 //! Learning mode (developer only): the structure of a page of the appointment site, read without anything a
 //! person has typed. `parse_page` is the strict gate: an unknown key (a `value`, say) or a page over the limits
 //! is refused, so a script that starts to return more than the structure cannot reach a file.
-use crate::bidi::BidiConnection;
+use crate::bidi::{BidiConnection, ProtocolError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
@@ -81,9 +81,9 @@ pub fn parse_page(raw: &str) -> Option<LearningPage> {
 /// Why a read gave no page (kept apart so a recording that stops can say why).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadFailure {
-    /// The browser did not answer in time or the connection is gone. A missed deadline ends the connection for
-    /// the whole search, so the deadline is long: a page that is being left can hold the call for seconds.
-    Call,
+    /// The call failed: no answer in time, a refusal, or the connection is gone (with the protocol's reason).
+    /// A missed deadline or a flood of events ends the connection for the whole search.
+    Call(ProtocolError),
     /// The script declined to read (not the official site) or returned no text.
     Empty,
     /// The text is not the structure: unknown key, over a limit, or not JSON.
@@ -102,7 +102,7 @@ pub fn read_page(connection: &mut BidiConnection, target: &serde_json::Value) ->
             }),
             Instant::now() + READ_DEADLINE,
         )
-        .map_err(|_| ReadFailure::Call)?;
+        .map_err(ReadFailure::Call)?;
     let text = value["result"]["value"].as_str().ok_or(ReadFailure::Empty)?;
     parse_page(text).ok_or(ReadFailure::Invalid)
 }

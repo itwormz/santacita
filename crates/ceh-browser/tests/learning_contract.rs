@@ -1,4 +1,4 @@
-use ceh_browser::{bidi::BidiConnection, learning::{ReadFailure, parse_page, read_page}};
+use ceh_browser::{bidi::{BidiConnection, ProtocolError}, learning::{ReadFailure, parse_page, read_page}};
 use serde_json::{Value, json};
 use std::{net::TcpListener, path::Path, thread, time::Duration};
 use tungstenite::Message;
@@ -144,6 +144,36 @@ fn a_call_that_the_browser_never_answers_is_reported_as_a_call_failure() {
         // Never answers: the socket is dropped.
     });
     let mut connection = BidiConnection::connect(address, Duration::from_secs(2)).unwrap();
-    assert_eq!(read_page(&mut connection, &json!({"context": "ctx"})).unwrap_err(), ReadFailure::Call);
+    assert_eq!(read_page(&mut connection, &json!({"context": "ctx"})).unwrap_err(), ReadFailure::Call(ProtocolError::Unavailable));
     server.join().unwrap();
+}
+
+/// A page that was being loaded while nobody read the socket: hundreds of events wait before the answer.
+fn read_behind_a_backlog(drop_on_overflow: bool) -> Result<ceh_browser::learning::LearningPage, ReadFailure> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let answer = madrid().to_string();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept(stream).unwrap();
+        let request: Value = serde_json::from_str(&socket.read().unwrap().into_text().unwrap()).unwrap();
+        for n in 0..300 {
+            let event = json!({"type": "event", "method": "network.responseCompleted", "params": {"n": n}});
+            if socket.send(Message::Text(event.to_string().into())).is_err() {
+                return;
+            }
+        }
+        let _ = socket.send(Message::Text(json!({"id": request["id"], "type": "success", "result": {"type": "success", "realm": "r", "result": {"type": "string", "value": answer}}}).to_string().into()));
+    });
+    let mut connection = BidiConnection::connect(address, Duration::from_secs(5)).unwrap();
+    connection.set_drop_events_on_overflow(drop_on_overflow);
+    let result = read_page(&mut connection, &json!({"context": "ctx"}));
+    let _ = server.join();
+    result
+}
+
+#[test]
+fn a_backlog_of_events_ends_the_connection_unless_the_reader_drops_them() {
+    assert_eq!(read_behind_a_backlog(false).unwrap_err(), ReadFailure::Call(ProtocolError::EventOverflow));
+    assert!(read_behind_a_backlog(true).is_ok());
 }
