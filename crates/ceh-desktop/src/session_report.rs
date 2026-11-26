@@ -113,6 +113,7 @@ impl SessionRecorder {
             live.insert("variant".into(), json!(observation.variant));
             live.insert("effects".into(), json!(effect_names));
             live.insert("flow".into(), report["flow"].clone());
+            live.insert("running".into(), json!(true));
         });
         if self.last_page_key.as_deref() == Some(key.as_str()) {
             // The same stop seen again: keep the newest facts of that page, without a second signal.
@@ -232,6 +233,12 @@ fn live_update(work: impl FnOnce(&mut serde_json::Map<String, Value>)) {
             work(object);
         }
     }
+}
+/// The search ended: the last state stays readable but no longer counts as a running search.
+pub fn live_finished() {
+    live_update(|live| {
+        live.insert("running".into(), json!(false));
+    });
 }
 /// What the running search last saw and did (`null` before the first page of a search).
 pub fn live() -> Value {

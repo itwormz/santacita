@@ -417,7 +417,8 @@
     "Файл в «Загрузках»": "File in Downloads",
     "Этот браузер не поддерживается": "This browser is not supported",
     "с": "s",
-    "Папка данных": "Data folder"
+    "Папка данных": "Data folder",
+    "последнее состояние": "last state"
   },
   "es": {
     "Всего": "Total",
@@ -837,6 +838,7 @@
     "Файл в «Загрузках»": "Archivo en Descargas",
     "Этот браузер не поддерживается": "Este navegador no es compatible",
     "с": "s",
-    "Папка данных": "Carpeta de datos"
+    "Папка данных": "Carpeta de datos",
+    "последнее состояние": "último estado"
   }
 }
