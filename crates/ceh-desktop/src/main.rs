@@ -793,7 +793,7 @@ fn developer_state(window: WebviewWindow, runtime: State<'_, DesktopRuntime>) ->
 /// The developer window's state with whether a search runs now (from the search controller, also while a browser starts).
 fn developer_state_of(runtime: &DesktopRuntime) -> serde_json::Value {
     let mut state = ceh_desktop::developer::state(&runtime.root);
-    state["search_active"] = serde_json::json!(runtime.search.snapshot().map(|s| s.active).unwrap_or(true));
+    state["search_active"] = serde_json::json!(!runtime.search.site_check_allowed());
     state
 }
 /// Versions, the system and the installed browsers (read once when the window opens: finding browsers takes a moment).
@@ -867,7 +867,7 @@ async fn developer_site_check(
 ) -> Result<serde_json::Value, &'static str> {
     authorize(&window)?;
     // Never next to a running search, including while its browser starts or is replaced.
-    if runtime.search.snapshot().map(|s| s.active).unwrap_or(true) {
+    if !runtime.search.site_check_allowed() {
         return Err("search_running");
     }
     tauri::async_runtime::spawn_blocking(move || ceh_desktop::developer::site_check(&browser))
