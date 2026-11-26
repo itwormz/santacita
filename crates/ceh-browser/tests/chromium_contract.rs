@@ -215,3 +215,20 @@ mod windows_registry {
         }
     }
 }
+
+#[test]
+fn the_site_intermediate_is_downloaded_over_http_and_certificate_checks_stay_on() {
+    // Without the DNS HTTPS record lookup the browser does not turn the intermediate's http download into https,
+    // which its certificate downloader refuses (the site then opened on "Privacy error").
+    for os in [TargetOs::Macos, TargetOs::Windows, TargetOs::Linux] {
+        let args = joined(os);
+        assert!(args.contains(&"--disable-features=UseDnsHttpsSvcb".to_owned()), "{os:?}");
+        for arg in &args {
+            for banned in ["--ignore-certificate-errors", "--ignore-certificate-errors-spki-list", "--allow-insecure-localhost", "--ignore-urlfetcher-cert-requests"] {
+                assert!(!arg.starts_with(banned), "{arg}");
+            }
+        }
+        // One `--disable-features` switch only: a second one would replace the first.
+        assert_eq!(args.iter().filter(|a| a.starts_with("--disable-features=")).count(), 1, "{os:?}");
+    }
+}
