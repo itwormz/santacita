@@ -1108,17 +1108,6 @@ fn run_owned(
                 };
                 let before = step.update();
                 diagnostics.observe(&step, browser.connection(), &mut driver);
-                if let Some(recorder) = learning.as_mut()
-                    && let Some(page) = step.learning_snapshot(browser.connection())
-                {
-                    let observation = &before.observation;
-                    recorder.record(
-                        page,
-                        &crate::learning_recorder::name(&observation.method),
-                        &crate::learning_recorder::name(&observation.kind),
-                        observation.document.as_str(),
-                    );
-                }
                 let at = wall()?;
                 // Recorded before anything below that can fail, so the report of such a failure has the page.
                 if crate::session_report::with(|recorder| {
@@ -1543,6 +1532,13 @@ fn run_owned(
                 preferences_at = Instant::now();
             }
             diagnostics.window_state(browser.connection(), &context);
+            // Learning mode (developer): the page as it is now, in any control mode, at most every 1.5 s.
+            if let Some(recorder) = learning.as_mut()
+                && recorder.due(Instant::now())
+                && let Some(page) = ceh_browser::learning::read_page(browser.connection(), &serde_json::json!({"context": &context, "sandbox": "ceh"}))
+            {
+                recorder.record(page);
+            }
             diagnostics.flush_timeline(browser.connection(), &mut driver);
             let change = presenter
                 .update(

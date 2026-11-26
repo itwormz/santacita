@@ -11,13 +11,20 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
+    sync::LazyLock,
+    time::{Duration, Instant},
 };
 
 const MAX_PAGES: u32 = 512;
+const READ_EVERY: Duration = Duration::from_millis(1500);
+static EMAIL: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}").unwrap());
+static DNI: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)\b\d{8}[A-Z]\b").unwrap());
+static NIE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)\b[XYZ][\s\-]?\d{7}[\s\-]?[A-Z]\b").unwrap());
+static PHONE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\+?\d(?:[\s.\-]?\d){8,}").unwrap());
 
 struct Last {
     index: u32,
-    document: String,
+    load: String,
     fingerprint: String,
     path: String,
     form_actions: Vec<String>,
@@ -25,9 +32,54 @@ struct Last {
 pub struct LearningRecorder {
     directory: PathBuf,
     sanitizer: Sanitizer,
+    /// Folded (lower case, no accents) strings of the profile that are blanked in any spelling.
+    known: Vec<Vec<char>>,
     index: u32,
     last: Option<Last>,
     stopped: bool,
+    read_at: Option<Instant>,
+}
+/// Lower case without Spanish accents, one char for one char, so positions line up with the original text.
+fn fold(text: &str) -> Vec<char> {
+    text.chars()
+        .map(|c| match c.to_lowercase().next().unwrap_or(c) {
+            'á' | 'à' | 'ä' | 'â' => 'a',
+            'é' | 'è' | 'ë' | 'ê' => 'e',
+            'í' | 'ì' | 'ï' | 'î' => 'i',
+            'ó' | 'ò' | 'ö' | 'ô' => 'o',
+            'ú' | 'ù' | 'ü' | 'û' => 'u',
+            'ñ' => 'n',
+            other => other,
+        })
+        .collect()
+}
+fn blank_known(text: &str, known: &[Vec<char>]) -> String {
+    let original: Vec<char> = text.chars().collect();
+    let folded = fold(text);
+    let mut hidden = vec![false; original.len()];
+    for needle in known {
+        if needle.is_empty() || needle.len() > folded.len() {
+            continue;
+        }
+        for start in 0..=folded.len() - needle.len() {
+            if folded[start..start + needle.len()] == needle[..] {
+                hidden[start..start + needle.len()].iter_mut().for_each(|h| *h = true);
+            }
+        }
+    }
+    let mut out = String::new();
+    let mut previous = false;
+    for (c, hide) in original.iter().zip(hidden) {
+        if hide {
+            if !previous {
+                out.push_str("***");
+            }
+        } else {
+            out.push(*c);
+        }
+        previous = hide;
+    }
+    out
 }
 fn private_directory(path: &Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
@@ -47,53 +99,76 @@ fn private_file(append: bool) -> OpenOptions {
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     options
 }
-fn redact(value: &mut Value, sanitizer: &Sanitizer) {
+fn scrub(text: &str, sanitizer: &Sanitizer, known: &[Vec<char>]) -> String {
+    let mut text = blank_known(&sanitizer.sanitize(text), known);
+    for pattern in [&*EMAIL, &*NIE, &*DNI, &*PHONE] {
+        text = pattern.replace_all(&text, "***").into_owned();
+    }
+    text
+}
+fn redact(value: &mut Value, sanitizer: &Sanitizer, known: &[Vec<char>]) {
     match value {
-        Value::String(text) => *text = sanitizer.sanitize(text),
-        Value::Array(items) => items.iter_mut().for_each(|item| redact(item, sanitizer)),
-        Value::Object(map) => map.values_mut().for_each(|item| redact(item, sanitizer)),
+        Value::String(text) => *text = scrub(text, sanitizer, known),
+        Value::Array(items) => items.iter_mut().for_each(|item| redact(item, sanitizer, known)),
+        Value::Object(map) => map.values_mut().for_each(|item| redact(item, sanitizer, known)),
         _ => {}
     }
 }
-/// The snake-case name a serialisable enum value has in the files (page kind, request method).
-pub fn name<T: serde::Serialize>(value: &T) -> String {
-    serde_json::to_value(value).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default()
-}
 impl LearningRecorder {
-    /// `None` unless `CEH_LEARNING` names an output directory.
+    /// `None` unless `CEH_LEARNING` names an output directory. Says where it records (or why not) on stderr.
     pub fn from_env(profile: &ProfileDraft) -> Option<Self> {
         let root = std::env::var_os("CEH_LEARNING").filter(|value| !value.is_empty())?;
-        let label = crate::session_timeline::madrid_text(None).replace(':', "-");
-        Self::create(Path::new(&root), &label, profile)
+        let mut label = crate::session_timeline::madrid_text(None).replace(':', "-");
+        if label.is_empty() {
+            label = "run".into();
+        }
+        let made = Self::create(Path::new(&root), &label, profile);
+        match &made {
+            Some(recorder) => eprintln!("learning mode: recording to {}", recorder.directory.display()),
+            None => eprintln!("learning mode: cannot create a directory under {} (use an absolute path)", Path::new(&root).display()),
+        }
+        made
     }
-    /// The run's own directory `<root>/<label>`, private to the user.
+    /// The run's own directory `<root>/<label>` (`<label>-2`, ... when it exists), private to the user.
     pub fn create(root: &Path, label: &str, profile: &ProfileDraft) -> Option<Self> {
-        let directory = root.join(label);
+        private_directory(root).ok()?;
+        let directory = (1..100)
+            .map(|n| if n == 1 { root.join(label) } else { root.join(format!("{label}-{n}")) })
+            .find(|candidate| !candidate.exists())?;
         private_directory(&directory).ok()?;
         let mut sanitizer = Sanitizer::default();
-        sanitizer.register([
-            profile.document_number.clone(), profile.full_name.clone(), profile.phone.clone(), profile.email.clone(),
-        ]);
-        Some(Self { directory, sanitizer, index: 0, last: None, stopped: false })
+        let secrets = [profile.document_number.clone(), profile.full_name.clone(), profile.phone.clone(), profile.email.clone()];
+        sanitizer.register(secrets.clone());
+        let mut known: Vec<Vec<char>> = secrets.iter().map(|secret| fold(secret)).filter(|f| f.len() >= 3).collect();
+        known.extend(profile.full_name.split_whitespace().filter(|word| word.chars().count() >= 4).map(fold));
+        Some(Self { directory, sanitizer, known, index: 0, last: None, stopped: false, read_at: None })
+    }
+    /// Whether a read of the page is due: at most one every 1.5 seconds, so the extra script call stays rare.
+    pub fn due(&mut self, now: Instant) -> bool {
+        if self.stopped || self.read_at.is_some_and(|at| now.saturating_duration_since(at) < READ_EVERY) {
+            return false;
+        }
+        self.read_at = Some(now);
+        true
     }
     /// Write the page when its structure or its document differs from the last one written (a refresh is a new
     /// document with the same structure and is written too), and the transition from the last page to it.
-    pub fn record(&mut self, page: LearningPage, method: &str, kind: &str, document: &str) {
+    pub fn record(&mut self, page: LearningPage) {
         if self.stopped || self.index >= MAX_PAGES {
             return;
         }
         let mut value = serde_json::to_value(&page).unwrap_or(Value::Null);
-        redact(&mut value, &self.sanitizer);
+        redact(&mut value, &self.sanitizer, &self.known);
         let Ok(page) = serde_json::from_value::<LearningPage>(value) else { return };
         let fingerprint = page.fingerprint();
-        if self.last.as_ref().is_some_and(|last| last.document == document && last.fingerprint == fingerprint) {
+        if self.last.as_ref().is_some_and(|last| last.load == page.load && last.fingerprint == fingerprint) {
             return;
         }
         let index = self.index + 1;
         let at = crate::current_time().map(|now| now.to_rfc3339()).unwrap_or_default();
-        let file = json!({"index": index, "at": at, "kind": kind, "method": method, "page": page});
+        let file = json!({"index": index, "at": at, "page": page});
         let transition = json!({
-            "from": self.last.as_ref().map(|last| last.index), "to": index, "method": method,
+            "from": self.last.as_ref().map(|last| last.index), "to": index,
             "via_forms": self.last.as_ref().map(|last| last.form_actions.clone()).unwrap_or_default(),
             "from_path": self.last.as_ref().map(|last| last.path.clone()), "to_path": page.path,
         });
@@ -109,7 +184,7 @@ impl LearningRecorder {
         self.index = index;
         self.last = Some(Last {
             index,
-            document: document.to_owned(),
+            load: page.load.clone(),
             fingerprint,
             path: page.path.clone(),
             form_actions: page.forms.iter().map(|form| form.action.clone()).collect(),
