@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.10
+
 ### New
 
 - A developer window: three clicks on the small wrench in the corner of the About window. It records the pages a search passes through for adding new services later (their structure and the path between them, never what was typed), shows what the bot is doing right now, opens the app's folders, exports the last session as a zip into Downloads, shows the installed browsers and checks whether the site's start page opens in a browser.
