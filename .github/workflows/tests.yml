@@ -38,7 +38,7 @@ jobs:
         if: needs.scope.outputs.mode != 'docs'
         run: |
           toolchain=$(node -e "process.stdout.write(require('fs').readFileSync('rust-toolchain.toml','utf8').match(/^channel = \"([^\"]+)\"/m)[1])")
-          rustup toolchain install "$toolchain" --profile minimal
+          rustup toolchain install "$toolchain" --profile minimal --component clippy
       - name: Source metadata, Rust and frontend
         if: needs.scope.outputs.mode != 'docs'
         run: |
@@ -54,6 +54,11 @@ jobs:
       - name: Test desktop controller and runtime
         if: needs.scope.outputs.mode != 'docs'
         run: cargo test -p ceh-desktop --features shell --locked --no-fail-fast
+      # Clippy of the pinned toolchain over everything the tests build: a warning fails the job. Review bots skip
+      # their own Clippy when a workflow runs it, so the version in rust-toolchain.toml is the one that judges.
+      - name: Clippy
+        if: needs.scope.outputs.mode != 'docs'
+        run: cargo clippy --workspace --all-targets --features ceh-browser/bidi,ceh-desktop/shell --locked -- -D warnings
   browsers:
     name: Browser tests
     needs: scope
