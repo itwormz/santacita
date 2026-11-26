@@ -11,8 +11,8 @@ use std::{
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stderr {
     /// Every browser start now reads its output (for the report of a failed start); the tests of the process
-    /// handling still start one without.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// handling, which run on macOS only, still start one without.
+    #[cfg_attr(not(all(test, target_os = "macos")), allow(dead_code))]
     Null,
     Piped,
 }
