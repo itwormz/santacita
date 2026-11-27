@@ -106,8 +106,8 @@ fn editor_exposes_validated_default_timings_without_runtime_access() {
     let editor = ceh_desktop::profile_editor(directory.path(), None).unwrap();
     assert_eq!(editor.timings.reload_seconds(), [30., 60.]);
     assert_eq!(
-        serde_json::to_value(editor).unwrap()["timings"]["blocked_seconds"][0],
-        30.
+        serde_json::to_value(editor).unwrap()["timings"]["blocked_seconds"],
+        610.
     );
 }
 

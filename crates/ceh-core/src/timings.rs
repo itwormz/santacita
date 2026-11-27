@@ -20,7 +20,8 @@ struct Values {
     expired_seconds: Vec<f64>,
     server_button_seconds: Vec<f64>,
     server_retry_seconds: Vec<f64>,
-    blocked_seconds: Vec<f64>,
+    /// The wait before a new session after a block that came back; the first block starts one at once.
+    blocked_seconds: f64,
     timeout_retry_seconds: Vec<f64>,
     post_timeout_seconds: f64,
     restart_seconds: f64,
@@ -156,7 +157,7 @@ const FIELDS: &[Spec] = &[
         key: "blocked_seconds",
         lower: 30.0,
         upper: 7200.0,
-        sequence: true,
+        sequence: false,
     },
     Spec {
         key: "timeout_retry_seconds",
@@ -178,7 +179,7 @@ const FIELDS: &[Spec] = &[
     },
 ];
 fn defaults_json() -> Value {
-    serde_json::json!({"action_delay_seconds": [0.3, 0.8], "bootstrap_seconds": [5, 8], "typing_ms": [70, 140], "contact_typing_ms": [35, 70], "reload_seconds": [30, 60], "navigation_seconds": 45, "clave_error_seconds": 180, "rate_limit_seconds": 180, "unreachable_seconds": 300, "no_slots_restart_seconds": 180, "alert_seconds": 3, "recovery_jitter_seconds": [0, 0], "expired_seconds": [0, 30, 60, 120, 300], "server_button_seconds": [0, 30, 60, 120, 300], "server_retry_seconds": [30, 60, 120, 300], "blocked_seconds": [30, 60, 120, 300, 600], "timeout_retry_seconds": [2, 5], "post_timeout_seconds": 5, "restart_seconds": 5})
+    serde_json::json!({"action_delay_seconds": [0.3, 0.8], "bootstrap_seconds": [5, 8], "typing_ms": [70, 140], "contact_typing_ms": [35, 70], "reload_seconds": [30, 60], "navigation_seconds": 45, "clave_error_seconds": 180, "rate_limit_seconds": 180, "unreachable_seconds": 300, "no_slots_restart_seconds": 180, "alert_seconds": 3, "recovery_jitter_seconds": [0, 0], "expired_seconds": [0, 30, 60, 120, 300], "server_button_seconds": [0, 30, 60, 120, 300], "server_retry_seconds": [30, 60, 120, 300], "blocked_seconds": 610, "timeout_retry_seconds": [2, 5], "post_timeout_seconds": 5, "restart_seconds": 5})
 }
 
 fn number(value: &Value) -> Option<f64> {
@@ -227,14 +228,19 @@ pub fn parse_timings(raw: &Value) -> Result<AssistTimings, TimingError> {
             .and_then(|map| map.get(spec.key))
             .filter(|value| !value.is_null() && value.as_str() != Some(""));
         let mut value = supplied.unwrap_or(&default).clone();
+        // A profile saved when the block wait was a ladder (one wait per block in a row): the ladders the app shipped
+        // become the new default, a ladder of the person's own keeps its first wait.
         if spec.key == "blocked_seconds"
-            && value.as_array().is_some_and(|values| {
-                let old = [300., 360., 420., 540., 600.];
-                values.len() == old.len()
-                    && values.iter().zip(old).all(|(a, b)| a.as_f64() == Some(b))
-            })
+            && let Some(values) = value.as_array()
         {
-            value = default.clone();
+            let shipped = |old: &[f64]| values.len() == old.len() && values.iter().zip(old).all(|(a, b)| a.as_f64() == Some(*b));
+            if shipped(&[300., 360., 420., 540., 600.]) || shipped(&[30., 60., 120., 300., 600.]) {
+                value = default.clone();
+            } else if values.len() <= 10 && let Some(first) = values.first() {
+                value = first.clone();
+            } else {
+                return Err(error);
+            }
         }
         let multiple = default.is_array();
         let numbers: Vec<f64> = if multiple {
@@ -339,7 +345,6 @@ impl AssistTimings {
             RetryKind::Expired => Some(&self.0.expired_seconds),
             RetryKind::ServerButton => Some(&self.0.server_button_seconds),
             RetryKind::ServerRetry => Some(&self.0.server_retry_seconds),
-            RetryKind::Blocked => Some(&self.0.blocked_seconds),
             RetryKind::UnsentClick => Some(&self.0.timeout_retry_seconds),
             _ => None,
         };
@@ -351,6 +356,10 @@ impl AssistTimings {
                 RetryKind::Unreachable => self.0.unreachable_seconds,
                 RetryKind::ClaveError => self.0.clave_error_seconds,
                 RetryKind::NoSlotsRestart => self.0.no_slots_restart_seconds,
+                // A cleared profile and a new browser usually get past a block at once; a block that comes back
+                // (the site holds it for about ten minutes) waits.
+                RetryKind::Blocked if attempt == 0 => 0.0,
+                RetryKind::Blocked => self.0.blocked_seconds,
                 _ => unreachable!("schedule selected above"),
             }
         };

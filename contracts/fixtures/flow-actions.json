@@ -375,7 +375,7 @@
       "expected": [
         [
           "wait",
-          30
+          0
         ],
         [
           "restart",
@@ -394,7 +394,7 @@
       "expected": [
         [
           "wait",
-          30
+          0
         ]
       ]
     },

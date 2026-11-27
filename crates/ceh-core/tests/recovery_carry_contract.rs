@@ -14,22 +14,22 @@ fn blocked_wait(engine: &mut FlowEngine) -> u64 {
 }
 
 #[test]
-fn repeated_blocks_across_new_sessions_wait_30_60_120_then_300_600() {
+fn the_first_block_starts_a_new_session_at_once_and_every_block_that_comes_back_waits_610_seconds() {
     let mut carry = RecoveryCarry::default();
     let mut waits = Vec::new();
-    for _ in 0..6 {
+    for _ in 0..4 {
         let mut next = engine();
         next.apply_carry(carry.clone());
         waits.push(blocked_wait(&mut next));
         carry = next.recovery_carry();
     }
-    assert_eq!(waits, vec![30_000, 60_000, 120_000, 300_000, 600_000, 600_000]);
+    assert_eq!(waits, vec![0, 610_000, 610_000, 610_000]);
 }
 
 #[test]
-fn without_the_carry_every_new_session_would_wait_the_first_pause() {
+fn without_the_carry_every_new_session_would_start_at_once() {
     let waits: Vec<u64> = (0..2).map(|_| blocked_wait(&mut engine())).collect();
-    assert_eq!(waits, vec![30_000, 30_000]);
+    assert_eq!(waits, vec![0, 0]);
 }
 
 #[test]

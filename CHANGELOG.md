@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### New
+
+- The block pauses are now one "Delay on a block" value, 610 s by default; the first block no longer waits.
+
 ### Fixes
 
 - Fix Chrome, Brave and Edge on a slow computer stopping the search with "the browser did not confirm the click", for example on "Sign in with Cl@ve": a click no longer has to finish within five seconds, and a click that was cut off before the button went down is tried again.
