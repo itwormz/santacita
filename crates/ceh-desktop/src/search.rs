@@ -607,6 +607,8 @@ fn run(
     let mut carry = ceh_core::flow::RecoveryCarry::default();
     // New browsers started in a row because the browser could not verify the site's certificate.
     let mut certificate_restarts = CertificateRestarts::default();
+    // Actions the browser did not complete, recovered with a new pass or a new browser (a few in a row at most).
+    let mut failures = crate::restart::ActionFailure::default();
     loop {
         // What a search remembers belongs to one browser: a replacement browser starts with an empty memory, so a launch
         // that fails cannot leave the previous browser's report.
@@ -614,7 +616,7 @@ fn run(
         SITE_REACHED.store(false, Ordering::Release);
         let end = run_session(
             root, profile.clone(), &mut timings, &mut appointment_policy, receiver, live, notifications,
-            shared_gate, cancelled, state, window, sound, close_browser, &mut journal, &mut log, &mut carry,
+            shared_gate, cancelled, state, window, sound, close_browser, &mut journal, &mut log, &mut carry, &mut failures,
         )?;
         match end {
             SessionEnd::Finished => return Ok(()),
@@ -699,6 +701,7 @@ fn run_session(
     journal: &mut PageJournal,
     log: &mut Option<crate::journal_log::JournalLog>,
     carry: &mut ceh_core::flow::RecoveryCarry,
+    failures: &mut crate::restart::ActionFailure,
 ) -> Result<SessionEnd, &'static str> {
     let engine = Engine::of(&profile.browser).ok_or("browser_unsupported")?;
     // One persistent browser profile per search profile, as in Python: cookies survive between runs and
@@ -759,6 +762,7 @@ fn run_session(
         journal,
         log,
         carry,
+        failures,
     );
     let result = crate::closed_window_stop(result, SessionEnd::Finished, || browser.page_open());
     // Window closing during an automatic search closes the app's own browser; anything else (a stop, an
@@ -809,6 +813,7 @@ fn run_owned(
     journal: &mut PageJournal,
     log: &mut Option<crate::journal_log::JournalLog>,
     carry: &mut ceh_core::flow::RecoveryCarry,
+    failures: &mut crate::restart::ActionFailure,
 ) -> Result<SessionEnd, &'static str> {
     // Saved profile changes and budget commands replace these during the run.
 
@@ -950,6 +955,90 @@ fn run_owned(
         let mut read_document: Option<String> = None;
         // When the cursor next stirs while the page is only waited on.
         let mut idle_at = Instant::now() + Duration::from_secs(3);
+        // The page the search last saw, and the document of an action the browser did not complete: when the page is
+        // read again and is still that document, the search starts a new pass (Python `recover_timeout`).
+        let mut last_kind: Option<PageKind> = None;
+        let mut failed_action: Option<ceh_core::model::DocumentId> = None;
+        // A fresh flow from the entry page in the same window and profile (Python: a new `AssistRunner`).
+        macro_rules! new_pass {
+            () => {{
+                *carry = driver.recovery_carry();
+                gate = DispatchGate::new(session.clone());
+                *shared_gate.lock().map_err(|_| "search_unavailable")? = Some(gate.clone());
+                driver = SessionDriver::with_samples(
+                    browser.context(),
+                    session.clone(),
+                    profile.clone(),
+                    timings.clone(),
+                    gate.clone(),
+                    ceh_browser::session_driver::SessionSamples {
+                        first_bootstrap: unit_sample(),
+                        second_bootstrap: unit_sample(),
+                        reload: unit_sample(),
+                        contact_typing: unit_sample(),
+                        typing: unit_sample(),
+                    },
+                )
+                .map_err(|_| "profile_invalid")?;
+                driver.apply_recovery_carry(carry.clone());
+                diagnostics.rebind(&mut driver);
+                // The new gate starts a new control authority; the presenter follows it.
+                presenter = crate::session_presentation::SessionPresentation::new(session.clone(), (timings.alert_seconds()*1000.).ceil() as u64);
+                // A rejected navigation with the window still there means the site did not open: the browser's
+                // error page is in the window and the flow tries again after the profile's wait.
+                if browser
+                    .connection()
+                    .call("browsingContext.navigate", json!({"context":context,"url":ceh_browser::recovery_navigation::ENTRY_URL,"wait":"none"}))
+                    .is_err()
+                    && !browser.page_open()
+                {
+                    return Ok(SessionEnd::Finished);
+                }
+                wait = false;
+                retry_at = Instant::now();
+                update(state, |s| s.deadline = None)?;
+            }};
+        }
+        // An action or a page read the browser did not complete. Python read the page again and went on, or started a
+        // new pass; the search used to stop here. `$document`: the page the action was for, when there was one.
+        macro_rules! recover_failure {
+            ($code:expr, $document:expr) => {{
+                match failures.decide(browser.connection().available(), last_kind, Instant::now()) {
+                    crate::restart::FailureStep::Stop => return Err($code),
+                    crate::restart::FailureStep::NewBrowser => {
+                        // A window the person closed is their stop, not a lost connection.
+                        return match crate::closed_window_stop_settled(Err($code), SessionEnd::Finished, crate::CLOSING_WINDOW_LOOKS, || browser.page_open(), || crate::closing_window_pause(cancelled)) {
+                            Ok(end) => Ok(end),
+                            Err(_) if cancelled.load(Ordering::Acquire) => Ok(SessionEnd::Finished),
+                            Err(_) => {
+                                *carry = driver.recovery_carry();
+                                journal.event(JournalEvent::FlowRestart, None, None, false, wall()?).map_err(|_| "search_unavailable")?;
+                                Ok(SessionEnd::NewSession(crate::restart::RestartRequest {
+                                    reason: crate::restart::CONNECTION_RESTART,
+                                    clear_profile: false,
+                                    reopen: true,
+                                }))
+                            }
+                        };
+                    }
+                    crate::restart::FailureStep::NewPass => {
+                        let document: Option<ceh_core::model::DocumentId> = $document;
+                        if document.is_none() {
+                            journal.event(JournalEvent::FlowRestart, None, None, false, wall()?).map_err(|_| "search_unavailable")?;
+                            new_pass!();
+                            continue;
+                        }
+                        // Give a late navigation time to land before the page is read again (Python `post_timeout`).
+                        failed_action = document;
+                        let delay = (timings.post_timeout_seconds() * 1000.0).round() as u64;
+                        retry_at = Instant::now() + Duration::from_millis(delay);
+                        let deadline = wall()?.saturating_add(delay as i64);
+                        update(state, |s| s.deadline = Some(deadline))?;
+                        continue;
+                    }
+                }
+            }};
+        }
         loop {
             // At the top of every pass, so a pending report is retried while paused or while nothing can be observed too.
             save_pending_report(root, state, &mut pending_report);
@@ -1131,7 +1220,8 @@ fn run_owned(
                         }
                         step
                     }
-                    Err(ceh_browser::BrowserError::NoObservation)
+                    // A page that changed while it was read is read again too.
+                    Err(ceh_browser::BrowserError::NoObservation | ceh_browser::BrowserError::StaleDocument)
                         if browser.connection().available() =>
                     {
                         // No action has been planned: a destroyed navigation realm can be read again.
@@ -1166,9 +1256,21 @@ fn run_owned(
                         update(state, |s| s.deadline = Some(deadline))?;
                         continue;
                     }
-                    Err(_) => return Err("browser_observation_failed"),
+                    Err(_) => recover_failure!("browser_observation_failed", None),
                 };
+                // The action before did not complete: still the same page, so it was not done and the flow starts
+                // again from the entry page; another page means it went through after all and the flow goes on.
+                if let Some(document) = failed_action.take() {
+                    let seen = &step.update().observation;
+                    if seen.document == document && !matches!(seen.kind, PageKind::Booking | PageKind::Captcha) {
+                        drop(step);
+                        journal.event(JournalEvent::FlowRestart, None, None, false, wall()?).map_err(|_| "search_unavailable")?;
+                        new_pass!();
+                        continue;
+                    }
+                }
                 let before = step.update();
+                last_kind = Some(before.observation.kind);
                 diagnostics.observe(&step, browser.connection(), &mut driver);
                 let at = wall()?;
                 // Recorded before anything below that can fail, so the report of such a failure has the page.
@@ -1321,6 +1423,7 @@ fn run_owned(
                     }
                 }
                 let executing_since = Instant::now();
+                let acted_document = before.observation.document.clone();
                 let entering_auth = effects.iter().any(|effect| matches!(effect, FlowEffect::EnterAuthentication { .. }));
                 let submits_appointment = effects.iter().any(|effect| matches!(effect, FlowEffect::Activate { action: ActionKind::Request, .. }));
                 let mut prior_budget = if submits_appointment {
@@ -1368,7 +1471,7 @@ fn run_owned(
                             request_stop_report(&mut pending_report, "stale_document_repeated", "the page kept changing under the planned action");
                         }
                         if entering_auth {
-                            return Err("browser_auth_entry_changed");
+                            recover_failure!("browser_auth_entry_changed", Some(acted_document));
                         }
                         // Do not replay this linear plan. Only a fresh observation may advance core.
                         if let Some((prior_budget, prior_observer)) = prior_budget.take() {
@@ -1386,10 +1489,11 @@ fn run_owned(
                         row["reason"] = serde_json::json!(error.code());
                         diagnostics.step(row);
                         // A click that never completed while the window was hidden says so instead of a generic failure.
-                        if browser.connection().cdp_target().is_none() && window_hidden(browser.connection(), &context) {
+                        if !browser.connection().available() && browser.connection().cdp_target().is_none() && window_hidden(browser.connection(), &context) {
                             return Err("browser_in_background");
                         }
-                        return Err("browser_action_failed");
+                        // A request counted before the failed click stays counted: it may have gone.
+                        recover_failure!("browser_action_failed", Some(acted_document));
                     }
                 };
                 let mut row = crate::session_timeline::step_row(
@@ -1439,8 +1543,8 @@ fn run_owned(
                 if entering_auth {
                     match after.receipts.iter().find(|receipt| receipt.action == ActionKind::Auth).map(|receipt| receipt.outcome) {
                         Some(DispatchOutcome::Dispatched) => {}
-                        Some(DispatchOutcome::Unknown) => return Err("browser_auth_entry_unconfirmed"),
-                        _ => return Err("browser_auth_entry_unavailable"),
+                        Some(DispatchOutcome::Unknown) => recover_failure!("browser_auth_entry_unconfirmed", Some(acted_document)),
+                        _ => recover_failure!("browser_auth_entry_unavailable", Some(acted_document)),
                     }
                 }
                 if manual {
@@ -1518,40 +1622,7 @@ fn run_owned(
                         crate::restart::RestartKind::NewSession => return Ok(SessionEnd::NewSession(request)),
                         crate::restart::RestartKind::NewPass => {
                             // Same window and profile, a fresh flow from the entry page (Python new `AssistRunner`).
-                            gate = DispatchGate::new(session.clone());
-                            *shared_gate.lock().map_err(|_| "search_unavailable")? = Some(gate.clone());
-                            driver = SessionDriver::with_samples(
-                                browser.context(),
-                                session.clone(),
-                                profile.clone(),
-                                timings.clone(),
-                                gate.clone(),
-                                ceh_browser::session_driver::SessionSamples {
-                                    first_bootstrap: unit_sample(),
-                                    second_bootstrap: unit_sample(),
-                                    reload: unit_sample(),
-                                    contact_typing: unit_sample(),
-                                    typing: unit_sample(),
-                                },
-                            )
-                            .map_err(|_| "profile_invalid")?;
-                            driver.apply_recovery_carry(carry.clone());
-                            diagnostics.rebind(&mut driver);
-                            // The new gate starts a new control authority; the presenter follows it.
-                            presenter = crate::session_presentation::SessionPresentation::new(session.clone(), (timings.alert_seconds()*1000.).ceil() as u64);
-                            // A rejected navigation with the window still there means the site did not open: the browser's
-                            // error page is in the window and the flow tries again after the profile's wait.
-                            if browser
-                                .connection()
-                                .call("browsingContext.navigate", json!({"context":context,"url":ceh_browser::recovery_navigation::ENTRY_URL,"wait":"none"}))
-                                .is_err()
-                                && !browser.page_open()
-                            {
-                                return Ok(SessionEnd::Finished);
-                            }
-                            wait = false;
-                            retry_at = Instant::now();
-                            update(state, |s| s.deadline = None)?;
+                            new_pass!();
                             continue;
                         }
                     }

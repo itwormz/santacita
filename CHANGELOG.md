@@ -6,6 +6,7 @@
 
 - Fix Chrome, Brave and Edge on a slow computer stopping the search with "the browser did not confirm the click", for example on "Sign in with Cl@ve": a click no longer has to finish within five seconds, and a click that was cut off before the button went down is tried again.
 - Error messages that apply to every browser no longer name Firefox.
+- The search no longer stops when the browser does not complete an action or a page read (for example "the browser did not confirm the click"): like the Python version, it reads the page again and goes on, or starts a new pass from the start page; when the browser stops answering, it opens a new browser with the same profile. A failure that comes back more than three times in 15 minutes still stops the search.
 
 ## 0.4.10
 
