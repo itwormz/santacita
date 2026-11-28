@@ -687,17 +687,27 @@ impl CdpWire {
         let mut modifiers: u8 = 0;
         let mut centres: HashMap<String, (f64, f64)> = HashMap::new();
         for source in params["actions"].as_array().into_iter().flatten() {
-            for action in source["actions"].as_array().into_iter().flatten() {
+            let actions = source["actions"].as_array().map(Vec::as_slice).unwrap_or_default();
+            // The last move onto an element is the one the button goes down at.
+            let final_move = actions.iter().rposition(|a| a["type"] == "pointerMove" && a["origin"]["element"]["sharedId"].is_string());
+            for (index, action) in actions.iter().enumerate() {
                 let duration = Duration::from_millis(action["duration"].as_u64().unwrap_or(0).min(10_000));
                 let deadline = (Instant::now() + duration + window).min(overall);
                 match action["type"].as_str().unwrap_or("") {
                     "pause" => std::thread::sleep(duration),
                     "pointerMove" => {
                         let (dx, dy) = (action["x"].as_f64().unwrap_or(0.0), action["y"].as_f64().unwrap_or(0.0));
-                        // The element stays put during one gesture (it was scrolled into view before): one read.
+                        // One read for the moves on the way (each read is a round trip, a slow browser makes many
+                        // of them a slow click); the final move reads again, so an element that a hover or a layout
+                        // change moved meanwhile is pressed where it is now. A failed second read keeps the first.
                         let base = match action["origin"]["element"]["sharedId"].as_str() {
-                            Some(shared) => match centres.get(shared) {
-                                Some(centre) => *centre,
+                            Some(shared) => match centres.get(shared).copied() {
+                                Some(centre) if Some(index) != final_move => centre,
+                                Some(centre) => {
+                                    let fresh = self.center(shared, deadline).unwrap_or(centre);
+                                    centres.insert(shared.to_owned(), fresh);
+                                    fresh
+                                }
                                 None => {
                                     let centre = self.center(shared, deadline)?;
                                     centres.insert(shared.to_owned(), centre);
