@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.11
+
 ### New
 
 - "Change browser on a block" option in ban protection, on by default: if the site blocks again after the profile was cleared, the next session runs in another installed browser; if that is blocked too, the search goes back to the profile's browser and waits the block delay.
