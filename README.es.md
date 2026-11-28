@@ -98,6 +98,7 @@ Cómo reacciona el bot al mensaje de que no hay citas se ajusta en el perfil:
 - La escritura sigue un ritmo humano (la velocidad se fija en el perfil).
 - Cada sesión abre la ventana del navegador con su propio tamaño y posición.
 - Si la web no abre o se rechaza la sesión, la aplicación reinicia el navegador con un perfil limpio y continúa la búsqueda.
+- Si el bloqueo se repite, la siguiente sesión usa otro navegador instalado; si tampoco sirve, la búsqueda espera el retraso por bloqueo (610 s por defecto).
 
 ### 📊 Estadísticas y registro
 

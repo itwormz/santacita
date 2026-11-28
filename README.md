@@ -98,6 +98,7 @@ How the bot reacts to "no appointments" is set in the profile:
 - Typing has a human rhythm (the typing speed is set in the profile).
 - Every session opens the browser window in its own size and place.
 - If the site does not open or the session is rejected, the app restarts the browser with a clean profile and continues the search.
+- If the block comes back, the next session runs in another installed browser; if that does not help either, the search waits the block delay (610 s by default).
 
 ### 📊 Statistics and journal
 
