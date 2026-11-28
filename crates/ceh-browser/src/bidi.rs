@@ -18,6 +18,8 @@ pub enum ProtocolError {
     Unavailable,
     Rejected,
     EventOverflow,
+    /// Chrome: an input gesture failed before any button or key went down, so the page saw nothing but cursor moves.
+    NotPerformed,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ticket(u64);
@@ -240,7 +242,7 @@ impl BidiConnection {
                 "duration_ms": started.elapsed().as_millis() as u64,
             }));
         }
-        if result.is_err() && result != Err(ProtocolError::Rejected) {
+        if result.is_err() && !matches!(result, Err(ProtocolError::Rejected | ProtocolError::NotPerformed)) {
             self.failed = true;
         }
         result

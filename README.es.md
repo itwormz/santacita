@@ -65,6 +65,8 @@ Así ninguna de las cinco solicitudes diarias se gasta en comprobaciones vacías
 
 Un perfil es una búsqueda ya preparada: provincia, trámite, forma de acceso (certificado o Cl@ve), datos del solicitante, tiempos, protección y notificaciones. Puede crear varios perfiles y cambiar entre ellos.
 
+<p align="center"><img src="docs/images/profile-dark.png" width="720" alt="Editor de perfil"></p>
+
 ### 🌐 Navegadores
 
 SantaCita abre un perfil separado en su navegador: sus pestañas y datos habituales no se tocan.
@@ -87,6 +89,8 @@ Cómo reacciona el bot al mensaje de que no hay citas se ajusta en el perfil:
 - **En el formulario del solicitante.** *Esperar con «no hay citas»* (por defecto): no se introducen datos mientras se vea el mensaje. *Introducir y continuar*: se introducen aunque el mensaje siga visible, y esa comprobación vacía puede gastar una de las cinco solicitudes diarias.
 - **Tras «no hay citas».** Empezar una nueva ronda o volver mediante Salir.
 
+<p align="center"><img src="docs/images/monitor-dark.png" width="720" alt="Pantalla de búsqueda"></p>
+
 ### 🎮 Control
 
 - Pausar, reanudar y volver a la búsqueda después de elegir la fecha.
@@ -98,6 +102,9 @@ Cómo reacciona el bot al mensaje de que no hay citas se ajusta en el perfil:
 - La escritura sigue un ritmo humano (la velocidad se fija en el perfil).
 - Cada sesión abre la ventana del navegador con su propio tamaño y posición.
 - Si la web no abre o se rechaza la sesión, la aplicación reinicia el navegador con un perfil limpio y continúa la búsqueda.
+- Si el bloqueo se repite, la siguiente sesión usa otro navegador instalado; si tampoco sirve, la búsqueda espera el retraso por bloqueo (610 s por defecto).
+
+<p align="center"><img src="docs/images/timings-dark.png" width="720" alt="Tiempos y protección contra bloqueos"></p>
 
 ### 📊 Estadísticas y registro
 
@@ -140,6 +147,8 @@ Cierre Python antes de importar. Tendrá que acceder de nuevo en el navegador. L
 Se comprueban en Acerca de, al iniciar y una vez al día. La descarga y la instalación se inician con un botón. Antes de instalar se verifican SHA256 y la procedencia Sigstore de la compilación; un paquete que no la supera no se instala. Windows portable sustituye el programa y se reinicia conservando `data`.
 
 El ajuste *Ofrecer versiones beta* añade a las estables las betas de versiones posteriores (0.5.0 y superiores). Está desactivado por defecto y se importa desde Python 0.3.8.
+
+<p align="center"><img src="docs/images/settings-dark.png" width="720" alt="Ajustes de la aplicación"></p>
 
 ## 📥 Instalación
 

@@ -34,15 +34,25 @@ fn timing_validation_matches_python_defaults_bounds_and_legacy_upgrade() {
 #[test]
 fn retry_schedules_reuse_last_delay_and_validate_sampled_jitter() {
     let timing = parse_timings(&serde_json::json!({"recovery_jitter_seconds":[1,3]})).unwrap();
+    // The first block: no fixed wait; every block that comes back: the one profile wait (610 s).
     assert_eq!(
         timing.recovery_delay(RetryKind::Blocked, 0, 1.).unwrap(),
-        31.
+        1.
+    );
+    assert_eq!(
+        timing.recovery_delay(RetryKind::Blocked, 1, 1.).unwrap(),
+        611.
     );
     assert_eq!(
         timing
             .recovery_delay(RetryKind::Blocked, usize::MAX, 3.)
             .unwrap(),
-        603.
+        613.
+    );
+    assert_eq!(
+        timing.recovery_delay(RetryKind::ServerRetry, usize::MAX, 1.).unwrap(),
+        301.,
+        "the other ladders still reuse their last delay"
     );
     assert_eq!(
         timing.recovery_delay(RetryKind::RateLimit, 0, 2.).unwrap(),

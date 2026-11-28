@@ -503,10 +503,11 @@ fn authentication_intent_uses_explicit_profile_method() {
 #[test]
 fn recovery_wait_is_cancelled_by_booking_and_never_resumes() {
     let mut e = engine();
+    e.apply_carry(RecoveryCarry { blocked_streak: 1, ..Default::default() });
     let o = observation(PageKind::Blocked);
     assert_eq!(
         e.observe(o, 0).unwrap(),
-        vec![FlowEffect::WaitUntil(30_000)]
+        vec![FlowEffect::WaitUntil(610_000)]
     );
     assert_eq!(
         e.observe(observation(PageKind::Booking), 10).unwrap(),
@@ -520,12 +521,14 @@ fn recovery_wait_is_cancelled_by_booking_and_never_resumes() {
 }
 #[test]
 fn blocked_restart_requires_full_cooldown() {
+    // A block that came back (one before it in a row) waits the profile's 610 s before the new session.
     let mut e = engine();
+    e.apply_carry(RecoveryCarry { blocked_streak: 1, ..Default::default() });
     let o = observation(PageKind::Blocked);
     e.observe(o.clone(), 0).unwrap();
-    assert!(e.observe(o.clone(), 29_999).unwrap().is_empty());
+    assert!(e.observe(o.clone(), 609_999).unwrap().is_empty());
     assert!(matches!(
-        &e.observe(o, 30_000).unwrap()[0],
+        &e.observe(o, 610_000).unwrap()[0],
         FlowEffect::Recover {
             action: ceh_core::recovery::RecoveryAction::Restart {
                 clear_profile: true,
@@ -689,8 +692,9 @@ fn custom_recovery_jitter_range_is_supported_by_engine() {
     )
     .unwrap();
     assert_eq!(
+        // The first block waits only the sampled jitter (no fixed wait).
         e.observe(observation(PageKind::Blocked), 0).unwrap(),
-        vec![FlowEffect::WaitUntil(35_000)]
+        vec![FlowEffect::WaitUntil(5_000)]
     );
 }
 

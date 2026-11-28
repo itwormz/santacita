@@ -88,7 +88,7 @@
     },
     {
       "key": "blocked_seconds",
-      "title": "Блокировка: паузы новых сессий, с",
+      "title": "Повторная блокировка: пауза перед новой сессией, с",
       "lower": 30,
       "upper": 7200
     },
@@ -169,19 +169,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -242,19 +237,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -320,19 +310,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -397,19 +382,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -478,19 +458,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -557,17 +532,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            31.0,
-            45.0,
-            100.0
-          ],
+          "blocked_seconds": 31,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -633,19 +605,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -790,19 +757,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -865,19 +827,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -943,19 +900,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -1018,19 +970,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -1049,7 +996,68 @@
         "blocked_seconds": 30
       },
       "expected": {
-        "valid": false
+        "valid": true,
+        "value": {
+          "action_delay_seconds": [
+            0.3,
+            0.8
+          ],
+          "bootstrap_seconds": [
+            5.0,
+            8.0
+          ],
+          "typing_ms": [
+            70.0,
+            140.0
+          ],
+          "contact_typing_ms": [
+            35.0,
+            70.0
+          ],
+          "reload_seconds": [
+            30.0,
+            60.0
+          ],
+          "adaptive_reload_on_429": true,
+          "navigation_seconds": 45.0,
+          "clave_error_seconds": 180.0,
+          "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
+          "no_slots_restart_seconds": 180.0,
+          "alert_seconds": 3.0,
+          "recovery_jitter_seconds": [
+            0.0,
+            0.0
+          ],
+          "expired_seconds": [
+            0.0,
+            30.0,
+            60.0,
+            120.0,
+            300.0
+          ],
+          "server_button_seconds": [
+            0.0,
+            30.0,
+            60.0,
+            120.0,
+            300.0
+          ],
+          "server_retry_seconds": [
+            30.0,
+            60.0,
+            120.0,
+            300.0
+          ],
+          "blocked_seconds": 30,
+          "timeout_retry_seconds": [
+            2.0,
+            5.0
+          ],
+          "post_timeout_seconds": 5.0,
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
+        }
       }
     },
     {
@@ -1114,19 +1122,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -1192,19 +1195,14 @@
             120.0,
             300.0
           ],
-          "blocked_seconds": [
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0
-          ],
+          "blocked_seconds": 610,
           "timeout_retry_seconds": [
             2.0,
             5.0
           ],
           "post_timeout_seconds": 5.0,
-          "restart_seconds": 5.0
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": true
         }
       }
     },
@@ -1227,6 +1225,85 @@
           "\u001c40",
           "50"
         ]
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "id": "switch_browser_off",
+      "input": {
+        "switch_browser_on_block": false
+      },
+      "expected": {
+        "valid": true,
+        "value": {
+          "action_delay_seconds": [
+            0.3,
+            0.8
+          ],
+          "bootstrap_seconds": [
+            5.0,
+            8.0
+          ],
+          "typing_ms": [
+            70.0,
+            140.0
+          ],
+          "contact_typing_ms": [
+            35.0,
+            70.0
+          ],
+          "reload_seconds": [
+            30.0,
+            60.0
+          ],
+          "adaptive_reload_on_429": true,
+          "navigation_seconds": 45.0,
+          "clave_error_seconds": 180.0,
+          "rate_limit_seconds": 180.0,
+          "unreachable_seconds": 300.0,
+          "no_slots_restart_seconds": 180.0,
+          "alert_seconds": 3.0,
+          "recovery_jitter_seconds": [
+            0.0,
+            0.0
+          ],
+          "expired_seconds": [
+            0.0,
+            30.0,
+            60.0,
+            120.0,
+            300.0
+          ],
+          "server_button_seconds": [
+            0.0,
+            30.0,
+            60.0,
+            120.0,
+            300.0
+          ],
+          "server_retry_seconds": [
+            30.0,
+            60.0,
+            120.0,
+            300.0
+          ],
+          "blocked_seconds": 610,
+          "timeout_retry_seconds": [
+            2.0,
+            5.0
+          ],
+          "post_timeout_seconds": 5.0,
+          "restart_seconds": 5.0,
+          "switch_browser_on_block": false
+        }
+      }
+    },
+    {
+      "id": "switch_browser_not_bool",
+      "input": {
+        "switch_browser_on_block": "yes"
       },
       "expected": {
         "valid": false

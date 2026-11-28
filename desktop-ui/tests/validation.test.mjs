@@ -12,8 +12,8 @@ test('appointment protection accepts only positive integers and booleans, defaul
 
 import {protectionFields} from '../src/protection.ts';
 test('protection fields follow the Python order (without the removed pauses); flags come from the right place',()=>{
- assert.deepEqual(protectionFields.map(field=>field.key),['confirm_new_round','daily_target','adaptive_target','retry_after_office','adaptive_reload_on_429','distribute_attempts']);
- assert.deepEqual(protectionFields.filter(field=>field.source==='timings').map(field=>field.key),['adaptive_reload_on_429']);
+ assert.deepEqual(protectionFields.map(field=>field.key),['confirm_new_round','daily_target','adaptive_target','retry_after_office','adaptive_reload_on_429','distribute_attempts','switch_browser_on_block','blocked_seconds']);
+ assert.deepEqual(protectionFields.filter(field=>field.source==='timings').map(field=>field.key),['adaptive_reload_on_429','switch_browser_on_block','blocked_seconds']);
  assert.deepEqual(protectionFields.filter(field=>field.unit==='мин').map(field=>field.key),[]);
  for(const field of protectionFields){assert.ok(field.title&&field.description.length>20,field.key);}
 });
