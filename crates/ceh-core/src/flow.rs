@@ -827,6 +827,9 @@ impl FlowEngine {
                 | PageKind::PostContactNoSlots
         ) {
             self.recovery_attempts.clear();
+        } else if matches!(observed.kind, PageKind::Auth | PageKind::AuthWait) {
+            // The sign-in page is past the site's block: a later block starts again from a cleared profile.
+            self.recovery_attempts.retain(|((kind, _), _)| *kind != PageKind::Blocked);
         }
         let same = self
             .current

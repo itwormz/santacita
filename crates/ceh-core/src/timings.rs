@@ -27,6 +27,12 @@ struct Values {
     restart_seconds: f64,
     #[serde(default = "default_true")]
     adaptive_reload_on_429: bool,
+    /// After a cleared profile did not get past a block, the next session runs in another installed browser.
+    #[serde(default = "default_true")]
+    switch_browser_on_block: bool,
+    /// Set by the app for one search: whether another supported browser is installed. Never saved.
+    #[serde(skip)]
+    other_browser: bool,
 }
 
 fn default_true() -> bool {
@@ -280,6 +286,16 @@ pub fn parse_timings(raw: &Value) -> Result<AssistTimings, TimingError> {
         }
     };
     values.insert("adaptive_reload_on_429".to_owned(), Value::Bool(adaptive));
+    let switch = match input.and_then(|map| map.get("switch_browser_on_block")) {
+        None => true,
+        Some(Value::Bool(flag)) => *flag,
+        Some(_) => {
+            return Err(TimingError {
+                field: Some("switch_browser_on_block"),
+            });
+        }
+    };
+    values.insert("switch_browser_on_block".to_owned(), Value::Bool(switch));
     let values =
         serde_json::from_value(Value::Object(values)).map_err(|_| TimingError { field: None })?;
     Ok(AssistTimings(values))
@@ -319,6 +335,25 @@ impl AssistTimings {
     pub fn adaptive_reload_on_429(&self) -> bool {
         self.0.adaptive_reload_on_429
     }
+    /// Whether a block that a cleared profile did not get past moves the next session to another browser.
+    pub fn switch_browser_on_block(&self) -> bool {
+        self.0.switch_browser_on_block
+    }
+    /// The app says whether another supported browser is installed; without one no session changes browser.
+    pub fn set_other_browser(&mut self, available: bool) {
+        self.0.other_browser = available;
+    }
+    pub fn other_browser(&self) -> bool {
+        self.0.other_browser
+    }
+    /// A block moves the next session to another browser: the option is on and there is one to move to.
+    pub fn block_changes_browser(&self) -> bool {
+        self.0.switch_browser_on_block && self.0.other_browser
+    }
+    /// Blocks in a row that start a new session at once: a cleared profile, then another browser when it changes.
+    pub fn immediate_blocks(&self) -> usize {
+        1 + usize::from(self.block_changes_browser())
+    }
     pub fn no_slots_restart_seconds(&self) -> f64 {
         self.0.no_slots_restart_seconds
     }
@@ -356,9 +391,9 @@ impl AssistTimings {
                 RetryKind::Unreachable => self.0.unreachable_seconds,
                 RetryKind::ClaveError => self.0.clave_error_seconds,
                 RetryKind::NoSlotsRestart => self.0.no_slots_restart_seconds,
-                // A cleared profile and a new browser usually get past a block at once; a block that comes back
-                // (the site holds it for about ten minutes) waits.
-                RetryKind::Blocked if attempt == 0 => 0.0,
+                // A cleared profile (and another browser, when the profile asks for it) usually gets past a block at
+                // once; a block that comes back after them (the site holds it for about ten minutes) waits.
+                RetryKind::Blocked if attempt < self.immediate_blocks() => 0.0,
                 RetryKind::Blocked => self.0.blocked_seconds,
                 _ => unreachable!("schedule selected above"),
             }

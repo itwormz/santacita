@@ -76,3 +76,40 @@ mod action_failure {
         }
     }
 }
+
+mod browser_after_block {
+    use ceh_desktop::restart::{browser_after_block, other_browser};
+
+    #[test]
+    fn the_other_browser_is_of_the_other_kind_first_and_never_the_current_one() {
+        assert_eq!(other_browser("chrome", &["chrome", "brave", "firefox"]), Some("firefox"));
+        assert_eq!(other_browser("firefox", &["firefox", "brave", "chrome"]), Some("chrome"));
+        assert_eq!(other_browser("chrome", &["chrome", "brave"]), Some("brave"));
+        assert_eq!(other_browser("chrome", &["chrome"]), None);
+        assert_eq!(other_browser("chrome", &[]), None);
+    }
+
+    #[test]
+    fn a_cleared_profile_first_then_the_other_browser_then_back_to_the_profile_browser() {
+        let next = |current, streak| browser_after_block("chrome", current, Some("firefox"), streak, true);
+        assert_eq!(next("chrome", 1), "chrome", "the first block keeps the browser, its profile is cleared");
+        assert_eq!(next("chrome", 2), "firefox", "the second moves to the other browser");
+        assert_eq!(next("firefox", 3), "chrome", "the third goes back to the profile's browser");
+        assert_eq!(next("chrome", 4), "chrome", "and stays there while the blocks go on");
+    }
+
+    #[test]
+    fn a_browser_that_got_past_a_block_stays_until_the_next_run_of_blocks_moves_it_back() {
+        let next = |current, streak| browser_after_block("chrome", current, Some("firefox"), streak, true);
+        assert_eq!(next("firefox", 1), "firefox");
+        assert_eq!(next("firefox", 2), "chrome");
+    }
+
+    #[test]
+    fn without_the_option_or_another_browser_the_profile_browser_is_kept() {
+        for streak in 1..5 {
+            assert_eq!(browser_after_block("chrome", "chrome", Some("firefox"), streak, false), "chrome");
+            assert_eq!(browser_after_block("chrome", "chrome", None, streak, true), "chrome");
+        }
+    }
+}

@@ -609,13 +609,25 @@ fn run(
     let mut certificate_restarts = CertificateRestarts::default();
     // Actions the browser did not complete, recovered with a new pass or a new browser (a few in a row at most).
     let mut failures = crate::restart::ActionFailure::default();
+    // Another installed browser a block can move the search to (the profile option decides whether it does).
+    let installed: Vec<&'static str> = ceh_browser::discovery::discover_installed()
+        .iter()
+        .filter(|b| b.support == ceh_browser::discovery::Support::Supported && Engine::of(b.family.id()).is_some())
+        .map(|b| b.family.id())
+        .collect();
+    let other = crate::restart::other_browser(&profile.browser, &installed).map(str::to_owned);
+    timings.set_other_browser(other.is_some());
+    let mut current = profile.browser.clone();
     loop {
         // What a search remembers belongs to one browser: a replacement browser starts with an empty memory, so a launch
         // that fails cannot leave the previous browser's report.
         crate::session_report::begin();
         SITE_REACHED.store(false, Ordering::Release);
+        let mut session_profile = profile.clone();
+        session_profile.browser = current.clone();
+        let changed = current != profile.browser;
         let end = run_session(
-            root, profile.clone(), &mut timings, &mut appointment_policy, receiver, live, notifications,
+            root, session_profile, changed, &mut timings, &mut appointment_policy, receiver, live, notifications,
             shared_gate, cancelled, state, window, sound, close_browser, &mut journal, &mut log, &mut carry, &mut failures,
         )?;
         match end {
@@ -631,6 +643,11 @@ fn run(
                 }
                 if !certificate_restarts.allow(&request, Instant::now()) {
                     return Err("site_certificate_untrusted");
+                }
+                if request.reason == crate::restart::BLOCK_RESTART {
+                    current = crate::restart::browser_after_block(
+                        &profile.browser, &current, other.as_deref(), carry.blocked_streak, timings.block_changes_browser(),
+                    );
                 }
                 update(state, |s| {
                     s.page = None;
@@ -687,6 +704,8 @@ fn clear_closed_browser(s: &mut SearchSnapshot) {
 fn run_session(
     root: &Path,
     profile: ceh_core::profiles::ProfileDraft,
+    // The session runs in another browser than the profile's own, after a block.
+    changed_browser: bool,
     timings: &mut ceh_core::timings::AssistTimings,
     appointment_policy: &mut ceh_core::appointment_budget::AppointmentPolicy,
     receiver: &mpsc::Receiver<Message>,
@@ -742,7 +761,8 @@ fn run_session(
     update(state, |s| {
         s.browser_pid = browser.process_id();
         s.warning = (browser.certificate_cache() == ceh_browser::firefox::CertificateCache::Deferred)
-            .then_some("browser_certificate_cache_deferred");
+            .then_some("browser_certificate_cache_deferred")
+            .or(changed_browser.then_some("browser_changed_after_block"));
     })?;
     // Any unexpected return preserves the current browser, including a possible booking.
     let result = run_owned(
@@ -1167,6 +1187,9 @@ fn run_owned(
                             contact_typing: unit_sample(),
                                         typing: unit_sample(),
                         };
+                        let mut next = next;
+                        // What the app found at the start stays: saving the profile does not install a browser.
+                        next.set_other_browser(timings.other_browser());
                         if driver.apply_timings((*next).clone(), samples).is_ok() {
                             presenter.set_alert_interval((next.alert_seconds()*1000.).ceil() as u64);
                             *timings = *next;

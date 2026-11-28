@@ -26,7 +26,8 @@ test('timing groups and their order are those of Python 0.3.6',()=>{
  assert.deepEqual(timingGroups.map(group=>group.title),['Ввод данных','Интервалы проверки','Восстановление','Уведомления']);
  assert.deepEqual(timingGroups[0].fields.map(([key])=>key),['action_delay_seconds','typing_ms','contact_typing_ms']);
  assert.deepEqual(timingGroups[1].fields.map(([key])=>key),['bootstrap_seconds','reload_seconds','navigation_seconds']);
- assert.equal(timingGroups[2].fields.length,12,'the 11 of Python 0.3.6 and the pause between tries when the site does not open');
+ assert.equal(timingGroups[2].fields.length,11,'the 11 of Python 0.3.6 with the pause between tries when the site does not open; the block delay sits under the ban protection');
+ assert.ok(!timingGroups[2].fields.some(([key])=>key==='blocked_seconds'));
  assert.ok(timingGroups[2].fields.some(([key])=>key==='unreachable_seconds'));
  for(const group of timingGroups)for(const [key] of group.fields)assert.ok(timingTitles[key],`${key} has the full title shown as the tooltip`);
  assert.equal(timingTitles.typing_ms,'Между символами NIE и имени, мс');
@@ -39,6 +40,8 @@ test('only entering data on a no-appointments form or a disabled protection swit
  assert.deepEqual(searchRisk(true,{...on,adaptive_reload_on_429:false}),{risk:true,message:2});
  // Spreading attempts over the day is a preference, not protection: switching it off is not a risk.
  assert.deepEqual(searchRisk(false,{...on,distribute_attempts:false}),{risk:false,message:0});
+ // Changing the browser on a block is a choice of how to search (and needs a second browser): off is no risk either.
+ assert.deepEqual(searchRisk(false,{...on,switch_browser_on_block:false}),{risk:false,message:0});
 });
 test('timing fields show two decimals like the Python spin boxes, with the language decimal separator, and re-parse unchanged',()=>{
  const values={action_delay_seconds:[0.3,0.8],navigation_seconds:45,expired_seconds:[0,30,60],adaptive_reload_on_429:true};
