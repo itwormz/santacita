@@ -65,6 +65,8 @@ This way none of the five daily requests is wasted on empty checks.
 
 A profile is one ready search: province, service, sign-in method (certificate or Cl@ve), applicant details, timings, protection and notifications. You can create several profiles and switch between them.
 
+<p align="center"><img src="docs/images/profile-dark.png" width="720" alt="Profile editor"></p>
+
 ### 🌐 Browsers
 
 SantaCita opens a separate profile in your browser: your everyday tabs and data are not touched.
@@ -87,6 +89,8 @@ How the bot reacts to "no appointments" is set in the profile:
 - **Applicant form.** *Wait on "no appointments"* (default): data is not entered while the message is shown. *Enter and continue*: data is entered even with the message, and that empty check can use one of the five daily requests.
 - **After "no appointments".** Start a new round or go back through Salir.
 
+<p align="center"><img src="docs/images/monitor-dark.png" width="720" alt="Search monitor"></p>
+
 ### 🎮 Controls
 
 - Pause, resume, and return to the search after the date selection.
@@ -99,6 +103,8 @@ How the bot reacts to "no appointments" is set in the profile:
 - Every session opens the browser window in its own size and place.
 - If the site does not open or the session is rejected, the app restarts the browser with a clean profile and continues the search.
 - If the block comes back, the next session runs in another installed browser; if that does not help either, the search waits the block delay (610 s by default).
+
+<p align="center"><img src="docs/images/timings-dark.png" width="720" alt="Timings and block protection"></p>
 
 ### 📊 Statistics and journal
 
@@ -141,6 +147,8 @@ Close the Python app before importing. You will have to sign in again in the bro
 Checked in About, at startup and once a day. Download and installation start with a button. SHA256 and the Sigstore build provenance are checked before installing; a package that fails the check is not installed. Windows portable replaces the program and restarts, keeping `data`.
 
 The *Offer beta versions* setting adds the betas of later versions (0.5.0 and above) to the stable ones. It is off by default and imported from Python 0.3.8.
+
+<p align="center"><img src="docs/images/settings-dark.png" width="720" alt="App settings"></p>
 
 ## 📥 Installation
 
